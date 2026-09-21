@@ -2,6 +2,9 @@ package app.qichi.feature.chat
 
 import android.content.ClipData
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
@@ -24,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,6 +51,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.ClipEntry
@@ -74,8 +79,10 @@ import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
+import app.qichi.core.network.FileUrls
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.chatDay
+import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
 import app.qichi.shared.model.MessageKind
 import app.qichi.shared.rules.MessageRules
@@ -110,6 +117,16 @@ fun ChatScreen(
 
     val replyTo by viewModel.replyTo.collectAsStateWithLifecycle()
     val jumping by viewModel.jumping.collectAsStateWithLifecycle()
+    val uploads by viewModel.uploads.collectAsStateWithLifecycle()
+    val downloads by viewModel.downloads.collectAsStateWithLifecycle()
+    var attaching by remember { mutableStateOf(false) }
+    var viewing by remember { mutableStateOf<FileMeta?>(null) }
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let { viewModel.attach(it, asImage = true) }
+    }
+    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { viewModel.attach(it, asImage = false) }
+    }
     val context = LocalContext.current
     val clipboard = LocalClipboard.current
 
@@ -129,13 +146,16 @@ fun ChatScreen(
                         .take(80)
                         .firstOrNull { items.peek(it)?.value?.id == event.id }
                     // 先滚到大致位置；那一段从数据库读出来、占位换成真实高度后，再按 id 校准一次
-                    listState.scrollToItem((event.index - 2).coerceIn(0, (items.itemCount - 1).coerceAtLeast(0)))
+                    // 列表最下面可能还有正在上传的附件，排在消息前面
+                    val extra = uploads.size
+                    listState.scrollToItem((event.index - 2).coerceIn(0, (items.itemCount - 1).coerceAtLeast(0)) + extra)
                     val exact = withTimeoutOrNull(3_000) { snapshotFlow { locate() }.first { it != null } }
                     // 让原消息停在靠下的位置，而不是贴着输入框
-                    if (exact != null) listState.scrollToItem((exact - 2).coerceAtLeast(0))
+                    if (exact != null) listState.scrollToItem((exact - 2).coerceAtLeast(0) + extra)
                     highlighted = event.id
                 }
                 is ChatEvent.Toast -> Toast.makeText(context, event.text, Toast.LENGTH_SHORT).show()
+                is ChatEvent.OpenFile -> openWithOtherApp(context, event.file, event.mimeType)
             }
         }
     }
@@ -185,6 +205,13 @@ fun ChatScreen(
                 contentPadding = PaddingValues(start = 22.dp, end = 22.dp, top = 16.dp, bottom = 16.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
+                // 正在上传的附件在最下面（倒序列表的最前面），最新的最靠下
+                items(uploads.asReversed(), key = { "upload-${it.id}" }) { upload ->
+                    UploadItem(
+                        upload, maxWidth = maxBubble,
+                        onRetry = { viewModel.retryUpload(upload.id) }, onCancel = { viewModel.cancelUpload(upload.id) },
+                    )
+                }
                 items(
                     count = items.itemCount,
                     key = items.itemKey { it.value.id.toString() },
@@ -203,6 +230,12 @@ fun ChatScreen(
                         maxBubble = maxBubble, highlighted = local.value.id == highlighted,
                         onRetry = viewModel::retry, onAbandon = viewModel::abandon,
                         onLongPress = { menuFor = local }, onQuoteClick = viewModel::jumpTo,
+                        attachments = AttachmentActions(
+                            urls = viewModel.urls,
+                            downloads = downloads,
+                            onOpenImage = { viewing = it },
+                            onOpenFile = viewModel::openFile,
+                        ),
                     )
                 }
             }
@@ -231,10 +264,21 @@ fun ChatScreen(
         replyTo?.let { ReplyStrip(it, people, onCancel = viewModel::cancelReply) }
         InputBar(
             draft = draft,
+            online = state.online,
             onDraftChange = viewModel::onDraftChange,
             onSend = viewModel::send,
+            onAttach = { if (state.online) attaching = true else viewModel.offlineAttachHint() },
         )
     }
+
+    if (attaching) {
+        AttachSheet(
+            onDismiss = { attaching = false },
+            onImage = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            onFile = { pickFile.launch(arrayOf("*/*")) },
+        )
+    }
+    viewing?.let { file -> ImageViewer(file, viewModel.urls, onDismiss = { viewing = null }) }
 
     menuFor?.let { target ->
         MessageActions(
@@ -285,6 +329,7 @@ private fun MessageRow(
     onAbandon: (Message) -> Unit,
     onLongPress: () -> Unit,
     onQuoteClick: (UUID) -> Unit,
+    attachments: AttachmentActions,
 ) {
     val m = local.value
     val colors = QichiTheme.colors
@@ -310,7 +355,7 @@ private fun MessageRow(
             Box(Modifier.size(16.dp))
         }
         Column(Modifier.background(flash, RoundedCornerShape(8.dp))) {
-            MessageBody(local, mine, groupedWithNewer, people, zone, maxBubble, onRetry, onAbandon, onLongPress, onQuoteClick)
+            MessageBody(local, mine, groupedWithNewer, people, zone, maxBubble, onRetry, onAbandon, onLongPress, onQuoteClick, attachments)
         }
     }
 }
@@ -327,19 +372,70 @@ private fun MessageBody(
     onAbandon: (Message) -> Unit,
     onLongPress: () -> Unit,
     onQuoteClick: (UUID) -> Unit,
+    attachments: AttachmentActions,
 ) {
     val m = local.value
     when {
         m.retractedAt != null -> Notice(if (m.retractedBy == people.myUserId) "你撤回了一条消息" else "${people.name(m.retractedBy)}撤回了一条消息")
         m.kind == MessageKind.System -> Notice(m.body)
         else -> {
-            TextBubble(local, mine, people, maxBubble, onLongPress = onLongPress, onQuoteClick = onQuoteClick)
+            val file = m.file
+            when {
+                file != null && m.kind == MessageKind.Image -> AttachmentRow(local, mine) { shape, _ ->
+                    ImageBubble(file, shape, attachments.urls, onOpen = { attachments.onOpenImage(file) }, onLongPress = onLongPress)
+                }
+                file != null -> AttachmentRow(local, mine) { shape, background ->
+                    FileBubble(
+                        file, shape, background, maxBubble, downloading = attachments.downloads[file.id],
+                        onOpen = { attachments.onOpenFile(file) }, onLongPress = onLongPress,
+                    )
+                }
+                else -> TextBubble(local, mine, people, maxBubble, onLongPress = onLongPress, onQuoteClick = onQuoteClick)
+            }
             when {
                 local.isFailed -> FailedActions(onRetry = { onRetry(m) }, onAbandon = { onAbandon(m) })
                 !local.isPending && !groupedWithNewer -> TimeLabel(m, mine, zone)
             }
         }
     }
+}
+
+/** 附件消息需要的东西：地址、下载进度、打开图片 / 文件。 */
+private class AttachmentActions(
+    val urls: FileUrls,
+    val downloads: Map<UUID, Float>,
+    val onOpenImage: (FileMeta) -> Unit,
+    val onOpenFile: (FileMeta) -> Unit,
+)
+
+/** 图片、文件气泡的外层：左右对齐、待发送的小时钟，与文字气泡一致。 */
+@Composable
+private fun AttachmentRow(local: Local<Message>, mine: Boolean, content: @Composable (shape: Shape, background: Modifier) -> Unit) {
+    val colors = QichiTheme.colors
+    val shape = bubbleShape(mine)
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        if (local.isPending) PendingClock()
+        content(shape, Modifier.background(if (mine) colors.personA.copy(alpha = 0.13f) else colors.surface))
+    }
+}
+
+private fun bubbleShape(mine: Boolean): Shape =
+    if (mine) RoundedCornerShape(20.dp, 4.dp, 20.dp, 20.dp) else RoundedCornerShape(4.dp, 20.dp, 20.dp, 20.dp)
+
+@Composable
+private fun PendingClock() {
+    Icon(
+        QichiIcons.Clock,
+        contentDescription = "待发送",
+        tint = QichiTheme.colors.muted,
+        modifier = Modifier
+            .padding(end = 6.dp, bottom = 8.dp)
+            .size(14.dp),
+    )
 }
 
 private fun sameGroup(older: Message, newer: Message): Boolean =
@@ -359,22 +455,13 @@ private fun TextBubble(
     val m = local.value
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
-    val shape = if (mine) RoundedCornerShape(20.dp, 4.dp, 20.dp, 20.dp) else RoundedCornerShape(4.dp, 20.dp, 20.dp, 20.dp)
+    val shape = bubbleShape(mine)
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom,
     ) {
-        if (local.isPending) {
-            Icon(
-                QichiIcons.Clock,
-                contentDescription = "待发送",
-                tint = colors.muted,
-                modifier = Modifier
-                    .padding(end = 6.dp, bottom = 8.dp)
-                    .size(14.dp),
-            )
-        }
+        if (local.isPending) PendingClock()
         // 待发送、发送失败：透明底 + 细边
         val unsent = local.isPending || local.isFailed
         Column(
@@ -566,7 +653,7 @@ private fun ActionRow(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun InputBar(draft: String, onDraftChange: (String) -> Unit, onSend: () -> Unit) {
+private fun InputBar(draft: String, online: Boolean, onDraftChange: (String) -> Unit, onSend: () -> Unit, onAttach: () -> Unit) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     Row(
@@ -576,8 +663,11 @@ private fun InputBar(draft: String, onDraftChange: (String) -> Unit, onSend: () 
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // 图片与文件在 P3-06 接上
-        IconAction(QichiIcons.Plus, contentDescription = "添加图片或文件", onClick = {}, enabled = false, iconSize = 24)
+        // 离线时置灰（仍可点，点了说明为什么不能发）
+        IconAction(
+            QichiIcons.Plus, contentDescription = if (online) "添加图片或文件" else "添加图片或文件（离线时不可用）",
+            onClick = onAttach, iconSize = 24, tint = if (online) colors.ink else colors.faint,
+        )
         Box(
             Modifier
                 .weight(1f)

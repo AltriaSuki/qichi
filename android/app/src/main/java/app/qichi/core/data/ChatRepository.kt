@@ -18,18 +18,28 @@ import app.qichi.core.sync.Local
 import app.qichi.core.sync.LocalStore
 import app.qichi.core.sync.OutboxOp
 import app.qichi.core.sync.SyncScheduler
+import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.MessagePage
 import app.qichi.shared.api.SendMessageRequest
 import app.qichi.shared.model.EntityType
+import app.qichi.shared.model.FileKind
 import app.qichi.shared.model.MessageKind
 import app.qichi.shared.model.wireName
 import app.qichi.shared.rules.Limits
 import app.qichi.shared.rules.MessageRules
 import app.qichi.shared.util.UuidV7
+import io.ktor.client.request.forms.ChannelProvider
+import io.ktor.client.request.forms.MultiPartFormDataContent
+import io.ktor.client.request.forms.formData
+import io.ktor.http.ContentDisposition
+import io.ktor.http.Headers
+import io.ktor.http.HttpHeaders
+import io.ktor.utils.io.jvm.javaio.toByteReadChannel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.io.File
 import java.time.Clock
 import java.util.UUID
 
@@ -83,6 +93,65 @@ class ChatRepository(
         )
         scheduler.kickOutbox()
         return message
+    }
+
+    /**
+     * 上传附件（必须在线）。[fileId] 由调用方生成并在重试时沿用，服务端按它去重。
+     */
+    suspend fun upload(roomId: UUID, fileId: UUID, attachment: PreparedAttachment, onProgress: (Float) -> Unit): FileMeta {
+        val form = MultiPartFormDataContent(
+            formData {
+                append("kind", attachment.kind.wireName)
+                append("id", fileId.toString())
+                append(
+                    "file",
+                    ChannelProvider(attachment.sizeBytes) { attachment.open().toByteReadChannel() },
+                    Headers.build {
+                        append(HttpHeaders.ContentType, attachment.mimeType)
+                        append(
+                            HttpHeaders.ContentDisposition,
+                            ContentDisposition.File.withParameter(ContentDisposition.Parameters.FileName, attachment.fileName).toString(),
+                        )
+                    },
+                )
+            },
+        )
+        return api.upload("rooms/$roomId/files", form, FileMeta.serializer()) { sent, total ->
+            val all = total ?: attachment.sizeBytes
+            if (all > 0) onProgress((sent.toFloat() / all).coerceIn(0f, 1f))
+        }
+    }
+
+    /** 带着已上传的文件发一条图片或文件消息（之后和文字消息一样走发件箱）。 */
+    suspend fun sendAttachment(roomId: UUID, file: FileMeta, replyTo: Message? = null): Message {
+        val kind = if (file.kind == FileKind.Image) MessageKind.Image else MessageKind.File
+        val now = clock.instant()
+        val message = Message(
+            id = UuidV7.generate(), roomId = roomId, seq = 0, createdAt = now, updatedAt = now,
+            deletedAt = null, deletedBy = null, authorId = me, kind = kind, body = "", file = file,
+            replyToId = replyTo?.id,
+            replyAuthorId = replyTo?.authorId,
+            replyExcerpt = replyTo?.let { MessageRules.replyExcerpt(it.kind, it.body, it.file?.fileName, it.retractedAt != null) },
+            retractedAt = null, retractedBy = null,
+            createdSeq = 0,
+        )
+        store.writeLocal(
+            roomId, message,
+            OutboxOp.post("rooms/$roomId/messages", SendMessageRequest(message.id, kind.wireName, fileId = file.id, replyToId = replyTo?.id)),
+        )
+        scheduler.kickOutbox()
+        return message
+    }
+
+    /** 下载文件到本机缓存（已经下载过就直接用），返回本地文件。 */
+    suspend fun download(file: FileMeta, dir: File, onProgress: (Float) -> Unit): File {
+        val target = File(File(dir, file.id.toString()).apply { mkdirs() }, safeFileName(file.fileName))
+        if (target.exists() && target.length() == file.sizeBytes) return target
+        api.download("files/${file.id}", target) { received, total ->
+            val all = total ?: file.sizeBytes
+            if (all > 0) onProgress((received.toFloat() / all).coerceIn(0f, 1f))
+        }
+        return target
     }
 
     /** 发送失败的消息：重新放回发件箱。 */
@@ -160,6 +229,9 @@ class ChatRepository(
         }
         return page.hasMore
     }
+
+    private fun safeFileName(name: String): String =
+        name.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_").take(120).ifBlank { "file" }
 
     private companion object {
         const val PAGE_SIZE = 50

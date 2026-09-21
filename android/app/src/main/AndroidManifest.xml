@@ -43,5 +43,15 @@
                 android:value="androidx.startup"
                 tools:node="remove" />
         </provider>
+        <!-- 下载到本机缓存的附件，交给别的应用打开 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

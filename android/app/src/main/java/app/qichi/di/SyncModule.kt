@@ -6,6 +6,7 @@ import app.qichi.core.auth.LocalDataCleaner
 import app.qichi.core.auth.TokenStore
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.data.DataStoreProfileStore
+import app.qichi.core.data.AttachmentPreparer
 import app.qichi.core.data.ChatRepository
 import app.qichi.core.data.EventRepository
 import app.qichi.core.data.MoodRepository
@@ -14,6 +15,7 @@ import app.qichi.core.data.ProfileStore
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.database.QichiDatabase
 import app.qichi.core.network.ApiClient
+import app.qichi.core.network.FileUrls
 import app.qichi.core.sync.LocalStore
 import app.qichi.core.sync.OutboxProcessor
 import app.qichi.core.sync.RealtimeClient
@@ -88,6 +90,14 @@ object SyncModule {
     @Singleton
     fun todoRepository(db: QichiDatabase, store: LocalStore, scheduler: SyncScheduler, session: SessionManager): TodoRepository =
         TodoRepository(db, store, scheduler, session)
+
+    @Provides
+    @Singleton
+    fun attachmentPreparer(@ApplicationContext context: Context): AttachmentPreparer = AttachmentPreparer(context)
+
+    @Provides
+    @Singleton
+    fun fileUrls(): FileUrls = FileUrls(BuildConfig.BASE_URL)
 
     @Provides
     @Singleton

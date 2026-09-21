@@ -6,9 +6,16 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.work.Configuration
+import coil3.ImageLoader
+import coil3.PlatformContext
+import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
+import coil3.network.ktor3.KtorNetworkFetcherFactory
+import okio.Path.Companion.toOkioPath
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.auth.SessionState
 import app.qichi.core.database.QichiDatabase
+import app.qichi.core.network.ApiClient
 import app.qichi.core.network.NetworkMonitor
 import app.qichi.core.sync.RealtimeClient
 import app.qichi.core.sync.SyncEngine
@@ -27,7 +34,7 @@ import javax.inject.Inject
  * 发件箱发完一批、联网恢复、每 15 分钟。
  */
 @HiltAndroidApp
-class QichiApplication : Application(), Configuration.Provider {
+class QichiApplication : Application(), Configuration.Provider, SingletonImageLoader.Factory {
 
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var session: SessionManager
@@ -36,12 +43,25 @@ class QichiApplication : Application(), Configuration.Provider {
     @Inject lateinit var realtime: RealtimeClient
     @Inject lateinit var db: QichiDatabase
     @Inject lateinit var network: NetworkMonitor
+    @Inject lateinit var api: ApiClient
     @Inject @ApplicationScope lateinit var appScope: CoroutineScope
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
 
     private var inForeground = false
+
+    /** 图片经 ApiClient 的 HTTP 客户端加载（自动带令牌）；文件内容不变，磁盘缓存可以长留。 */
+    override fun newImageLoader(context: PlatformContext): ImageLoader =
+        ImageLoader.Builder(context)
+            .components { add(KtorNetworkFetcherFactory(httpClient = { api.http })) }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(cacheDir.resolve("images").toOkioPath())
+                    .maxSizeBytes(256L * 1024 * 1024)
+                    .build()
+            }
+            .build()
 
     override fun onCreate() {
         super.onCreate()

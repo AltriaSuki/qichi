@@ -115,6 +115,8 @@ dependencies {
     ksp(libs.room.compiler)
     implementation(libs.paging.runtime)
     implementation(libs.paging.compose)
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.ktor)
     implementation(libs.work.runtime.ktx)
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.compiler)

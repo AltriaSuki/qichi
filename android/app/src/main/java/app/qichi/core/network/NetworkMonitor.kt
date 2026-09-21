@@ -24,8 +24,10 @@ class AndroidNetworkMonitor(context: Context) : NetworkMonitor {
                 state.value = true
             }
 
+            // 默认网络丢了就是离线；换到别的网络时会紧接着收到 onAvailable。
+            // （此时再查 activeNetwork 可能还拿到旧网络，不能用它判断）
             override fun onLost(network: Network) {
-                state.value = currentlyOnline()
+                state.value = false
             }
 
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
