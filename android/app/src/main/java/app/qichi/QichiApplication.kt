@@ -1,8 +1,6 @@
 package app.qichi
 
 import android.app.Application
-import android.net.ConnectivityManager
-import android.net.Network
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -11,6 +9,7 @@ import androidx.work.Configuration
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.auth.SessionState
 import app.qichi.core.database.QichiDatabase
+import app.qichi.core.network.NetworkMonitor
 import app.qichi.core.sync.RealtimeClient
 import app.qichi.core.sync.SyncEngine
 import app.qichi.core.sync.SyncScheduler
@@ -36,6 +35,7 @@ class QichiApplication : Application(), Configuration.Provider {
     @Inject lateinit var scheduler: SyncScheduler
     @Inject lateinit var realtime: RealtimeClient
     @Inject lateinit var db: QichiDatabase
+    @Inject lateinit var network: NetworkMonitor
     @Inject @ApplicationScope lateinit var appScope: CoroutineScope
 
     override val workManagerConfiguration: Configuration
@@ -71,13 +71,12 @@ class QichiApplication : Application(), Configuration.Provider {
             }
         }
 
-        getSystemService(ConnectivityManager::class.java)?.registerDefaultNetworkCallback(
-            object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) {
-                    if (session.currentUserId != null) scheduler.kickOutbox(now = true)
-                }
-            },
-        )
+        appScope.launch {
+            // 联网恢复：马上把发件箱里攒下的发出去
+            network.isOnline.collect { online ->
+                if (online && session.currentUserId != null) scheduler.kickOutbox(now = true)
+            }
+        }
     }
 
     private fun onForegroundLoggedIn() {

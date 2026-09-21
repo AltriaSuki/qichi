@@ -50,6 +50,9 @@ docker build -f deploy/server.Dockerfile .
 cd android && ./gradlew :app:assembleDebug
 cd android && ./gradlew :app:testDebugUnitTest
 cd android && ./gradlew :app:installDebug
+# 测流畅度、查 R8 问题用：和正式版一样经过 R8，调试签名，可连本机服务端
+cd android && ./gradlew :app:assembleBenchmark
+adb shell dumpsys gfxinfo app.qichi reset   # 操作之后再 dumpsys gfxinfo app.qichi 看掉帧
 
 # 模拟器（名字 qichi_api37，见 SETUP-ARCH.md）
 emulator -avd qichi_api37 -gpu host -no-snapshot-save &

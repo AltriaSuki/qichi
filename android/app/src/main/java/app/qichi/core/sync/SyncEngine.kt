@@ -1,6 +1,7 @@
 package app.qichi.core.sync
 
 import app.qichi.core.database.QichiDatabase
+import app.qichi.core.database.ChatHistoryRow
 import app.qichi.core.database.SyncStateRow
 import app.qichi.core.network.ApiClient
 import app.qichi.core.network.get
@@ -71,6 +72,9 @@ class SyncEngine(
             }
             all.forEach { store.applyServer(it) }
             db.syncState().upsert(SyncStateRow(roomId.toString(), snapshot.lastSeq, bootstrapped = true, lastSyncedAt = now()))
+            // 最近 50 条之前还有没有：没有就说明历史已经完整
+            val floor = if (snapshot.hasMoreMessages) snapshot.messages.minOfOrNull { it.createdSeq } ?: 0 else 0
+            db.chatHistory().upsert(ChatHistoryRow(roomId.toString(), floor))
         }
         // bootstrap 与 sync 之间可能又有变化：接着补一次
         pullChanges(roomId, snapshot.lastSeq)

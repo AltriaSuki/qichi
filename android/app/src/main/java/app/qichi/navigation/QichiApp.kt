@@ -9,6 +9,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +34,7 @@ import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.component.QichiTabBar
 import app.qichi.core.designsystem.component.TabItem
 import app.qichi.feature.calendar.EventListScreen
+import app.qichi.feature.chat.ChatScreen
 import app.qichi.feature.me.DisplayScreen
 import app.qichi.feature.me.MeScreen
 import app.qichi.feature.mood.MoodScreen
@@ -48,6 +52,7 @@ private const val PAGE_TRANSITION_MILLIS = 200
  * App 的外壳：NavHost（四个标签各一个嵌套图）+ 标签根页面才显示的底部标签栏。
  * @param pendingLink 待处理的深链（来自通知或外部链接），处理后调用 [onLinkHandled]
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun QichiApp(
     pendingLink: DeepLink?,
@@ -100,7 +105,7 @@ fun QichiApp(
                     composable<TodayHome> { TodayScreen(roomId = LocalRoomId.current, onOpen = { navigator.open(it) }) }
                 }
                 navigation<ChatGraph>(startDestination = ChatHome()) {
-                    composable<ChatHome> { TabPlaceholder("聊天") }
+                    composable<ChatHome> { ChatScreen(roomId = LocalRoomId.current) }
                 }
                 navigation<TogetherGraph>(startDestination = TogetherHome) {
                     composable<TogetherHome> {
@@ -140,7 +145,8 @@ fun QichiApp(
                 navigator.navController.context.findActivity()?.finish()
             }
         }
-        if (atTabRoot) {
+        // 输入法弹出时收起标签栏，让聊天输入框直接贴着键盘
+        if (atTabRoot && !WindowInsets.isImeVisible) {
             QichiTabBar(
                 items = TopTab.entries.map { TabItem(it.label, selected = it == currentTab) },
                 onSelect = { navigator.selectTab(TopTab.entries[it]) },

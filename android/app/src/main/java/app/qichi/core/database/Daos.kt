@@ -48,9 +48,17 @@ interface EntityDao {
      */
     @Query(
         """SELECT * FROM entities WHERE roomId = :roomId AND type = 'message' AND deleted = 0
+           AND (sortSeq IS NULL OR sortSeq >= COALESCE((SELECT floorSeq FROM chat_history WHERE roomId = :roomId), 0))
            ORDER BY (sortSeq IS NULL) DESC, sortSeq DESC, localTime DESC""",
     )
     fun messagesPaging(roomId: String): PagingSource<Int, EntityRow>
+
+    /** 列表最下面那条（最新的，含待发送的）：用来判断有没有新消息，不受分页窗口影响。 */
+    @Query(
+        """SELECT * FROM entities WHERE roomId = :roomId AND type = 'message' AND deleted = 0
+           ORDER BY (sortSeq IS NULL) DESC, sortSeq DESC, localTime DESC LIMIT 1""",
+    )
+    fun observeNewestMessage(roomId: String): Flow<EntityRow?>
 
     @Query("SELECT MIN(sortSeq) FROM entities WHERE roomId = :roomId AND type = 'message' AND sortSeq IS NOT NULL")
     suspend fun oldestMessageSeq(roomId: String): Long?
@@ -64,6 +72,15 @@ interface EntityDao {
 
     @Query("DELETE FROM entities")
     suspend fun clear()
+}
+
+@Dao
+interface ChatHistoryDao {
+    @Query("SELECT floorSeq FROM chat_history WHERE roomId = :roomId")
+    suspend fun floor(roomId: String): Long?
+
+    @Upsert
+    suspend fun upsert(row: ChatHistoryRow)
 }
 
 @Dao

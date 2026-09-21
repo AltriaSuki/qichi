@@ -36,6 +36,18 @@ android {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+        // 性能测试用：和正式版一样经过 R8、不可调试，但用调试签名，并允许用 HTTP 连本机开发服务端
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+        }
+    }
+
+    sourceSets {
+        getByName("benchmark") {
+            res.srcDirs("src/debug/res")
+        }
     }
 
     buildFeatures {

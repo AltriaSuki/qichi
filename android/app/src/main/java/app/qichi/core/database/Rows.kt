@@ -103,3 +103,13 @@ data class DraftRow(
     val baseVersion: Int?,
     val updatedAt: Long,
 )
+
+/**
+ * 聊天历史在本机连续到哪里：createdSeq ≥ [floorSeq] 的消息本机都有（0 表示已经到了最早一条）。
+ * 翻历史从这里往前取；比它更早、因为恢复或撤回单独同步下来的旧消息先不显示，免得列表中间出现断档。
+ */
+@Entity(tableName = "chat_history")
+data class ChatHistoryRow(
+    @PrimaryKey val roomId: String,
+    val floorSeq: Long,
+)

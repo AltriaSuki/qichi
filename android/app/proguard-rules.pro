@@ -6,3 +6,6 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 -keepclasseswithmembers class **$$serializer { *; }
+
+# 类型安全导航：路由参数里的枚举（Page 等）按完整类名查找，不能被改名
+-keep enum app.qichi.navigation.** { *; }

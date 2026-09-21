@@ -1,6 +1,7 @@
 package app.qichi.core.database
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -11,15 +12,20 @@ import androidx.room.withTransaction
  * 结构有变化时升 version 并写迁移（schemas/ 下有每个版本的结构导出）。
  */
 @Database(
-    entities = [EntityRow::class, SyncStateRow::class, OutboxRow::class, DraftRow::class],
-    version = 1,
+    entities = [EntityRow::class, SyncStateRow::class, OutboxRow::class, DraftRow::class, ChatHistoryRow::class],
+    version = 2,
     exportSchema = true,
+    autoMigrations = [
+        // 2：chat_history
+        AutoMigration(from = 1, to = 2),
+    ],
 )
 abstract class QichiDatabase : RoomDatabase() {
     abstract fun entities(): EntityDao
     abstract fun syncState(): SyncStateDao
     abstract fun outbox(): OutboxDao
     abstract fun drafts(): DraftDao
+    abstract fun chatHistory(): ChatHistoryDao
 
     suspend fun <R> transaction(block: suspend () -> R): R = withTransaction(block)
 

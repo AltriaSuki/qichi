@@ -18,6 +18,7 @@ object QichiIcons {
     val Search: ImageVector by lazy { stroke("search", "M5 11a6 6 0 1 0 12 0a6 6 0 1 0 -12 0M20 20l-4.5-4.5") }
     val Plus: ImageVector by lazy { stroke("plus", "M12 5v14M5 12h14") }
     val Send: ImageVector by lazy { stroke("send", "M12 19V5M6 11l6-6 6 6", width = 1.5f) }
+    val Down: ImageVector by lazy { stroke("down", "M12 5v14M6 13l6 6 6-6", width = 1.5f) }
     val Check: ImageVector by lazy { stroke("check", "M5 12.5l4.5 4.5L19 7.5", width = 1.8f) }
     val Clock: ImageVector by lazy { stroke("clock", "M4 12a8 8 0 1 0 16 0a8 8 0 1 0 -16 0M12 8v4l3 2") }
     val File: ImageVector by lazy { stroke("file", "M7 3h7l5 5v13H7zM14 3v5h5", width = 1.1f) }

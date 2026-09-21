@@ -9,7 +9,9 @@ import app.qichi.core.auth.SessionManager
 import app.qichi.core.auth.TokenStore
 import app.qichi.core.data.DataStoreDisplaySettingsStore
 import app.qichi.core.data.DisplaySettingsStore
+import app.qichi.core.network.AndroidNetworkMonitor
 import app.qichi.core.network.ApiClient
+import app.qichi.core.network.NetworkMonitor
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -49,6 +51,10 @@ object AppModule {
     @Provides
     @Singleton
     fun tokenStore(@ApplicationContext context: Context): TokenStore = EncryptedTokenStore(context)
+
+    @Provides
+    @Singleton
+    fun networkMonitor(@ApplicationContext context: Context): NetworkMonitor = AndroidNetworkMonitor(context)
 
     @Provides
     @Singleton
