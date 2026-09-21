@@ -1,12 +1,22 @@
 package app.qichi.server
 
+import app.qichi.server.auth.AuthService
+import app.qichi.server.auth.PasswordHasher
+import app.qichi.server.auth.TokenService
+import app.qichi.server.auth.authRoutes
 import app.qichi.server.config.AppConfig
 import app.qichi.server.config.ConfigException
 import app.qichi.server.db.QichiDatabase
+import app.qichi.server.db.RoomWriter
+import app.qichi.server.me.MeService
 import app.qichi.server.plugins.installCallLogging
 import app.qichi.server.plugins.installDefaultHeaders
 import app.qichi.server.plugins.installErrorHandling
+import app.qichi.server.plugins.installSecurity
 import app.qichi.server.plugins.installSerialization
+import app.qichi.server.rooms.RoomService
+import app.qichi.server.rooms.roomRoutes
+import app.qichi.server.sync.RealtimeHub
 import app.qichi.server.system.systemRoutes
 import app.qichi.shared.api.API_PREFIX
 import io.ktor.server.application.Application
@@ -18,11 +28,14 @@ import io.ktor.server.routing.routing
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.util.Properties
+import java.util.TimeZone
 import kotlin.system.exitProcess
 
 private val log = LoggerFactory.getLogger("app.qichi.server.Application")
 
 fun main() {
+    // 数据库与接口一律用 UTC
+    TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
     val config = try {
         AppConfig.fromEnv()
     } catch (e: ConfigException) {
@@ -48,10 +61,13 @@ fun Application.module(ctx: AppContext) {
     installErrorHandling()
     installCallLogging()
     installDefaultHeaders()
+    installSecurity(ctx.tokens, ctx.auth)
 
     routing {
         route(API_PREFIX) {
             systemRoutes(ctx)
+            authRoutes(ctx)
+            roomRoutes(ctx)
         }
     }
 }
@@ -60,9 +76,25 @@ fun Application.module(ctx: AppContext) {
 class AppContext(
     val config: AppConfig,
     val database: QichiDatabase,
-    val clock: Clock,
+    baseClock: Clock,
     val buildInfo: BuildInfo,
-)
+    hasher: PasswordHasher = PasswordHasher(),
+) {
+    /** 截到微秒：PostgreSQL 只存到微秒，这样写入与读回的时间完全相等。 */
+    val clock: Clock = MicrosClock(baseClock)
+    val realtime = RealtimeHub()
+    val writer = RoomWriter(realtime)
+    val tokens = TokenService(config.jwtSecret, clock)
+    val rooms = RoomService(database, writer, clock)
+    val auth = AuthService(database, hasher, tokens, rooms, clock)
+    val me = MeService(database, writer, clock)
+}
+
+class MicrosClock(private val base: Clock) : Clock() {
+    override fun getZone(): java.time.ZoneId = base.zone
+    override fun withZone(zone: java.time.ZoneId): Clock = MicrosClock(base.withZone(zone))
+    override fun instant(): java.time.Instant = base.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS)
+}
 
 data class BuildInfo(val version: String) {
     companion object {

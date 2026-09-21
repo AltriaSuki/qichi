@@ -26,6 +26,11 @@ dependencies {
     implementation(libs.ktor.server.call.logging)
     implementation(libs.ktor.server.default.headers)
     implementation(libs.ktor.serialization.kotlinx.json)
+    implementation(libs.ktor.server.auth)
+    implementation(libs.ktor.server.auth.jwt)
+    implementation(libs.ktor.server.forwarded.header)
+    implementation(libs.ktor.server.websockets)
+    implementation(libs.bouncycastle)
     implementation(libs.kotlinx.coroutines.core)
 
     implementation(libs.exposed.core)
@@ -44,6 +49,7 @@ dependencies {
     testRuntimeOnly(libs.junit.platform.launcher)
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.ktor.client.content.negotiation)
+    testImplementation(libs.ktor.client.websockets)
     testImplementation(libs.testcontainers.postgresql)
 }
 

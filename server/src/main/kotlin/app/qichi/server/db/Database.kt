@@ -29,6 +29,7 @@ class QichiDatabase private constructor(
                     poolName = "qichi"
                     isAutoCommit = false
                     transactionIsolation = "TRANSACTION_READ_COMMITTED"
+                    connectionInitSql = "SET TIME ZONE 'UTC'"
                 },
             )
             try {
