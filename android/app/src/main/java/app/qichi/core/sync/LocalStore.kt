@@ -137,6 +137,18 @@ class LocalStore(
         }
     }
 
+    /**
+     * 乐观地改本地显示内容，但不入发件箱、同步状态不变（通常仍是 SYNCED）：
+     * 用于服务端会连带完成的变化（如删除父待办时的子任务），之后的拉取会用服务端状态覆盖、自行纠正。
+     */
+    suspend fun applyOptimistic(entity: SyncEntity) {
+        val type = typeOf(entity)
+        val existing = entities.get(type.wireName, entity.id.toString()) ?: return
+        entities.upsert(
+            toRow(entity, existing.syncState, existing.serverJson, existing.localTime).copy(seq = existing.seq),
+        )
+    }
+
     /** 只放进发件箱、不改本地行（例如本地行已经由别的方式更新）。 */
     suspend fun enqueue(roomId: UUID, type: EntityType, entityId: UUID, op: OutboxOp) {
         outbox.insert(

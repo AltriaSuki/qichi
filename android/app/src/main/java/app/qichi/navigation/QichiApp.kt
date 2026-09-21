@@ -32,6 +32,7 @@ import app.qichi.core.designsystem.component.QichiTabBar
 import app.qichi.core.designsystem.component.TabItem
 import app.qichi.feature.me.MeScreen
 import app.qichi.feature.mood.MoodScreen
+import app.qichi.feature.todo.TodoScreen
 import app.qichi.feature.me.ProfileScreen
 import app.qichi.feature.me.RoomSettingsScreen
 import app.qichi.feature.room.MembersScreen
@@ -108,6 +109,7 @@ fun QichiApp(
                         val roomId = LocalRoomId.current
                         when (route.page) {
                             Page.Mood -> MoodScreen(roomId = roomId, onBack = navigator::back)
+                            Page.Todo -> TodoScreen(roomId = roomId, onBack = navigator::back)
                             else -> PagePlaceholder(route.page.title, onBack = navigator::back)
                         }
                     }
