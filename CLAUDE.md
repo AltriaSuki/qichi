@@ -53,12 +53,13 @@ cd android && ./gradlew :app:installDebug
 
 # 模拟器（名字 qichi_api37，见 SETUP-ARCH.md）
 emulator -avd qichi_api37 -gpu host -no-snapshot-save &
-adb wait-for-device
+adb wait-for-device && adb reverse tcp:8080 tcp:8080
 adb shell am start -d "qichi://room/test/chat"      # 深链
 adb exec-out screencap -p > shot.png                # 截图
 ```
 
-模拟器访问本机服务端用 `http://10.0.2.2:8080`，写在 `android/local.properties` 的 `qichi.baseUrl`。
+模拟器访问本机服务端：先 `adb reverse tcp:8080 tcp:8080`，App 用 `http://127.0.0.1:8080`（`android/local.properties` 的 `qichi.baseUrl`，也是默认值）。不要用 `10.0.2.2`：这台电脑的代理 TUN 模式会让它超时（见 SETUP-ARCH.md）。
+adb 输入不了中文：界面测试里的名字用英文，中文内容通过接口准备。
 
 ## 4. 代码约定
 
@@ -84,7 +85,7 @@ adb exec-out screencap -p > shot.png                # 截图
 - 单 Activity + Compose；`feature/*` 之间不互相引用，只依赖 `core/*`。
 - 单向数据流：`Screen(uiState, onEvent)` ← `ViewModel(StateFlow<UiState>)` ← `Repository`。
 - **Repository 只向外暴露 Room 的 `Flow`**；写操作 = 写 Room（`PENDING`）+ 插入 outbox，同一个 Room 事务；界面从不直接显示网络结果。
-- 颜色、字号、间距只从 `core/designsystem` 取，不在页面里写死数值；界面文字放 `res/values/strings.xml`。
+- 颜色、字号、间距只从 `core/designsystem` 取，不在页面里写死数值。界面只有中文、不做多语言，文字直接写在 Compose 代码里（应用名等系统用到的放 `strings.xml`）。
 - 字体打包在 `res/font/`，不用可下载字体。
 - 「减少动画」开启时所有动效改为直接切换。
 

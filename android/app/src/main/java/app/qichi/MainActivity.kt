@@ -10,7 +10,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.navigation.DeepLink
-import app.qichi.navigation.QichiApp
+import app.qichi.navigation.QichiRoot
 import dagger.hilt.android.AndroidEntryPoint
 
 /** 唯一的 Activity，承载整个 App 的导航。深链从 onCreate / onNewIntent 进来。 */
@@ -25,7 +25,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) pendingLink = DeepLink.parse(intent?.dataString)
         setContent {
             QichiTheme {
-                QichiApp(pendingLink = pendingLink, onLinkHandled = { pendingLink = null })
+                QichiRoot(pendingLink = pendingLink, onLinkHandled = { pendingLink = null })
             }
         }
     }

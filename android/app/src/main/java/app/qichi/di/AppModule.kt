@@ -60,6 +60,7 @@ object AppModule {
         baseUrl = BuildConfig.BASE_URL,
         tokenStore = tokenStore,
         clientVersion = BuildConfig.VERSION_NAME,
+        logFailure = { path, e -> android.util.Log.w("QichiApi", "请求失败 $path：${e::class.simpleName} ${e.message}") },
     )
 
     @Provides

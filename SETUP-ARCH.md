@@ -76,8 +76,11 @@ adb shell getprop sys.boot_completed   # 输出 1 表示启动完成
 ```
 
 已验证：Pixel 9 机型，Android 17（API 37），内存页 16KB，KVM 加速，冷启动约 20 秒。
+两人互动的场景用第二台模拟器 `qichi_api37_b`（`emulator -avd qichi_api37_b -port 5556 &`），adb 命令用 `ANDROID_SERIAL=emulator-5556` 或 `-s` 指定。
 
-- 模拟器连本机服务端：`http://10.0.2.2:8080`。
+- 模拟器连本机服务端：先执行 `adb reverse tcp:8080 tcp:8080`，App 里用 `http://127.0.0.1:8080`（`android/local.properties` 的 `qichi.baseUrl`，也是默认值）。
+  这台电脑开着代理软件的 TUN 模式（网卡 `Meta`），模拟器经 `10.0.2.2` 访问本机会连接超时；`adb reverse` 走 adb 通道，不受影响。
+  每次模拟器重启后要重新执行一次 `adb reverse`；两台模拟器时加 `-s emulator-5556`。
 - 截图：`adb exec-out screencap -p > shot.png`。
 - 没有图形界面时（例如只在后台跑测试）：加 `-no-window`。
 
@@ -90,4 +93,5 @@ adb shell getprop sys.boot_completed   # 输出 1 表示启动完成
 | 模拟器窗口打不开或黑屏（Wayland + NVIDIA 双显卡） | 依次尝试 `-gpu host`、`-gpu swiftshader_indirect`；或设 `QT_QPA_PLATFORM=xcb` |
 | 模拟器提示没有加速 | `ls -l /dev/kvm` 应可读写；`lsmod \| grep kvm` 应有 `kvm_amd` 或 `kvm_intel` |
 | `adb devices` 显示 `no permissions`（真机） | 确认装了 `android-udev`、在 `adbusers` 组，重新插拔数据线 |
+| App 显示「连不上服务器」，服务端日志里没有请求 | 模拟器里执行过 `adb reverse tcp:8080 tcp:8080` 吗？`adb reverse --list` 查看 |
 | Gradle 找不到 SDK | 确认 `ANDROID_HOME`，或在 `android/local.properties` 写 `sdk.dir=/home/<用户名>/Android/Sdk` |

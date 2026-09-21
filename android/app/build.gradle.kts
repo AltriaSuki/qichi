@@ -14,7 +14,8 @@ val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) file.inputStream().use(::load)
 }
-val baseUrl: String = localProperties.getProperty("qichi.baseUrl") ?: "http://10.0.2.2:8080"
+// 默认连本机开发服务端：模拟器里先执行 adb reverse tcp:8080 tcp:8080（见 SETUP-ARCH.md）
+val baseUrl: String = localProperties.getProperty("qichi.baseUrl") ?: "http://127.0.0.1:8080"
 
 android {
     namespace = "app.qichi"

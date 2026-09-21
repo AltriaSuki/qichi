@@ -4,6 +4,9 @@ import android.content.Context
 import app.qichi.BuildConfig
 import app.qichi.core.auth.LocalDataCleaner
 import app.qichi.core.auth.TokenStore
+import app.qichi.core.data.DataStoreProfileStore
+import app.qichi.core.data.ProfileStore
+import app.qichi.core.data.RoomRepository
 import app.qichi.core.database.QichiDatabase
 import app.qichi.core.network.ApiClient
 import app.qichi.core.sync.LocalStore
@@ -55,6 +58,26 @@ object SyncModule {
         syncEngine: SyncEngine,
         @ApplicationScope scope: CoroutineScope,
     ): RealtimeClient = RealtimeClient(api, tokenStore, syncEngine, BuildConfig.BASE_URL, scope)
+
+    @Provides
+    @Singleton
+    fun profileStore(@ApplicationContext context: Context): ProfileStore = DataStoreProfileStore(context)
+
+    @Provides
+    @Singleton
+    fun roomRepository(
+        api: ApiClient,
+        db: QichiDatabase,
+        store: LocalStore,
+        syncEngine: SyncEngine,
+        scheduler: SyncScheduler,
+        profile: ProfileStore,
+    ): RoomRepository = RoomRepository(api, db, store, syncEngine, scheduler, profile)
+
+    /** 登出时清掉本机保存的「我」与当前房间。 */
+    @Provides
+    @IntoSet
+    fun profileCleaner(profile: ProfileStore): LocalDataCleaner = LocalDataCleaner { profile.clear() }
 
     /** 登出时清空本机数据库（实体、同步位置、发件箱、草稿）。 */
     @Provides

@@ -35,6 +35,7 @@ import app.qichi.core.designsystem.Spacing
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.component.QichiTabBar
 import app.qichi.core.designsystem.component.TabItem
+import app.qichi.feature.room.MembersScreen
 import app.qichi.feature.together.TogetherHubScreen
 
 /** 页面进出：200ms 淡入 + 8dp 位移；「减少动画」时直接切换。 */
@@ -112,7 +113,10 @@ fun QichiApp(
                     composable<MeHome> { MeHomePlaceholder(onOpen = { navigator.open(it) }) }
                     composable<MePage> { entry ->
                         val route = entry.toRoute<MePage>()
-                        PagePlaceholder(route.page.title, onBack = navigator::back)
+                        when (route.page) {
+                            Page.Members -> MembersScreen(roomId = LocalRoomId.current, onBack = navigator::back)
+                            else -> PagePlaceholder(route.page.title, onBack = navigator::back)
+                        }
                     }
                 }
             }

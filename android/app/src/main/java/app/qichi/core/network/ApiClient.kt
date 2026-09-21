@@ -53,6 +53,8 @@ class ApiClient(
     private val baseUrl: String,
     private val tokenStore: TokenStore,
     clientVersion: String,
+    /** 请求失败时记录日志（不含请求正文与令牌）。 */
+    private val logFailure: (path: String, error: Throwable) -> Unit = { _, _ -> },
 ) {
     private val refreshMutex = Mutex()
     private val _sessionExpired = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
@@ -159,9 +161,8 @@ class ApiClient(
             throw e
         } catch (e: ApiException) {
             throw e
-        } catch (e: IOException) {
-            throw NetworkException(e)
         } catch (e: Exception) {
+            logFailure(path, e)
             throw NetworkException(e)
         }
         if (!response.status.isSuccess()) {

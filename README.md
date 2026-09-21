@@ -47,7 +47,7 @@ emulator -avd qichi_api37 &
 cd android && ./gradlew :app:installDebug
 ```
 
-`android/local.properties` 里写服务器地址：模拟器连本机用 `qichi.baseUrl=http://10.0.2.2:8080`，连线上用 `https://你的域名`。
+`android/local.properties` 里写服务器地址：模拟器连本机用 `qichi.baseUrl=http://127.0.0.1:8080`（先执行 `adb reverse tcp:8080 tcp:8080`），连线上用 `https://你的域名`。
 
 ## 部署
 
