@@ -10,6 +10,10 @@ import app.qichi.server.db.QichiDatabase
 import app.qichi.server.db.EntityWrites
 import app.qichi.server.db.RoomWriter
 import app.qichi.server.events.EventService
+import app.qichi.server.files.FileService
+import app.qichi.server.files.FileStorage
+import app.qichi.server.files.LocalFileStorage
+import app.qichi.server.files.fileRoutes
 import app.qichi.server.life.lifeRoutes
 import app.qichi.server.moods.MoodService
 import app.qichi.server.todos.TodoService
@@ -29,8 +33,10 @@ import app.qichi.server.system.systemRoutes
 import app.qichi.shared.api.API_PREFIX
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
+import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
+import io.ktor.server.plugins.partialcontent.PartialContent
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import org.slf4j.LoggerFactory
@@ -71,6 +77,8 @@ fun Application.module(ctx: AppContext) {
     installDefaultHeaders()
     installSecurity(ctx.tokens, ctx.auth)
     installWebSockets()
+    // 文件下载支持 Range（断点续传、视频拖动）
+    install(PartialContent)
 
     routing {
         route(API_PREFIX) {
@@ -79,6 +87,7 @@ fun Application.module(ctx: AppContext) {
             roomRoutes(ctx)
             syncRoutes(ctx)
             lifeRoutes(ctx)
+            fileRoutes(ctx)
         }
     }
 }
@@ -104,6 +113,8 @@ class AppContext(
     val moods = MoodService(database, rooms, writes)
     val todos = TodoService(database, rooms, writes)
     val events = EventService(database, rooms, writes)
+    val fileStorage: FileStorage = LocalFileStorage(config.filesDir)
+    val files = FileService(database, fileStorage, clock)
 }
 
 class MicrosClock(private val base: Clock) : Clock() {

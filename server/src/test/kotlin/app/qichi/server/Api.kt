@@ -15,6 +15,8 @@ import io.ktor.client.call.body
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.delete
+import io.ktor.client.request.forms.formData
+import io.ktor.client.request.forms.submitFormWithBinaryData
 import io.ktor.client.request.get
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
@@ -23,6 +25,8 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.Headers
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import java.util.UUID
@@ -64,6 +68,13 @@ class Api(val client: HttpClient) {
         val member = registerOk(memberName, invite.code)
         return Triple(owner, member, roomId)
     }
+
+    /** 不在 [owner] 房间里的人：[owner] 另建一个房间邀请进来。 */
+    suspend fun outsider(owner: Session, name: String = "outsider"): Session {
+        val other = owner.createRoom("另一个").room.id
+        val invite = owner.post("/api/v1/rooms/$other/invites").body<Invite>()
+        return registerOk(name, invite.code)
+    }
 }
 
 /** 一个已登录的会话。 */
@@ -72,11 +83,37 @@ class Session(val api: Api, var tokens: AuthTokens) {
 
     private fun HttpRequestBuilder.auth() = bearerAuth(tokens.accessToken)
 
-    suspend fun get(path: String): HttpResponse = client.get(path) { auth() }
+    suspend fun get(path: String, block: HttpRequestBuilder.() -> Unit = {}): HttpResponse = client.get(path) { auth(); block() }
     suspend fun delete(path: String): HttpResponse = client.delete(path) { auth() }
     suspend fun post(path: String, body: Any? = null): HttpResponse = client.post(path) { auth(); if (body != null) json(body) }
     suspend fun patch(path: String, body: Any): HttpResponse = client.patch(path) { auth(); json(body) }
     suspend fun put(path: String, body: Any): HttpResponse = client.put(path) { auth(); json(body) }
+
+    /** multipart 上传；[kindFirst] 为 false 时把 kind 字段放在文件后面。 */
+    suspend fun upload(
+        roomId: UUID,
+        bytes: ByteArray,
+        fileName: String = "photo.png",
+        kind: String = "image",
+        contentType: String = "image/png",
+        id: UUID? = null,
+        kindFirst: Boolean = true,
+    ): HttpResponse = client.submitFormWithBinaryData(
+        url = "/api/v1/rooms/$roomId/files",
+        formData = formData {
+            if (kindFirst) append("kind", kind)
+            if (id != null) append("id", id.toString())
+            append(
+                "file",
+                bytes,
+                Headers.build {
+                    append(HttpHeaders.ContentType, contentType)
+                    append(HttpHeaders.ContentDisposition, "filename=\"$fileName\"")
+                },
+            )
+            if (!kindFirst) append("kind", kind)
+        },
+    ) { auth() }
 
     suspend fun createRoom(name: String, id: UUID = UuidV7.generate()): RoomDetail {
         val response = post("/api/v1/rooms", CreateRoomRequest(id = id, name = name))

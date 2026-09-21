@@ -774,7 +774,7 @@ paths:
       tags: [files]
       operationId: downloadFile
       summary: 下载文件
-      description: 需要是文件所属房间的成员（否则 404）。支持 `Range`。
+      description: 需要是文件所属房间的成员（否则 404）。支持 `Range`；`ETag` 为 sha256，内容不变，可长期缓存（带 If-None-Match 时 304）。
       parameters:
         - name: Range
           in: header
@@ -790,6 +790,8 @@ paths:
           content:
             application/octet-stream:
               schema: { type: string, contentMediaType: application/octet-stream }
+        '304':
+          description: If-None-Match 命中
         '206':
           description: 部分内容
           content:
@@ -805,7 +807,9 @@ paths:
       tags: [files]
       operationId: getThumbnail
       summary: 图片缩略图（JPEG）
-      description: 只对图片有效，其它类型返回 404。首次请求时生成并缓存。
+      description: |
+        只对图片（image / avatar / hero）有效，其它类型返回 404。首次请求时生成并缓存。
+        原图比请求的宽度窄时不放大。服务端解不开的格式（HEIC）也返回 404，客户端改用原图。
       parameters:
         - name: w
           in: query
@@ -817,6 +821,9 @@ paths:
           content:
             image/jpeg:
               schema: { type: string, contentMediaType: image/jpeg }
+        '304':
+          description: If-None-Match 命中
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 

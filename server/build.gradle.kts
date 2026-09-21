@@ -9,6 +9,8 @@ version = "0.1.0"
 
 application {
     mainClass.set("app.qichi.server.ApplicationKt")
+    // 生成缩略图用到 java.awt，服务器上没有显示器
+    applicationDefaultJvmArgs = listOf("-Djava.awt.headless=true")
 }
 
 kotlin {
@@ -30,6 +32,10 @@ dependencies {
     implementation(libs.ktor.server.auth.jwt)
     implementation(libs.ktor.server.forwarded.header)
     implementation(libs.ktor.server.websockets)
+    implementation(libs.ktor.server.partial.content)
+    // 缩略图：JDK 自带 JPEG/PNG/GIF，补上 WebP 和更耐用的 JPEG（CMYK 等）解码
+    implementation(libs.imageio.jpeg)
+    implementation(libs.imageio.webp)
     implementation(libs.bouncycastle)
     implementation(libs.kotlinx.coroutines.core)
 
