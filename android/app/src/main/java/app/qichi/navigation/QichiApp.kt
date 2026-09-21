@@ -33,6 +33,7 @@ import app.qichi.core.designsystem.component.TabItem
 import app.qichi.feature.calendar.EventListScreen
 import app.qichi.feature.me.MeScreen
 import app.qichi.feature.mood.MoodScreen
+import app.qichi.feature.today.TodayScreen
 import app.qichi.feature.todo.TodoScreen
 import app.qichi.feature.me.ProfileScreen
 import app.qichi.feature.me.RoomSettingsScreen
@@ -95,7 +96,7 @@ fun QichiApp(
                 popExitTransition = popExit,
             ) {
                 navigation<TodayGraph>(startDestination = TodayHome) {
-                    composable<TodayHome> { TabPlaceholder("今天") }
+                    composable<TodayHome> { TodayScreen(roomId = LocalRoomId.current, onOpen = { navigator.open(it) }) }
                 }
                 navigation<ChatGraph>(startDestination = ChatHome()) {
                     composable<ChatHome> { TabPlaceholder("聊天") }
