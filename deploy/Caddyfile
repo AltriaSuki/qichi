@@ -1,0 +1,19 @@
+# Caddy 会为 DOMAIN 自动申请并续期 HTTPS 证书（需要 80、443 端口对外开放）。
+{$DOMAIN} {
+	encode zstd gzip
+
+	# WebSocket（/api/v1/ws）由 reverse_proxy 自动处理。
+	reverse_proxy server:8080
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

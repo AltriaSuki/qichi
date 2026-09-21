@@ -1,0 +1,9 @@
+# server.Dockerfile 专用：构建上下文只放 shared/ 和 server/ 的源码。
+*
+!shared
+!server
+**/build
+**/.gradle
+**/.kotlin
+server/data
+**/*.log

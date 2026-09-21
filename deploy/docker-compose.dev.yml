@@ -1,0 +1,25 @@
+# 本地开发只起 PostgreSQL（服务端用 ./gradlew run 在本机跑）。
+#   启动：docker compose -f deploy/docker-compose.dev.yml up -d
+#   停止：docker compose -f deploy/docker-compose.dev.yml down        （加 -v 会清空数据）
+# 这里的库名、用户名、密码就是服务端 AppConfig 在开发模式下的默认值。
+name: qichi-dev
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: qichi
+      POSTGRES_USER: qichi
+      POSTGRES_PASSWORD: qichi
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qichi -d qichi"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  db:

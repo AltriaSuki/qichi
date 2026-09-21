@@ -1,0 +1,76 @@
+# 栖迟线上部署：Caddy（HTTPS）+ Ktor 服务端 + PostgreSQL。
+# 用法见 docs/07-deploy.md：
+#   cp .env.example .env && 填写 → docker compose up -d --build
+# 数据卷名固定为 qichi_*（备份与恢复脚本依赖这些名字）。
+name: qichi
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?请在 .env 里填写 DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - server
+
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/server.Dockerfile
+    restart: unless-stopped
+    # 只在内部网络监听，由 Caddy 对外。
+    expose:
+      - "8080"
+    environment:
+      QICHI_ENV: production
+      PORT: "8080"
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?请在 .env 里填写 PUBLIC_BASE_URL}
+      DATABASE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-qichi}
+      DATABASE_USER: ${POSTGRES_USER:-qichi}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 里填写 POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?请在 .env 里填写 JWT_SECRET}
+      FILES_DIR: /data/files
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      AI_PROVIDER: ${AI_PROVIDER:-}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_MONTHLY_TOKEN_LIMIT: ${AI_MONTHLY_TOKEN_LIMIT:-2000000}
+      PUSH_PROVIDERS: ${PUSH_PROVIDERS:-}
+      # FCM_CREDENTIALS_FILE: /run/secrets/fcm.json
+    volumes:
+      - files:/data/files
+      # 使用 FCM 时取消注释（见 docs/07-deploy.md 第 9 节）：
+      # - ./secrets/fcm.json:/run/secrets/fcm.json:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-qichi}
+      POSTGRES_USER: ${POSTGRES_USER:-qichi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 里填写 POSTGRES_PASSWORD}
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  caddy_data:
+  caddy_config:
+  db:
+  files:
