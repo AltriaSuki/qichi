@@ -22,7 +22,9 @@ import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.MessagePage
 import app.qichi.shared.api.MessageSearchPage
+import app.qichi.shared.api.ReadMarker
 import app.qichi.shared.api.SendMessageRequest
+import app.qichi.shared.api.UpdateReadMarkerRequest
 import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.FileKind
 import app.qichi.shared.model.MessageKind
@@ -38,7 +40,10 @@ import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.utils.io.jvm.javaio.toByteReadChannel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import java.io.File
 import java.net.URLEncoder
@@ -67,6 +72,41 @@ class ChatRepository(
         remoteMediator = HistoryMediator(roomId),
         pagingSourceFactory = { db.entities().messagesPaging(roomId.toString()) },
     ).flow.map { page -> page.map { LocalStore.toLocal<Message>(it) } }
+
+    /** 我读到哪条了（createdSeq；还没读过为 0）。 */
+    fun observeLastRead(roomId: UUID): Flow<Long> =
+        db.entities().observeReadMarkers(roomId.toString(), me.toString())
+            .map { rows -> rows.maxOfOrNull { LocalStore.toLocal<ReadMarker>(it).value.lastReadSeq } ?: 0L }
+            .distinctUntilChanged()
+
+    /** 未读数：对方发的、在我的未读位置之后、没删除的消息。 */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun observeUnread(roomId: UUID): Flow<Int> =
+        observeLastRead(roomId).flatMapLatest { last -> db.entities().observeUnread(roomId.toString(), me.toString(), last) }
+
+    /** 已同步的最新一条消息的 createdSeq。 */
+    fun observeNewestSeq(roomId: UUID): Flow<Long> =
+        db.entities().observeNewestMessageSeq(roomId.toString()).map { it ?: 0L }.distinctUntilChanged()
+
+    /**
+     * 推进自己的未读位置（只进不退）。本机立即生效，经发件箱发出；连续推进只保留最后一次请求。
+     * 只同步到自己的其他设备，对方看不到（不做已读回执）。
+     */
+    suspend fun markRead(roomId: UUID, createdSeq: Long) {
+        val mine = db.entities().readMarkers(roomId.toString(), me.toString()).map { LocalStore.toLocal<ReadMarker>(it).value }
+        val current = mine.maxByOrNull { it.lastReadSeq }
+        if (createdSeq <= (current?.lastReadSeq ?: 0L)) return
+        val now = clock.instant()
+        // 第一次推进时本机还没有这一行：先用临时 id，服务端的响应回来后换成真的
+        val marker = (current ?: ReadMarker(UuidV7.generate(), roomId, 0, now, now, null, null, me, 0))
+            .copy(lastReadSeq = createdSeq, updatedAt = now)
+        store.writeLocal(
+            roomId, marker,
+            OutboxOp.put("rooms/$roomId/read-marker", UpdateReadMarkerRequest(createdSeq), kind = OutboxOp.KIND_READ_MARKER),
+            coalesce = true,
+        )
+        scheduler.kickOutbox()
+    }
 
     /** 最新的一条消息（含待发送的）。 */
     fun observeNewest(roomId: UUID): Flow<Local<Message>?> =

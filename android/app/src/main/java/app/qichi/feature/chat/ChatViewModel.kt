@@ -102,6 +102,13 @@ class ChatViewModel @AssistedInject constructor(
     val newest: StateFlow<Message?> = chat.observeNewest(roomId).map { it?.value }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** 进入聊天时的未读位置（null = 还没从本机读出来） */
+    val lastRead: StateFlow<Long?> = chat.observeLastRead(roomId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val newestSeq: StateFlow<Long> = chat.observeNewestSeq(roomId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
+
     private val _draft = MutableStateFlow("")
     val draft: StateFlow<String> = _draft.asStateFlow()
 
@@ -284,6 +291,8 @@ class ChatViewModel @AssistedInject constructor(
             _search.update { it.copy(loading = false, error = "没搜成，稍后再试") }
         }
     }
+
+    fun markRead(createdSeq: Long) = viewModelScope.launch { chat.markRead(roomId, createdSeq) }
 
     fun startReply(message: Message) {
         _replyTo.value = message

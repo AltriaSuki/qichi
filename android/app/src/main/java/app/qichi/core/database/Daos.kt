@@ -77,6 +77,17 @@ interface EntityDao {
     )
     fun observeUnread(roomId: String, myUserId: String, lastReadSeq: Long): Flow<Int>
 
+    /** 某人在房间里的未读位置（本机可能暂时有两行：待发送的与服务端的，取最大）。 */
+    @Query("SELECT * FROM entities WHERE roomId = :roomId AND type = 'read_marker' AND ownerId = :userId")
+    fun observeReadMarkers(roomId: String, userId: String): Flow<List<EntityRow>>
+
+    @Query("SELECT * FROM entities WHERE roomId = :roomId AND type = 'read_marker' AND ownerId = :userId")
+    suspend fun readMarkers(roomId: String, userId: String): List<EntityRow>
+
+    /** 已同步的最新一条消息的 createdSeq。 */
+    @Query("SELECT MAX(sortSeq) FROM entities WHERE roomId = :roomId AND type = 'message'")
+    fun observeNewestMessageSeq(roomId: String): Flow<Long?>
+
     /** 回收站里的实体（给「我的 → 回收站」）。 */
     @Query("SELECT * FROM entities WHERE roomId = :roomId AND deleted = 1 AND type IN (:types)")
     fun observeDeleted(roomId: String, types: List<String>): Flow<List<EntityRow>>

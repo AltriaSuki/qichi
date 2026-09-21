@@ -9,13 +9,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -25,6 +25,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -35,15 +37,16 @@ import app.qichi.core.designsystem.component.QichiTabBar
 import app.qichi.core.designsystem.component.TabItem
 import app.qichi.feature.calendar.EventListScreen
 import app.qichi.feature.chat.ChatScreen
+import app.qichi.feature.chat.UnreadViewModel
 import app.qichi.feature.me.DisplayScreen
 import app.qichi.feature.me.MeScreen
-import app.qichi.feature.mood.MoodScreen
-import app.qichi.feature.today.TodayScreen
-import app.qichi.feature.todo.TodoScreen
 import app.qichi.feature.me.ProfileScreen
 import app.qichi.feature.me.RoomSettingsScreen
 import app.qichi.feature.me.TrashScreen
+import app.qichi.feature.mood.MoodScreen
 import app.qichi.feature.room.MembersScreen
+import app.qichi.feature.today.TodayScreen
+import app.qichi.feature.todo.TodoScreen
 import app.qichi.feature.together.TogetherHubScreen
 
 /** 页面进出：200ms 淡入 + 8dp 位移；「减少动画」时直接切换。 */
@@ -63,6 +66,9 @@ fun QichiApp(
     val destination = navigator.currentDestination()
     val currentTab = navigator.currentTab(destination)
     val atTabRoot = navigator.isTabRoot(destination)
+    val roomId = LocalRoomId.current
+    val unread by hiltViewModel<UnreadViewModel, UnreadViewModel.Factory>(key = "unread-$roomId") { it.create(roomId) }
+        .count.collectAsStateWithLifecycle()
 
     LaunchedEffect(pendingLink, destination != null) {
         if (pendingLink != null && destination != null) {
@@ -150,7 +156,9 @@ fun QichiApp(
         // 输入法弹出时收起标签栏，让聊天输入框直接贴着键盘
         if (atTabRoot && !WindowInsets.isImeVisible) {
             QichiTabBar(
-                items = TopTab.entries.map { TabItem(it.label, selected = it == currentTab) },
+                items = TopTab.entries.map { tab ->
+                    TabItem(tab.label, selected = tab == currentTab, badge = if (tab == TopTab.Chat) unread else null)
+                },
                 onSelect = { navigator.selectTab(TopTab.entries[it]) },
             )
         }

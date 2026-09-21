@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -69,6 +70,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemContentType
@@ -121,6 +124,19 @@ fun ChatScreen(
     val jumping by viewModel.jumping.collectAsStateWithLifecycle()
     val uploads by viewModel.uploads.collectAsStateWithLifecycle()
     val search by viewModel.search.collectAsStateWithLifecycle()
+    val lastRead by viewModel.lastRead.collectAsStateWithLifecycle()
+    val newestSeq by viewModel.newestSeq.collectAsStateWithLifecycle()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val lifecycleState by lifecycle.currentStateFlow.collectAsStateWithLifecycle()
+    // 「新消息」分隔线：每次回到聊天时记下当时的未读位置，停留期间不跟着移动；进来时没有未读就不显示。
+    // （必须写在推进未读位置之前：这里读到的是推进前的值）
+    val visible = lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
+    var dividerAfter by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(visible) { if (visible) dividerAfter = null }
+    LaunchedEffect(lastRead, newestSeq, dividerAfter == null) {
+        val read = lastRead ?: return@LaunchedEffect
+        if (dividerAfter == null && newestSeq > 0) dividerAfter = if (newestSeq > read) read else Long.MAX_VALUE
+    }
     var retracting by remember { mutableStateOf<Message?>(null) }
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
     var attaching by remember { mutableStateOf(false) }
@@ -187,6 +203,11 @@ fun ChatScreen(
         }
     }
     LaunchedEffect(atBottom) { if (atBottom) unseen = false }
+    // 正在看（页面在前台、列表在底部）就推进未读位置
+    LaunchedEffect(visible, atBottom, newestSeq, dividerAfter != null) {
+        // 分隔线的位置记下之后再推进
+        if (visible && atBottom && newestSeq > 0 && dividerAfter != null) viewModel.markRead(newestSeq)
+    }
 
     Column(
         Modifier
@@ -232,6 +253,10 @@ fun ChatScreen(
                     MessageRow(
                         local = local, older = older, newer = newer, people = people, zone = zone, today = today,
                         maxBubble = maxBubble, highlighted = local.value.id == highlighted,
+                        unreadDivider = dividerAfter?.let { after ->
+                            val m = local.value
+                            m.createdSeq > after && (older == null || older.createdSeq in 1..after) && m.authorId != people.myUserId
+                        } == true,
                         onRetry = viewModel::retry, onAbandon = viewModel::abandon,
                         onLongPress = { menuFor = local }, onQuoteClick = viewModel::jumpTo,
                         attachments = AttachmentActions(
@@ -353,6 +378,7 @@ private fun MessageRow(
     today: LocalDate,
     maxBubble: Dp,
     highlighted: Boolean,
+    unreadDivider: Boolean,
     onRetry: (Message) -> Unit,
     onAbandon: (Message) -> Unit,
     onLongPress: () -> Unit,
@@ -380,6 +406,10 @@ private fun MessageRow(
     ) {
         if (newDay) {
             DaySeparator(day, today)
+            Box(Modifier.size(16.dp))
+        }
+        if (unreadDivider) {
+            NewMessagesDivider()
             Box(Modifier.size(16.dp))
         }
         Column(Modifier.background(flash, RoundedCornerShape(8.dp))) {
@@ -579,6 +609,21 @@ private fun Notice(text: String) {
         modifier = Modifier.fillMaxWidth(),
         textAlign = TextAlign.Center,
     )
+}
+
+/** 设计稿里的「新消息」：两侧 accent 细线。 */
+@Composable
+private fun NewMessagesDivider() {
+    val colors = QichiTheme.colors
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Box(Modifier.weight(1f).height(1.dp).background(colors.accent.copy(alpha = 0.35f)))
+        Text("新消息", style = QichiTheme.typography.caption.copy(fontSize = 12.tsp, letterSpacing = 0.3.em, color = colors.accent))
+        Box(Modifier.weight(1f).height(1.dp).background(colors.accent.copy(alpha = 0.35f)))
+    }
 }
 
 @Composable

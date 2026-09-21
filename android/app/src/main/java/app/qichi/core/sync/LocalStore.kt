@@ -125,6 +125,17 @@ class LocalStore(
         entities.upsert(row)
     }
 
+    /**
+     * 推进未读位置的响应：存服务端的那一行，并删掉本机先建的临时行
+     * （第一次推进时本机不知道服务端会用哪个 id）。
+     */
+    suspend fun applyReadMarker(marker: ReadMarker) = db.transaction {
+        applyResponse(marker)
+        entities.readMarkers(marker.roomId.toString(), marker.userId.toString())
+            .filter { it.id != marker.id.toString() }
+            .forEach { entities.delete(it.type, it.id) }
+    }
+
     // ── 本机写 ──
 
     /**

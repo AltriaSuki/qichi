@@ -18,7 +18,9 @@ import app.qichi.core.ui.chatDay
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.MessagePage
 import app.qichi.shared.api.QichiJson
+import app.qichi.shared.api.ReadMarker
 import app.qichi.shared.api.SendMessageRequest
+import app.qichi.shared.api.UpdateReadMarkerRequest
 import app.qichi.shared.model.EntityType
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
@@ -154,6 +156,38 @@ class ChatRepositoryTest {
         assertEquals(ChatRepository.Position.Deleted, chat.positionOf(roomId, all.getValue(40).id))
         // 翻到最早也没有
         assertEquals(ChatRepository.Position.Missing, chat.positionOf(roomId, UUID.randomUUID()))
+    }
+
+    @Test
+    fun `未读：只算对方的、在我的位置之后的；推进只进不退，连续推进只发最后一次`() = runTest {
+        (1L..5L).forEach { store.applyServer(serverMessage(it, author = if (it == 3L) me else partner)) }
+        assertEquals(4, chat.observeUnread(roomId).first(), "我自己发的第 3 条不算")
+
+        chat.markRead(roomId, 2)
+        assertEquals(0L + 2, chat.observeLastRead(roomId).first())
+        assertEquals(2, chat.observeUnread(roomId).first())
+        chat.markRead(roomId, 1)
+        assertEquals(2L, chat.observeLastRead(roomId).first(), "不会退回去")
+        chat.markRead(roomId, 5)
+        assertEquals(0, chat.observeUnread(roomId).first())
+
+        val ops = db.outbox().all()
+        assertEquals(1, ops.size, "只保留最后一次推进")
+        assertEquals(5L, QichiJson.decodeFromString(UpdateReadMarkerRequest.serializer(), ops.single().bodyJson!!).lastReadSeq)
+    }
+
+    @Test
+    fun `第一次推进用的临时行，在服务端响应回来后换成服务端那一行`() = runTest {
+        store.applyServer(serverMessage(9))
+        chat.markRead(roomId, 9)
+        val placeholder = db.entities().readMarkers(roomId.toString(), me.toString()).single()
+
+        val server = ReadMarker(UUID.randomUUID(), roomId, 12, SyncFixtures.t0, SyncFixtures.t0, null, null, me, 9)
+        store.applyReadMarker(server)
+        val rows = db.entities().readMarkers(roomId.toString(), me.toString())
+        assertEquals(listOf(server.id.toString()), rows.map { it.id })
+        assertTrue(rows.single().id != placeholder.id)
+        assertEquals(9L, chat.observeLastRead(roomId).first())
     }
 
     @Test
