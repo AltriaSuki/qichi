@@ -1,0 +1,1759 @@
+openapi: 3.1.0
+info:
+  title: 栖迟 Qichi API
+  version: 0.1.0
+  summary: 第 1–3 阶段接口契约（账号、房间、同步、心情、待办、日程、聊天、文件、回收站、推送设备）
+  description: |
+    这是接口的**唯一契约来源**。约定与全貌见 `docs/04-api.md`，同步机制见 `docs/05-sync-offline.md`。
+    改接口的顺序：先改本文件 → 再改 `shared/` 的数据类 → 再改服务端与客户端。
+
+    通用约定：
+    - JSON，UTF-8，字段名 camelCase；时间 ISO-8601 UTC（`2026-09-21T11:30:00Z`）；纯日期 `2026-09-21`。
+    - 枚举值是英文小写字符串（多个单词用下划线，如 `mood_response`）。
+    - 请求头 `X-Qichi-Client: android/{versionName}`，便于排查。
+    - 房间内资源都在 `/rooms/{roomId}/…` 下；不是该房间成员一律返回 **404**。
+    - 创建：请求体带客户端生成的 `id`（UUIDv7）；新建返回 **201**，同 id 已存在返回 **200** 与已有对象；
+      同 id 属于别人或别的房间返回 **409** `conflict_id`。
+    - 修改：`PATCH` 只发改动的字段；字段显式传 `null` 表示清空；返回完整对象。
+    - 删除：`DELETE` = 软删除（进回收站），返回带 `deletedAt` 的完整对象；彻底删除走回收站接口。
+    - 所有写入都会让房间的 `seq` 加一，并通过 WebSocket 广播 `changed`。
+    - 错误一律 `application/problem+json`，客户端按 `code` 判断。
+servers:
+  - url: https://{domain}/api/v1
+    variables:
+      domain:
+        default: qichi.example.com
+  - url: http://localhost:8080/api/v1
+    description: 本地开发
+security:
+  - bearerAuth: []
+tags:
+  - name: system
+    description: 系统
+  - name: auth
+    description: 注册、登录、令牌（P1）
+  - name: me
+    description: 当前用户（P1）
+  - name: rooms
+    description: 房间、成员、邀请（P1）
+  - name: sync
+    description: 首次快照、增量同步、实时通道（P1）
+  - name: moods
+    description: 心情与回应（P2）
+  - name: todos
+    description: 待办（P2）
+  - name: events
+    description: 日程（P2）
+  - name: messages
+    description: 聊天、未读位置（P3）
+  - name: files
+    description: 文件上传、下载、缩略图（P3）
+  - name: trash
+    description: 回收站（P3）
+  - name: devices
+    description: 推送设备（P3）
+
+paths:
+  # ───────────────────────── 系统 ─────────────────────────
+  /health:
+    get:
+      tags: [system]
+      operationId: getHealth
+      summary: 健康检查
+      security: []
+      responses:
+        '200':
+          description: 服务正常
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+
+  # ───────────────────────── 账号 ─────────────────────────
+  /auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      summary: 注册
+      description: |
+        - 系统里还没有任何用户时，可以不带邀请码注册（第一个账号）。
+        - 否则必须带有效的 `inviteCode`，注册成功后自动以 `member` 身份加入该邀请码所属的房间。
+        - `username` 由客户端先转成小写再提交。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: 注册成功，返回令牌
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '400': { $ref: '#/components/responses/BadRequest' }      # invalid_request / invite_invalid
+        '403': { $ref: '#/components/responses/Forbidden' }       # registration_closed
+        '409': { $ref: '#/components/responses/Conflict' }        # username_taken / room_full
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: 登录
+      description: 同一用户名连续 5 次密码错误后限流（429，看 `Retry-After`）。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }    # 用户名或密码不正确
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refreshTokens
+      summary: 刷新令牌
+      description: |
+        每次刷新都换一对新令牌，旧刷新令牌立即作废。
+        已作废的刷新令牌被再次使用 → 这次登录（这台设备）的所有令牌全部作废，返回 401。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '200':
+          description: 新令牌
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: 登出
+      description: 作废这次登录的所有刷新令牌，并注销这次登录注册的推送设备。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RefreshRequest' }
+      responses:
+        '204':
+          description: 已登出
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ───────────────────────── 当前用户 ─────────────────────────
+  /me:
+    get:
+      tags: [me]
+      operationId: getMe
+      summary: 当前用户与所在房间
+      responses:
+        '200':
+          description: 当前用户
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [me]
+      operationId: updateMe
+      summary: 修改显示名、头像、通知偏好
+      description: 显示名或头像变化时，用户所在每个房间都会产生一条 `member` 变化。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateMeRequest' }
+      responses:
+        '200':
+          description: 修改后的当前用户
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me/password:
+    post:
+      tags: [me]
+      operationId: changePassword
+      summary: 改密码
+      description: 成功后作废其它所有登录；返回当前设备的一对新令牌。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangePasswordRequest' }
+      responses:
+        '200':
+          description: 当前设备的新令牌
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }    # 当前密码不正确
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  # ───────────────────────── 房间 ─────────────────────────
+  /rooms:
+    post:
+      tags: [rooms]
+      operationId: createRoom
+      summary: 建房间
+      description: 创建者成为 `owner`，在设计系统里用 personA 的颜色。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateRoomRequest' }
+      responses:
+        '200':
+          description: 同 id 的房间已存在
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoomDetail' }
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoomDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [rooms]
+      operationId: getRoom
+      summary: 房间与成员
+      responses:
+        '200':
+          description: 房间
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoomDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [rooms]
+      operationId: updateRoom
+      summary: 修改房间设置
+      description: 两位成员都可以修改。`timezone` 必须是 IANA 时区名（如 `Asia/Shanghai`）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateRoomRequest' }
+      responses:
+        '200':
+          description: 修改后的房间
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Room' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/invites:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [rooms]
+      operationId: createInvite
+      summary: 生成邀请码
+      description: |
+        仅 owner。8 位，只用 `ABCDEFGHJKMNPQRSTUVWXYZ23456789` 中的字符，7 天有效。
+        生成新码后，这个房间之前未使用的邀请码全部失效。房间已满 2 人时返回 409 `room_full`。
+      responses:
+        '201':
+          description: 新邀请码
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invite' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /invites/accept:
+    post:
+      tags: [rooms]
+      operationId: acceptInvite
+      summary: 已登录用户用邀请码加入房间
+      description: 已经是该房间成员时直接返回 200。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AcceptInviteRequest' }
+      responses:
+        '200':
+          description: 加入的房间
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoomDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }      # invite_invalid
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }        # room_full
+
+  # ───────────────────────── 同步 ─────────────────────────
+  /rooms/{roomId}/bootstrap:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [sync]
+      operationId: bootstrapRoom
+      summary: 首次同步快照
+      description: |
+        首次安装或清除数据后调用。在同一个一致性快照里返回：房间、成员、`lastSeq`、
+        除消息外所有同步实体的当前状态（含已软删除的，用于回收站）、自己的未读位置、最近 50 条消息。
+        之后用 `sync?since=lastSeq` 增量拉取。
+      responses:
+        '200':
+          description: 快照
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Bootstrap' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/sync:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [sync]
+      operationId: syncRoom
+      summary: 增量同步
+      description: |
+        返回 `seq > since` 的变化，按 `seq` 升序。
+        - 同一个实体在本页范围内变化多次，只返回最后一次；`data` 是实体的完整当前状态，客户端直接覆盖本地。
+        - `toSeq` 是本页扫描到的最大 seq，下次用它作为 `since`。它可能大于 `changes` 里最大的 `seq`
+          （有些变化被合并了，或对你不可见，比如对方的 `read_marker`）。
+        - `hasMore = true` 时立即用 `toSeq` 继续拉。
+      parameters:
+        - name: since
+          in: query
+          required: true
+          schema: { type: integer, format: int64, minimum: 0 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 500 }
+      responses:
+        '200':
+          description: 变化
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SyncResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /ws:
+    get:
+      tags: [sync]
+      operationId: openRealtime
+      summary: 实时通道（WebSocket）
+      description: |
+        握手时带 `Authorization: Bearer {accessToken}`。服务端 → 客户端的消息见
+        `WsHello`、`WsChanged`、`WsAiDone`（第 4 阶段）。
+        - `changed` 只是提示，客户端收到且 `seq > 本地 lastSeq` 时调用 `sync` 拉取。
+        - 客户端不发业务消息；心跳用 WebSocket ping/pong 帧（30 秒）。
+        - 没有「正在输入」「在线」等事件（产品明确不做）。
+      responses:
+        '101':
+          description: 协议切换为 WebSocket
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ───────────────────────── 心情 ─────────────────────────
+  /rooms/{roomId}/moods:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [moods]
+      operationId: createMood
+      summary: 记录心情
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateMoodRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/MoodExisting' }
+        '201': { $ref: '#/components/responses/MoodCreated' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/moods/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [moods]
+      operationId: deleteMood
+      summary: 删除心情（仅作者）
+      responses:
+        '200': { $ref: '#/components/responses/MoodOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/moods/{moodId}/responses:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - name: moodId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [moods]
+      operationId: createMoodReply
+      summary: 回应对方的心情
+      description: |
+        `here` 我在这里 / `hug` 给你一个拥抱 / `ready` 等你准备好。
+        只能回应对方的心情（回应自己的返回 403）。回应不产生任何待办或提醒数字。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateMoodReplyRequest' }
+      responses:
+        '200':
+          description: 同 id 的回应已存在
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MoodReply' }
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MoodReply' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/mood-responses/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [moods]
+      operationId: deleteMoodReply
+      summary: 收回回应（仅作者）
+      responses:
+        '200':
+          description: 已收回（带 `deletedAt`）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MoodReply' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── 待办 ─────────────────────────
+  /rooms/{roomId}/todos:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [todos]
+      operationId: createTodo
+      summary: 新建待办
+      description: |
+        - 子任务：带 `parentId`；父待办必须在同一房间且本身不是子任务（只有一层）。子任务不能重复。
+        - 重复：`recurrence` 是 RRULE，支持 `FREQ=DAILY|WEEKLY|MONTHLY`、`INTERVAL`、`BYDAY`；重复待办必须有截止日。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTodoRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/TodoExisting' }
+        '201': { $ref: '#/components/responses/TodoCreated' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/todos/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [todos]
+      operationId: updateTodo
+      summary: 修改待办
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateTodoRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/TodoOk' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [todos]
+      operationId: deleteTodo
+      summary: 删除待办
+      description: 子任务随父待办一起进回收站；恢复父待办时一起恢复。
+      responses:
+        '200': { $ref: '#/components/responses/TodoOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/todos/{id}/complete:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [todos]
+      operationId: completeTodo
+      summary: 完成待办
+      description: |
+        重复待办必须带 `nextId`（客户端生成），服务端据此生成下一次实例（`recurrencePrevId` 指向本条）。
+        已完成的待办再次提交完成：返回 200 和当前状态，不会生成第二个下一次实例。
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CompleteTodoRequest' }
+      responses:
+        '200':
+          description: 完成后的待办，以及生成的下一次实例
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompleteTodoResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/todos/{id}/reopen:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [todos]
+      operationId: reopenTodo
+      summary: 取消完成
+      description: 已生成的下一次实例保留不动。
+      responses:
+        '200': { $ref: '#/components/responses/TodoOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── 日程 ─────────────────────────
+  /rooms/{roomId}/events:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [events]
+      operationId: createEvent
+      summary: 新建日程
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateEventRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/EventExisting' }
+        '201': { $ref: '#/components/responses/EventCreated' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/events/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [events]
+      operationId: updateEvent
+      summary: 修改日程
+      description: 在全天和定时之间切换时，要同时发新形态需要的时间字段，并把另一形态的字段设为 `null`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateEventRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/EventOk' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [events]
+      operationId: deleteEvent
+      summary: 删除日程
+      responses:
+        '200': { $ref: '#/components/responses/EventOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── 聊天 ─────────────────────────
+  /rooms/{roomId}/messages:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [messages]
+      operationId: listMessages
+      summary: 往上翻历史
+      description: 返回 `createdSeq < beforeSeq` 的消息，按 `createdSeq` 降序（最新的在前）。不传 `beforeSeq` 时从最新开始。
+      parameters:
+        - name: beforeSeq
+          in: query
+          schema: { type: integer, format: int64, minimum: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: 一页消息
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessagePage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [messages]
+      operationId: sendMessage
+      summary: 发消息
+      description: |
+        - `text`：`body` 必填，去掉首尾空白后不能为空，≤ 10,000 字。
+        - `image` / `file`：先上传到 `/rooms/{roomId}/files`，再带 `fileId` 发送（因此必须在线）。
+        - 带 `replyToId` 时，服务端填写 `replyAuthorId` 和 `replyExcerpt`（原消息前 60 字）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SendMessageRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/MessageExisting' }
+        '201': { $ref: '#/components/responses/MessageCreated' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/messages/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [messages]
+      operationId: deleteMessage
+      summary: 删除消息进回收站
+      description: 两位成员都可以删除房间里的任何消息；可以从回收站恢复。
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/messages/{id}/retract:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [messages]
+      operationId: retractMessage
+      summary: 撤回（仅作者）
+      description: |
+        清空 `body` 和 `file`，保留 `retractedBy` / `retractedAt`；回复了这条消息的其它消息的 `replyExcerpt` 同时清空。
+        撤回后不出现在搜索和导出里。重复撤回返回 200。
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/messages/search:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [messages]
+      operationId: searchMessages
+      summary: 搜索消息
+      description: 按 `createdSeq` 降序；不含已撤回、已删除的消息。
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 100 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 搜索结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessageSearchPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/read-marker:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    put:
+      tags: [messages]
+      operationId: updateReadMarker
+      summary: 推进自己的未读位置
+      description: 服务端保存 `max(旧值, 新值)`，只进不退；只会同步给自己，不暴露给对方。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateReadMarkerRequest' }
+      responses:
+        '200':
+          description: 当前的未读位置
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReadMarker' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── 文件 ─────────────────────────
+  /rooms/{roomId}/files:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [files]
+      operationId: uploadFile
+      summary: 上传文件
+      description: |
+        图片 ≤ 20MB（JPEG、PNG、WebP、HEIC、GIF）；其它文件 ≤ 100MB。
+        服务端计算 sha256，按 `{roomId}/{yyyy}/{mm}/{fileId}` 存放；图片记录宽高。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/UploadFileForm' }
+      responses:
+        '200':
+          description: 同 id 的文件已存在
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FileMeta' }
+        '201':
+          description: 已上传
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FileMeta' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+
+  /files/{fileId}:
+    parameters:
+      - $ref: '#/components/parameters/FileId'
+    get:
+      tags: [files]
+      operationId: downloadFile
+      summary: 下载文件
+      description: 需要是文件所属房间的成员（否则 404）。支持 `Range`。
+      parameters:
+        - name: Range
+          in: header
+          schema: { type: string, example: 'bytes=0-1048575' }
+      responses:
+        '200':
+          description: 文件内容
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+            ETag:
+              schema: { type: string }
+          content:
+            application/octet-stream:
+              schema: { type: string, contentMediaType: application/octet-stream }
+        '206':
+          description: 部分内容
+          content:
+            application/octet-stream:
+              schema: { type: string, contentMediaType: application/octet-stream }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /files/{fileId}/thumb:
+    parameters:
+      - $ref: '#/components/parameters/FileId'
+    get:
+      tags: [files]
+      operationId: getThumbnail
+      summary: 图片缩略图（JPEG）
+      description: 只对图片有效，其它类型返回 404。首次请求时生成并缓存。
+      parameters:
+        - name: w
+          in: query
+          required: true
+          schema: { type: integer, enum: [200, 400, 800] }
+      responses:
+        '200':
+          description: 缩略图
+          content:
+            image/jpeg:
+              schema: { type: string, contentMediaType: image/jpeg }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── 回收站 ─────────────────────────
+  /rooms/{roomId}/trash:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [trash]
+      operationId: listTrash
+      summary: 回收站列表
+      description: 按 `deletedAt` 降序。随父待办一起删除的子任务不单独列出。
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 一页回收站条目
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrashPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/trash/{type}/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - name: type
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/TrashType' }
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [trash]
+      operationId: purgeTrashItem
+      summary: 彻底删除
+      description: 只能彻底删除已在回收站里的条目；产生 `op = delete` 的变化，客户端收到后物理删除本地行。
+      responses:
+        '204':
+          description: 已彻底删除
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/trash/{type}/{id}/restore:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - name: type
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/TrashType' }
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [trash]
+      operationId: restoreTrashItem
+      summary: 恢复
+      description: 清空 `deletedAt` / `deletedBy`，内容按删除前的状态回来；消息回到原来的位置（`createdSeq` 不变）。
+      responses:
+        '200':
+          description: 恢复后的实体
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Change' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── 推送设备 ─────────────────────────
+  /devices:
+    post:
+      tags: [devices]
+      operationId: registerDevice
+      summary: 注册推送设备
+      description: 同一 `provider + token` 已存在时更新为当前用户和当前登录，返回 200。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterDeviceRequest' }
+      responses:
+        '200':
+          description: 已存在，已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Device' }
+        '201':
+          description: 已注册
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Device' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /devices/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [devices]
+      operationId: unregisterDevice
+      summary: 注销推送设备
+      responses:
+        '204':
+          description: 已注销
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 访问令牌 15 分钟过期；收到 401 时客户端自动刷新一次再重试。
+
+  parameters:
+    RoomId:
+      name: roomId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    FileId:
+      name: fileId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Cursor:
+      name: cursor
+      in: query
+      description: 上一页响应里的 `nextCursor`，原样传回
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+
+  responses:
+    BadRequest:
+      description: 参数不合法（`invalid_request`，`errors` 列出字段）或邀请码无效（`invite_invalid`）
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthorized:
+      description: 未登录、令牌过期或无效、用户名或密码不正确（`unauthorized`）
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: 已登录但无权做这件事（`forbidden`），或注册已关闭（`registration_closed`）
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: 资源不存在，或你不是该房间成员（`not_found`）
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: 冲突（`conflict_id`、`room_full`、`username_taken`、`conflict_version`）
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PayloadTooLarge:
+      description: 超过大小限制（`payload_too_large`）
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    UnsupportedMediaType:
+      description: 文件类型不支持（`unsupported_media_type`）
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    RateLimited:
+      description: 请求太频繁（`rate_limited`）
+      headers:
+        Retry-After:
+          description: 多少秒后可以重试
+          schema: { type: integer }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    MoodCreated:
+      description: 已创建
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Mood' }
+    MoodExisting:
+      description: 同 id 已存在，返回已有对象
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Mood' }
+    MoodOk:
+      description: 心情
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Mood' }
+    TodoCreated:
+      description: 已创建
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Todo' }
+    TodoExisting:
+      description: 同 id 已存在，返回已有对象
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Todo' }
+    TodoOk:
+      description: 待办
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Todo' }
+    EventCreated:
+      description: 已创建
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Event' }
+    EventExisting:
+      description: 同 id 已存在，返回已有对象
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Event' }
+    EventOk:
+      description: 日程
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Event' }
+    MessageCreated:
+      description: 已创建
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Message' }
+    MessageExisting:
+      description: 同 id 已存在，返回已有对象
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Message' }
+    MessageOk:
+      description: 消息
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Message' }
+
+  schemas:
+    # ── 基础类型 ──
+    Uuid:
+      type: string
+      format: uuid
+      description: UUIDv7
+    NullableUuid:
+      type: [string, 'null']
+      format: uuid
+    Instant:
+      type: string
+      format: date-time
+      description: ISO-8601 UTC，如 `2026-09-21T11:30:00Z`
+    NullableInstant:
+      type: [string, 'null']
+      format: date-time
+    LocalDate:
+      type: string
+      format: date
+      description: 纯日期，如 `2026-09-21`
+    NullableLocalDate:
+      type: [string, 'null']
+      format: date
+
+    # ── 错误 ──
+    ProblemCode:
+      type: string
+      enum:
+        - invalid_request
+        - unauthorized
+        - forbidden
+        - not_found
+        - conflict_version
+        - conflict_id
+        - room_full
+        - username_taken
+        - invite_invalid
+        - registration_closed
+        - payload_too_large
+        - unsupported_media_type
+        - rate_limited
+        - ai_unavailable
+        - ai_quota_exceeded
+        - internal_error
+    Problem:
+      type: object
+      description: RFC 9457 problem+json
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, example: 'https://qichi.app/errors/room_full' }
+        title: { type: string, description: 给人看的中文标题；客户端不要据此判断 }
+        status: { type: integer }
+        code: { $ref: '#/components/schemas/ProblemCode' }
+        detail: { type: string }
+        errors:
+          type: array
+          description: 仅 `invalid_request`
+          items: { $ref: '#/components/schemas/FieldError' }
+        latestVersion:
+          type: integer
+          description: 仅 `conflict_version`
+    FieldError:
+      type: object
+      required: [field, message]
+      properties:
+        field: { type: string, example: intensity }
+        message: { type: string, example: 强度必须在 1 到 10 之间 }
+
+    # ── 系统 ──
+    Health:
+      type: object
+      required: [status, version]
+      properties:
+        status: { type: string, const: ok }
+        version: { type: string, example: 0.1.0 }
+
+    # ── 账号 ──
+    Username:
+      type: string
+      pattern: '^[a-z0-9_]{3,32}$'
+      description: 3–32 位小写字母、数字、下划线
+    Password:
+      type: string
+      minLength: 8
+      maxLength: 128
+    DisplayName:
+      type: string
+      minLength: 1
+      maxLength: 32
+    RegisterRequest:
+      type: object
+      required: [username, password, displayName]
+      properties:
+        username: { $ref: '#/components/schemas/Username' }
+        password: { $ref: '#/components/schemas/Password' }
+        displayName: { $ref: '#/components/schemas/DisplayName' }
+        inviteCode:
+          type: string
+          pattern: '^[A-Z2-9]{8}$'
+          description: 第一个账号之后必填
+        deviceName:
+          type: string
+          maxLength: 64
+          description: 如 `Pixel 9`，显示在「安全 → 登录设备」
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, minLength: 1, maxLength: 32 }
+        password: { type: string, minLength: 1, maxLength: 128 }
+        deviceName: { type: string, maxLength: 64 }
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: { type: string }
+    ChangePasswordRequest:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: { type: string, minLength: 1, maxLength: 128 }
+        newPassword: { $ref: '#/components/schemas/Password' }
+    AuthTokens:
+      type: object
+      required: [accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt]
+      properties:
+        accessToken: { type: string, description: JWT，15 分钟 }
+        accessTokenExpiresAt: { $ref: '#/components/schemas/Instant' }
+        refreshToken: { type: string, description: 不透明随机串，60 天，每次使用都轮换 }
+        refreshTokenExpiresAt: { $ref: '#/components/schemas/Instant' }
+
+    # ── 当前用户 ──
+    User:
+      type: object
+      required: [id, username, displayName, avatarFileId, notificationPrefs, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        username: { $ref: '#/components/schemas/Username' }
+        displayName: { $ref: '#/components/schemas/DisplayName' }
+        avatarFileId: { $ref: '#/components/schemas/NullableUuid' }
+        notificationPrefs: { $ref: '#/components/schemas/NotificationPrefs' }
+        createdAt: { $ref: '#/components/schemas/Instant' }
+    NotificationPrefs:
+      type: object
+      description: 通知偏好。具体字段在 P3-10（推送）确定；在那之前是空对象。
+      additionalProperties: true
+    MyRoom:
+      type: object
+      required: [roomId, name, role]
+      properties:
+        roomId: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string }
+        role: { $ref: '#/components/schemas/MemberRole' }
+    Me:
+      type: object
+      required: [user, rooms]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        rooms:
+          type: array
+          items: { $ref: '#/components/schemas/MyRoom' }
+    UpdateMeRequest:
+      type: object
+      minProperties: 1
+      properties:
+        displayName: { $ref: '#/components/schemas/DisplayName' }
+        avatarFileId: { $ref: '#/components/schemas/NullableUuid' }
+        notificationPrefs: { $ref: '#/components/schemas/NotificationPrefs' }
+
+    # ── 同步实体的公共字段 ──
+    SyncFields:
+      type: object
+      required: [id, roomId, seq, createdAt, updatedAt, deletedAt, deletedBy]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        roomId: { $ref: '#/components/schemas/Uuid' }
+        seq:
+          type: integer
+          format: int64
+          description: 这个实体最后一次变化时分配的房间序号
+        createdAt: { $ref: '#/components/schemas/Instant' }
+        updatedAt: { $ref: '#/components/schemas/Instant' }
+        deletedAt:
+          $ref: '#/components/schemas/NullableInstant'
+          description: 不为空表示在回收站里
+        deletedBy: { $ref: '#/components/schemas/NullableUuid' }
+
+    # ── 房间 ──
+    MemberRole:
+      type: string
+      enum: [owner, member]
+    Room:
+      type: object
+      description: 同步实体类型 `room`（房间没有删除，`deletedAt` 始终为空）
+      required: [id, name, avatarFileId, heroFileId, anniversary, timezone, createdBy, seq, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string, minLength: 1, maxLength: 40 }
+        avatarFileId: { $ref: '#/components/schemas/NullableUuid' }
+        heroFileId:
+          $ref: '#/components/schemas/NullableUuid'
+          description: 今天页主视觉照片；为空时显示雾海插画
+        anniversary: { $ref: '#/components/schemas/NullableLocalDate' }
+        timezone: { type: string, example: Asia/Shanghai, description: IANA 时区名；「今天」「本周」按它计算 }
+        createdBy:
+          $ref: '#/components/schemas/Uuid'
+          description: 创建者用 personA 的颜色，另一位用 personB
+        seq: { type: integer, format: int64 }
+        createdAt: { $ref: '#/components/schemas/Instant' }
+        updatedAt: { $ref: '#/components/schemas/Instant' }
+    Member:
+      description: 同步实体类型 `member`
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [userId, role, username, displayName, avatarFileId, joinedAt]
+          properties:
+            userId: { $ref: '#/components/schemas/Uuid' }
+            role: { $ref: '#/components/schemas/MemberRole' }
+            username: { $ref: '#/components/schemas/Username' }
+            displayName: { $ref: '#/components/schemas/DisplayName' }
+            avatarFileId: { $ref: '#/components/schemas/NullableUuid' }
+            joinedAt: { $ref: '#/components/schemas/Instant' }
+    RoomDetail:
+      type: object
+      required: [room, members, lastSeq]
+      properties:
+        room: { $ref: '#/components/schemas/Room' }
+        members:
+          type: array
+          items: { $ref: '#/components/schemas/Member' }
+        lastSeq: { type: integer, format: int64 }
+    CreateRoomRequest:
+      type: object
+      required: [id, name]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        name: { type: string, minLength: 1, maxLength: 40 }
+        timezone: { type: string, default: Asia/Shanghai }
+        anniversary: { $ref: '#/components/schemas/LocalDate' }
+    UpdateRoomRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        avatarFileId: { $ref: '#/components/schemas/NullableUuid' }
+        heroFileId: { $ref: '#/components/schemas/NullableUuid' }
+        anniversary: { $ref: '#/components/schemas/NullableLocalDate' }
+        timezone: { type: string }
+    Invite:
+      type: object
+      required: [code, roomId, expiresAt, createdAt]
+      properties:
+        code: { type: string, pattern: '^[A-Z2-9]{8}$', example: K7PQ2XRM }
+        roomId: { $ref: '#/components/schemas/Uuid' }
+        expiresAt: { $ref: '#/components/schemas/Instant' }
+        createdAt: { $ref: '#/components/schemas/Instant' }
+    AcceptInviteRequest:
+      type: object
+      required: [code]
+      properties:
+        code: { type: string, pattern: '^[A-Z2-9]{8}$' }
+
+    # ── 同步 ──
+    EntityType:
+      type: string
+      description: 与 `shared/model/EntityType` 一致，后续阶段追加
+      enum: [room, member, message, read_marker, mood, mood_response, todo, event]
+    ChangeOp:
+      type: string
+      description: '`upsert` 包括软删除与恢复；只有彻底删除是 `delete`'
+      enum: [upsert, delete]
+    Change:
+      type: object
+      required: [seq, type, id, op, data]
+      properties:
+        seq: { type: integer, format: int64 }
+        type: { $ref: '#/components/schemas/EntityType' }
+        id: { $ref: '#/components/schemas/Uuid' }
+        op: { $ref: '#/components/schemas/ChangeOp' }
+        data:
+          description: |
+            实体的完整当前状态，结构由 `type` 决定：
+            room → Room，member → Member，message → Message，read_marker → ReadMarker，
+            mood → Mood，mood_response → MoodReply，todo → Todo，event → Event。
+            `op = delete` 时为 `null`。
+          oneOf:
+            - $ref: '#/components/schemas/Room'
+            - $ref: '#/components/schemas/Member'
+            - $ref: '#/components/schemas/Message'
+            - $ref: '#/components/schemas/ReadMarker'
+            - $ref: '#/components/schemas/Mood'
+            - $ref: '#/components/schemas/MoodReply'
+            - $ref: '#/components/schemas/Todo'
+            - $ref: '#/components/schemas/Event'
+            - type: 'null'
+    SyncResponse:
+      type: object
+      required: [fromSeq, toSeq, hasMore, changes]
+      properties:
+        fromSeq: { type: integer, format: int64, description: 等于请求的 `since` }
+        toSeq: { type: integer, format: int64, description: 下次请求用它作为 `since` }
+        hasMore: { type: boolean }
+        changes:
+          type: array
+          items: { $ref: '#/components/schemas/Change' }
+    Bootstrap:
+      type: object
+      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages]
+      properties:
+        room: { $ref: '#/components/schemas/Room' }
+        members:
+          type: array
+          items: { $ref: '#/components/schemas/Member' }
+        lastSeq: { type: integer, format: int64 }
+        readMarker:
+          description: 自己的未读位置；从未推进过时为 `null`
+          oneOf:
+            - $ref: '#/components/schemas/ReadMarker'
+            - type: 'null'
+        moods:
+          type: array
+          items: { $ref: '#/components/schemas/Mood' }
+        moodReplies:
+          type: array
+          items: { $ref: '#/components/schemas/MoodReply' }
+        todos:
+          type: array
+          items: { $ref: '#/components/schemas/Todo' }
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/Event' }
+        messages:
+          type: array
+          description: 最近 50 条消息，按 `createdSeq` 降序
+          items: { $ref: '#/components/schemas/Message' }
+        hasMoreMessages: { type: boolean }
+    WsHello:
+      type: object
+      required: [type, userId, rooms]
+      properties:
+        type: { type: string, const: hello }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        rooms:
+          type: array
+          items:
+            type: object
+            required: [roomId, lastSeq]
+            properties:
+              roomId: { $ref: '#/components/schemas/Uuid' }
+              lastSeq: { type: integer, format: int64 }
+    WsChanged:
+      type: object
+      required: [type, roomId, seq]
+      properties:
+        type: { type: string, const: changed }
+        roomId: { $ref: '#/components/schemas/Uuid' }
+        seq: { type: integer, format: int64 }
+    WsAiDone:
+      type: object
+      description: 第 4 阶段启用
+      required: [type, roomId, jobId, status]
+      properties:
+        type: { type: string, const: ai.done }
+        roomId: { $ref: '#/components/schemas/Uuid' }
+        jobId: { $ref: '#/components/schemas/Uuid' }
+        status: { type: string, enum: [done, failed] }
+
+    # ── 心情 ──
+    MoodLabel:
+      type: string
+      description: calm 平静 · happy 开心 · hopeful 期待 · tired 疲惫 · anxious 焦虑 · down 低落 · angry 生气 · hurt 委屈
+      enum: [calm, happy, hopeful, tired, anxious, down, angry, hurt]
+    MoodReplyKind:
+      type: string
+      description: here 我在这里 · hug 给你一个拥抱 · ready 等你准备好
+      enum: [here, hug, ready]
+    Mood:
+      description: 同步实体类型 `mood`
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [authorId, label, intensity, note, needsComfort]
+          properties:
+            authorId: { $ref: '#/components/schemas/Uuid' }
+            label: { $ref: '#/components/schemas/MoodLabel' }
+            intensity: { type: integer, minimum: 1, maximum: 10 }
+            note: { type: [string, 'null'], maxLength: 500 }
+            needsComfort: { type: boolean }
+    CreateMoodRequest:
+      type: object
+      required: [id, label, intensity]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        label: { $ref: '#/components/schemas/MoodLabel' }
+        intensity: { type: integer, minimum: 1, maximum: 10 }
+        note: { type: string, maxLength: 500 }
+        needsComfort: { type: boolean, default: false }
+    MoodReply:
+      description: 同步实体类型 `mood_response`；收回 = 软删除
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [moodId, authorId, kind]
+          properties:
+            moodId: { $ref: '#/components/schemas/Uuid' }
+            authorId: { $ref: '#/components/schemas/Uuid' }
+            kind: { $ref: '#/components/schemas/MoodReplyKind' }
+    CreateMoodReplyRequest:
+      type: object
+      required: [id, kind]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        kind: { $ref: '#/components/schemas/MoodReplyKind' }
+
+    # ── 待办 ──
+    Todo:
+      description: 同步实体类型 `todo`
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [title, note, createdBy, assigneeId, parentId, dueDate, dueAt, recurrence, recurrencePrevId, doneAt, doneBy]
+          properties:
+            title: { type: string, minLength: 1, maxLength: 200 }
+            note: { type: [string, 'null'], maxLength: 2000 }
+            createdBy: { $ref: '#/components/schemas/Uuid' }
+            assigneeId:
+              $ref: '#/components/schemas/NullableUuid'
+              description: 为空 = 两个人
+            parentId:
+              $ref: '#/components/schemas/NullableUuid'
+              description: 不为空 = 子任务
+            dueDate:
+              $ref: '#/components/schemas/NullableLocalDate'
+              description: 只有日期的截止（按房间时区）；与 `dueAt` 至多一个有值
+            dueAt: { $ref: '#/components/schemas/NullableInstant' }
+            recurrence:
+              type: [string, 'null']
+              example: FREQ=WEEKLY;INTERVAL=1;BYDAY=SU
+            recurrencePrevId:
+              $ref: '#/components/schemas/NullableUuid'
+              description: 由哪一条重复待办的完成生成
+            doneAt: { $ref: '#/components/schemas/NullableInstant' }
+            doneBy: { $ref: '#/components/schemas/NullableUuid' }
+    CreateTodoRequest:
+      type: object
+      required: [id, title]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        note: { type: string, maxLength: 2000 }
+        assigneeId: { $ref: '#/components/schemas/NullableUuid' }
+        parentId: { $ref: '#/components/schemas/Uuid' }
+        dueDate: { $ref: '#/components/schemas/LocalDate' }
+        dueAt: { $ref: '#/components/schemas/Instant' }
+        recurrence: { type: string, maxLength: 200 }
+    UpdateTodoRequest:
+      type: object
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        note: { type: [string, 'null'], maxLength: 2000 }
+        assigneeId: { $ref: '#/components/schemas/NullableUuid' }
+        dueDate: { $ref: '#/components/schemas/NullableLocalDate' }
+        dueAt: { $ref: '#/components/schemas/NullableInstant' }
+        recurrence: { type: [string, 'null'], maxLength: 200 }
+    CompleteTodoRequest:
+      type: object
+      properties:
+        nextId:
+          $ref: '#/components/schemas/Uuid'
+          description: 重复待办必填：下一次实例的 id
+    CompleteTodoResponse:
+      type: object
+      required: [todo, next]
+      properties:
+        todo: { $ref: '#/components/schemas/Todo' }
+        next:
+          description: 生成的下一次实例；不是重复待办时为 `null`
+          oneOf:
+            - $ref: '#/components/schemas/Todo'
+            - type: 'null'
+
+    # ── 日程 ──
+    Event:
+      description: |
+        同步实体类型 `event`。
+        定时日程：`allDay = false`，用 `startsAt` / `endsAt`；
+        全天日程：`allDay = true`，用 `startDate` / `endDate`（含首尾，按房间时区）。另一组字段为 `null`。
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [title, note, location, allDay, startsAt, endsAt, startDate, endDate, participantIds, createdBy, icsUid]
+          properties:
+            title: { type: string, minLength: 1, maxLength: 200 }
+            note: { type: [string, 'null'], maxLength: 2000 }
+            location: { type: [string, 'null'], maxLength: 200 }
+            allDay: { type: boolean }
+            startsAt: { $ref: '#/components/schemas/NullableInstant' }
+            endsAt: { $ref: '#/components/schemas/NullableInstant' }
+            startDate: { $ref: '#/components/schemas/NullableLocalDate' }
+            endDate: { $ref: '#/components/schemas/NullableLocalDate' }
+            participantIds:
+              type: array
+              description: 为空 = 两个人
+              items: { $ref: '#/components/schemas/Uuid' }
+            createdBy: { $ref: '#/components/schemas/Uuid' }
+            icsUid: { type: [string, 'null'] }
+    CreateEventRequest:
+      type: object
+      required: [id, title, allDay]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        note: { type: string, maxLength: 2000 }
+        location: { type: string, maxLength: 200 }
+        allDay: { type: boolean }
+        startsAt: { $ref: '#/components/schemas/Instant' }
+        endsAt: { $ref: '#/components/schemas/Instant' }
+        startDate: { $ref: '#/components/schemas/LocalDate' }
+        endDate: { $ref: '#/components/schemas/LocalDate' }
+        participantIds:
+          type: array
+          items: { $ref: '#/components/schemas/Uuid' }
+    UpdateEventRequest:
+      type: object
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        note: { type: [string, 'null'], maxLength: 2000 }
+        location: { type: [string, 'null'], maxLength: 200 }
+        allDay: { type: boolean }
+        startsAt: { $ref: '#/components/schemas/NullableInstant' }
+        endsAt: { $ref: '#/components/schemas/NullableInstant' }
+        startDate: { $ref: '#/components/schemas/NullableLocalDate' }
+        endDate: { $ref: '#/components/schemas/NullableLocalDate' }
+        participantIds:
+          type: array
+          items: { $ref: '#/components/schemas/Uuid' }
+
+    # ── 聊天 ──
+    MessageKind:
+      type: string
+      enum: [text, image, file, ai, system]
+    FileKind:
+      type: string
+      enum: [image, file, avatar, hero, epub, review]
+    FileMeta:
+      type: object
+      required: [id, roomId, kind, fileName, mimeType, sizeBytes, sha256, width, height, uploadedBy, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        roomId: { $ref: '#/components/schemas/Uuid' }
+        kind: { $ref: '#/components/schemas/FileKind' }
+        fileName: { type: string, example: 行程草稿.pdf }
+        mimeType: { type: string, example: application/pdf }
+        sizeBytes: { type: integer, format: int64 }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        width: { type: [integer, 'null'] }
+        height: { type: [integer, 'null'] }
+        uploadedBy: { $ref: '#/components/schemas/Uuid' }
+        createdAt: { $ref: '#/components/schemas/Instant' }
+    Message:
+      description: 同步实体类型 `message`
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [authorId, kind, body, file, replyToId, replyAuthorId, replyExcerpt, retractedAt, retractedBy, createdSeq]
+          properties:
+            authorId:
+              $ref: '#/components/schemas/NullableUuid'
+              description: '`ai` / `system` 消息为空'
+            kind: { $ref: '#/components/schemas/MessageKind' }
+            body: { type: string, maxLength: 10000, description: 撤回后为空字符串 }
+            file:
+              description: 图片或文件消息所附文件的元数据；撤回后为 `null`
+              oneOf:
+                - $ref: '#/components/schemas/FileMeta'
+                - type: 'null'
+            replyToId: { $ref: '#/components/schemas/NullableUuid' }
+            replyAuthorId: { $ref: '#/components/schemas/NullableUuid' }
+            replyExcerpt: { type: [string, 'null'], maxLength: 60 }
+            retractedAt: { $ref: '#/components/schemas/NullableInstant' }
+            retractedBy: { $ref: '#/components/schemas/NullableUuid' }
+            createdSeq:
+              type: integer
+              format: int64
+              description: 创建时分配的 seq，决定消息在聊天里的位置，之后不变
+    SendMessageRequest:
+      type: object
+      required: [id, kind]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        kind: { type: string, enum: [text, image, file] }
+        body: { type: string, maxLength: 10000 }
+        fileId: { $ref: '#/components/schemas/Uuid' }
+        replyToId: { $ref: '#/components/schemas/Uuid' }
+    MessagePage:
+      type: object
+      required: [messages, hasMore]
+      properties:
+        messages:
+          type: array
+          description: 按 `createdSeq` 降序
+          items: { $ref: '#/components/schemas/Message' }
+        hasMore: { type: boolean }
+    MessageSearchPage:
+      type: object
+      required: [messages, nextCursor]
+      properties:
+        messages:
+          type: array
+          items: { $ref: '#/components/schemas/Message' }
+        nextCursor: { type: [string, 'null'] }
+    ReadMarker:
+      description: 同步实体类型 `read_marker`；只同步给本人
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [userId, lastReadSeq]
+          properties:
+            userId: { $ref: '#/components/schemas/Uuid' }
+            lastReadSeq:
+              type: integer
+              format: int64
+              description: 读到的最后一条消息的 `createdSeq`
+    UpdateReadMarkerRequest:
+      type: object
+      required: [lastReadSeq]
+      properties:
+        lastReadSeq: { type: integer, format: int64, minimum: 0 }
+
+    # ── 文件 ──
+    UploadFileForm:
+      type: object
+      required: [file, kind]
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          description: 文件内容；文件名取自 multipart 的 filename
+        kind:
+          type: string
+          enum: [image, file, avatar, hero]
+          description: epub、review 在后续阶段开放
+        id:
+          $ref: '#/components/schemas/Uuid'
+          description: 客户端生成的文件 id，用于重试时去重；不传则由服务端生成
+
+    # ── 回收站 ──
+    TrashType:
+      type: string
+      description: 第 3 阶段可恢复的类型，后续阶段追加
+      enum: [message, mood, todo, event]
+    TrashItem:
+      type: object
+      required: [type, id, deletedAt, deletedBy, data]
+      properties:
+        type: { $ref: '#/components/schemas/TrashType' }
+        id: { $ref: '#/components/schemas/Uuid' }
+        deletedAt: { $ref: '#/components/schemas/Instant' }
+        deletedBy: { $ref: '#/components/schemas/Uuid' }
+        data:
+          oneOf:
+            - $ref: '#/components/schemas/Message'
+            - $ref: '#/components/schemas/Mood'
+            - $ref: '#/components/schemas/Todo'
+            - $ref: '#/components/schemas/Event'
+    TrashPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/TrashItem' }
+        nextCursor: { type: [string, 'null'] }
+
+    # ── 推送设备 ──
+    PushProvider:
+      type: string
+      enum: [fcm, unifiedpush]
+    Device:
+      type: object
+      required: [id, provider, token, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        provider: { $ref: '#/components/schemas/PushProvider' }
+        token: { type: string, description: FCM 令牌，或 UnifiedPush 推送地址 }
+        createdAt: { $ref: '#/components/schemas/Instant' }
+    RegisterDeviceRequest:
+      type: object
+      required: [id, provider, token]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        provider: { $ref: '#/components/schemas/PushProvider' }
+        token: { type: string, minLength: 1, maxLength: 4096 }

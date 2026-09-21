@@ -45,6 +45,7 @@
 | `conflict_version` | 409 | 基线落后 |
 | `conflict_id` | 409 | 同 id 已存在但属于别人或别的房间 |
 | `room_full` | 409 | 房间已有 2 人 |
+| `username_taken` | 409 | 用户名已被注册 |
 | `invite_invalid` | 400 | 邀请码不存在、已用或已过期 |
 | `registration_closed` | 403 | 已有用户且未提供有效邀请码 |
 | `payload_too_large` | 413 | 超过大小限制 |
@@ -52,6 +53,7 @@
 | `rate_limited` | 429 | 请求太频繁，看 `Retry-After` |
 | `ai_unavailable` | 503 | AI 服务未配置或暂时不可用 |
 | `ai_quota_exceeded` | 429 | 本月 AI 额度用完 |
+| `internal_error` | 500 | 服务端未预料的错误（日志里有详情，响应里不含堆栈） |
 
 ### 令牌
 
