@@ -1,0 +1,24 @@
+# 三个 Gradle 构建（shared / server / android）共用这一份版本清单，保证 Kotlin 等版本完全一致。
+# 各构建在 settings.gradle.kts 里用 from(files("../gradle/libs.versions.toml")) 引入。
+# 版本在初始化时取最新稳定版（2026-09-21）；升级是单独的任务。
+
+[versions]
+kotlin = "2.4.20"
+kotlinx-serialization = "1.11.0"
+java-diff-utils = "4.17"
+junit = "6.1.3"
+snakeyaml-engine = "3.1.1"
+
+[libraries]
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+java-diff-utils = { module = "io.github.java-diff-utils:java-diff-utils", version.ref = "java-diff-utils" }
+
+# 测试
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+snakeyaml-engine = { module = "org.snakeyaml:snakeyaml-engine", version.ref = "snakeyaml-engine" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
