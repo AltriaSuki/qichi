@@ -1,9 +1,10 @@
 # syntax=docker/dockerfile:1
 # 在仓库根目录构建：docker build -f deploy/server.Dockerfile .
-# 只需要 server/ 和 shared/，不需要 Android SDK（见 server.Dockerfile.dockerignore）。
+# 只需要 server/、shared/ 和共用版本清单，不需要 Android SDK（见 server.Dockerfile.dockerignore）。
 
 FROM eclipse-temurin:21-jdk AS build
 WORKDIR /src
+COPY gradle/libs.versions.toml gradle/libs.versions.toml
 COPY shared/ shared/
 COPY server/ server/
 WORKDIR /src/server

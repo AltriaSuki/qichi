@@ -21,7 +21,7 @@ AI 做完后，你检查三件事：测试是否全部通过、截图或演示�
 
 - [x] **P0-01 共享模块** — 初始化 `shared/` 独立 Gradle 构建（Kotlin/JVM、kotlinx.serialization、JDK 21 工具链、Gradle Wrapper），`rootProject.name = "qichi-shared"`，`group = "app.qichi"`。实现 `UuidV7`、`CjkText.charCount()` / `readingMinutes()`、`Diff.lines()`（java-diff-utils），以及 `EntityType`、`MoodLabel`、`MoodReplyKind` 等枚举。
   - 验收：`cd shared && ./gradlew test` 通过；UUIDv7 按时间单调递增有测试；中文字数统计对中英混排、标点有测试。
-- [ ] **P0-02 服务端骨架** — 初始化 `server/`（Ktor + Netty，`application` 插件，Gradle Wrapper，`rootProject.name = "qichi-server"`，`includeBuild("../shared")`）。`AppConfig` 从环境变量读取（变量名与 `deploy/.env.example` 和 `deploy/docker-compose.yml` 一致）；未设置时使用 `deploy/docker-compose.dev.yml` 的本地默认值，但生产环境缺少 `JWT_SECRET` 等关键变量时拒绝启动；安装 JSON 序列化、problem+json 错误处理、请求日志（不打印正文）；启动时执行 Flyway 迁移（已有 `V1__init.sql`）；`GET /api/v1/health`。
+- [x] **P0-02 服务端骨架** — 初始化 `server/`（Ktor + Netty，`application` 插件，Gradle Wrapper，`rootProject.name = "qichi-server"`，`includeBuild("../shared")`）。`AppConfig` 从环境变量读取（变量名与 `deploy/.env.example` 和 `deploy/docker-compose.yml` 一致）；未设置时使用 `deploy/docker-compose.dev.yml` 的本地默认值，但生产环境缺少 `JWT_SECRET` 等关键变量时拒绝启动；安装 JSON 序列化、problem+json 错误处理、请求日志（不打印正文）；启动时执行 Flyway 迁移（已有 `V1__init.sql`）；`GET /api/v1/health`。
   - 验收：`./gradlew test` 通过（Testcontainers 起 PostgreSQL，验证迁移成功和 health 返回）；按 `CLAUDE.md` 的命令本地运行成功；`docker build -f deploy/server.Dockerfile .` 在仓库根目录能构建成功。
 - [ ] **P0-03 Android 骨架** — 在 `android/` 创建工程（包名 `app.qichi`，minSdk 26，Compose + Material 3 + Hilt），`includeBuild("../shared")` 并依赖它；`BuildConfig.BASE_URL` 从 `local.properties` 的 `qichi.baseUrl` 读取；把 Noto Serif SC 与 Cormorant Garamond 字体文件（SIL OFL 许可，保留许可文件）放进 `res/font/`。
   - 验收：`./gradlew :app:assembleDebug` 通过；装到模拟器能打开，显示用思源宋体写的「栖迟」。

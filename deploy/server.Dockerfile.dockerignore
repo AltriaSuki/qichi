@@ -1,5 +1,6 @@
-# server.Dockerfile 专用：构建上下文只放 shared/ 和 server/ 的源码。
+# server.Dockerfile 专用：构建上下文只放共用版本清单、shared/ 和 server/ 的源码。
 *
+!gradle/libs.versions.toml
 !shared
 !server
 **/build
