@@ -7,7 +7,12 @@ import app.qichi.server.auth.authRoutes
 import app.qichi.server.config.AppConfig
 import app.qichi.server.config.ConfigException
 import app.qichi.server.db.QichiDatabase
+import app.qichi.server.db.EntityWrites
 import app.qichi.server.db.RoomWriter
+import app.qichi.server.events.EventService
+import app.qichi.server.life.lifeRoutes
+import app.qichi.server.moods.MoodService
+import app.qichi.server.todos.TodoService
 import app.qichi.server.me.MeService
 import app.qichi.server.plugins.installCallLogging
 import app.qichi.server.plugins.installDefaultHeaders
@@ -73,6 +78,7 @@ fun Application.module(ctx: AppContext) {
             authRoutes(ctx)
             roomRoutes(ctx)
             syncRoutes(ctx)
+            lifeRoutes(ctx)
         }
     }
 }
@@ -94,6 +100,10 @@ class AppContext(
     val auth = AuthService(database, hasher, tokens, rooms, clock)
     val me = MeService(database, writer, clock)
     val sync = SyncService(database)
+    val writes = EntityWrites(writer, clock)
+    val moods = MoodService(database, rooms, writes)
+    val todos = TodoService(database, rooms, writes)
+    val events = EventService(database, rooms, writes)
 }
 
 class MicrosClock(private val base: Clock) : Clock() {

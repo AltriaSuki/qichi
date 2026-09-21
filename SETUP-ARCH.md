@@ -94,4 +94,5 @@ adb shell getprop sys.boot_completed   # 输出 1 表示启动完成
 | 模拟器提示没有加速 | `ls -l /dev/kvm` 应可读写；`lsmod \| grep kvm` 应有 `kvm_amd` 或 `kvm_intel` |
 | `adb devices` 显示 `no permissions`（真机） | 确认装了 `android-udev`、在 `adbusers` 组，重新插拔数据线 |
 | App 显示「连不上服务器」，服务端日志里没有请求 | 模拟器里执行过 `adb reverse tcp:8080 tcp:8080` 吗？`adb reverse --list` 查看 |
+| 服务端测试报 `Previous attempts to find a Docker environment failed` | Gradle 守护进程是在加入 docker 组之前启动的：`./gradlew --stop` 后重跑，或加 `--no-daemon` |
 | Gradle 找不到 SDK | 确认 `ANDROID_HOME`，或在 `android/local.properties` 写 `sdk.dir=/home/<用户名>/Android/Sdk` |
