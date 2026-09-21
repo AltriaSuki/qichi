@@ -10,7 +10,7 @@ import kotlinx.serialization.Serializable
 /** 同步实体 room。房间没有删除。 */
 @Serializable
 data class Room(
-    val id: Id,
+    override val id: Id,
     val name: String,
     val avatarFileId: Id?,
     /** 今天页主视觉照片；为空时显示雾海插画 */
@@ -20,17 +20,17 @@ data class Room(
     val timezone: String,
     /** 创建者用 personA 的颜色，另一位用 personB */
     val createdBy: Id,
-    val seq: Long,
+    override val seq: Long,
     val createdAt: Timestamp,
     val updatedAt: Timestamp,
-)
+) : SyncEntity
 
 /** 同步实体 member。 */
 @Serializable
 data class Member(
-    val id: Id,
+    override val id: Id,
     val roomId: Id,
-    val seq: Long,
+    override val seq: Long,
     val createdAt: Timestamp,
     val updatedAt: Timestamp,
     val deletedAt: Timestamp?,
@@ -41,7 +41,7 @@ data class Member(
     val displayName: String,
     val avatarFileId: Id?,
     val joinedAt: Timestamp,
-)
+) : SyncEntity
 
 @Serializable
 data class RoomDetail(

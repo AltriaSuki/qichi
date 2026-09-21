@@ -17,10 +17,13 @@ class Tx internal constructor(val jdbc: JdbcTransaction) {
     }
 }
 
-/** 在 IO 线程上开一个事务执行 [block]；提交后执行登记的 afterCommit 动作。 */
-suspend fun <T> QichiDatabase.tx(block: Tx.() -> T): T {
+/**
+ * 在 IO 线程上开一个事务执行 [block]；提交后执行登记的 afterCommit 动作。
+ * @param isolation 例如 bootstrap 用 Connection.TRANSACTION_REPEATABLE_READ 取一致的快照
+ */
+suspend fun <T> QichiDatabase.tx(isolation: Int? = null, readOnly: Boolean = false, block: Tx.() -> T): T {
     val (result, actions) = withContext(Dispatchers.IO) {
-        transaction(exposed) {
+        transaction(exposed, transactionIsolation = isolation, readOnly = readOnly) {
             val tx = Tx(this)
             val result = tx.block()
             result to tx.afterCommitActions.toList()

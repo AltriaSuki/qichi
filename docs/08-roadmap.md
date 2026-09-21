@@ -38,7 +38,7 @@ AI 做完后，你检查三件事：测试是否全部通过、截图或演示�
   - 验收：集成测试覆盖：第二个用户无邀请码注册被拒（`registration_closed`）；旧刷新令牌第二次使用导致该设备所有令牌作废；错误密码 5 次后被限流。
 - [x] **P1-02 服务端房间** — 建房间、查看、修改设置、生成邀请码（仅 owner、8 位去易混字符、7 天有效、满员 409）、接受邀请；统一的 `requireMember(roomId)`；`db/RoomWrite.kt`（分配 seq + 写 change_log + 提交后广播）。
   - 验收：非成员访问任何房间接口得到 404；并发 50 次写入后 `seq` 连续无重复（测试）；第三个人接受邀请得到 `room_full`。
-- [ ] **P1-03 服务端同步** — `bootstrap`、`sync`（区间内同一实体只返回最后状态、分页）、WebSocket `/ws`（`hello`、`changed`）。
+- [x] **P1-03 服务端同步** — `bootstrap`、`sync`（区间内同一实体只返回最后状态、分页）、WebSocket `/ws`（`hello`、`changed`）。
   - 验收：集成测试：写入 3 次同一待办，`sync` 只返回 1 条且为最新；`limit` 分页的 `hasMore` 正确；另一个成员的 WebSocket 能收到 `changed`。
 - [ ] **P1-04 客户端网络与会话** — Ktor Client；令牌用 Android Keystore 加密保存；401 时自动刷新一次再重试；problem+json 解析为类型化错误；登出清除本地数据。
   - 验收：单元测试（Ktor MockEngine）覆盖自动刷新和刷新失败后跳回登录。

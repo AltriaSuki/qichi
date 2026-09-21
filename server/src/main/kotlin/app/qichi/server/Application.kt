@@ -17,6 +17,9 @@ import app.qichi.server.plugins.installSerialization
 import app.qichi.server.rooms.RoomService
 import app.qichi.server.rooms.roomRoutes
 import app.qichi.server.sync.RealtimeHub
+import app.qichi.server.sync.SyncService
+import app.qichi.server.sync.installWebSockets
+import app.qichi.server.sync.syncRoutes
 import app.qichi.server.system.systemRoutes
 import app.qichi.shared.api.API_PREFIX
 import io.ktor.server.application.Application
@@ -62,12 +65,14 @@ fun Application.module(ctx: AppContext) {
     installCallLogging()
     installDefaultHeaders()
     installSecurity(ctx.tokens, ctx.auth)
+    installWebSockets()
 
     routing {
         route(API_PREFIX) {
             systemRoutes(ctx)
             authRoutes(ctx)
             roomRoutes(ctx)
+            syncRoutes(ctx)
         }
     }
 }
@@ -88,6 +93,7 @@ class AppContext(
     val rooms = RoomService(database, writer, clock)
     val auth = AuthService(database, hasher, tokens, rooms, clock)
     val me = MeService(database, writer, clock)
+    val sync = SyncService(database)
 }
 
 class MicrosClock(private val base: Clock) : Clock() {
