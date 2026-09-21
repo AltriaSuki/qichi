@@ -17,6 +17,7 @@
   | `deleted_at` / `deleted_by` | 软删除（进回收站）；为空表示正常 |
 
   并且有索引 `(room_id, seq)`。
+- **位置与版本分开**：`seq` 表示「最后一次变化」，会随修改、删除、恢复变大；需要稳定排序的实体另存创建时的序号（目前只有消息的 `created_seq`）。
 - **作者**：谁写的就记谁（`author_id` / `created_by`），「我的 → 我写下的内容」靠它归总。
 - **不可变内容**（文稿版本、审稿版本、档案修订）只插入、不更新。
 - **枚举值**存英文小写字符串，取值定义在 `shared/model/`，中文显示名只在客户端。
@@ -27,18 +28,18 @@
 | 表 | 用途 | 关键字段 |
 |---|---|---|
 | `users` | 账号 | `username` 唯一、`password_hash`（Argon2id）、`display_name`、`avatar_file_id`、`notification_prefs` |
-| `refresh_tokens` | 刷新令牌 | 只存哈希；`expires_at`、`revoked_at`、`replaced_by`（轮换链） |
+| `refresh_tokens` | 刷新令牌 | 只存哈希；`family_id`（同一次登录 = 一台设备，重复使用检测时整组作废）、`device_name`、`expires_at`、`revoked_at`、`replaced_by`（轮换链） |
 | `rooms` | 房间 | `name`、`avatar_file_id`、`hero_file_id`（今天页主视觉）、`anniversary`、`timezone`、`last_seq` |
 | `room_members` | 成员 | `role`：owner / member；每房间最多 2 人（服务端校验） |
 | `invites` | 邀请码 | `code` 唯一、`expires_at`、`used_by` |
 | `change_log` | 同步日志 | 主键 `(room_id, seq)`；`entity_type`、`entity_id`、`op` |
 | `files` | 文件元数据 | `kind`：image / file / avatar / hero / epub / review；`sha256`；`storage_path` |
-| `messages` | 聊天消息 | `kind`：text / image / file / ai / system；`reply_to_id` + `reply_excerpt`；`retracted_at/by`；`body` 上有三元组索引用于搜索 |
-| `read_markers` | 未读位置 | 每人每房间一行；`last_read_seq` 只增不减 |
+| `messages` | 聊天消息 | `kind`：text / image / file / ai / system；`created_seq`（创建时的 seq，决定消息位置，永不改变）；`reply_to_id` + `reply_author_id` + `reply_excerpt`；`retracted_at/by`（撤回时清空 `body`、`file_id`，以及回复它的消息的 `reply_excerpt`）；`body` 上有三元组索引用于搜索 |
+| `read_markers` | 未读位置 | 每人每房间一行；`last_read_seq`（对应 `messages.created_seq`）只增不减；只同步给本人 |
 | `moods` | 心情 | `label`、`intensity` 1–10、`note`、`needs_comfort` |
 | `mood_responses` | 对心情的回应（接口与代码里叫 `MoodReply`，避免和 HTTP response 混淆） | `kind`：here（我在这里）/ hug（给你一个拥抱）/ ready（等你准备好） |
-| `todos` | 待办 | `assignee_id`（空 = 两人）、`parent_id`（子任务）、`due_date` 或 `due_at`、`recurrence`（RRULE）、`done_at/by` |
-| `events` | 日程 | `starts_at`、`ends_at`、`all_day`、`participant_ids`、`ics_uid`（导入去重） |
+| `todos` | 待办 | `assignee_id`（空 = 两人）、`parent_id`（子任务，只有一层）、`due_date` 或 `due_at`、`recurrence`（RRULE）、`recurrence_prev_id`（由哪一次完成生成，唯一，防止重复生成）、`done_at/by` |
+| `events` | 日程 | 定时：`starts_at`、`ends_at`；全天（`all_day`）：`start_date`、`end_date`（含首尾，按房间时区）；`participant_ids`（空 = 两人）、`ics_uid`（导入去重） |
 | `devices` | 推送设备 | `provider`：fcm / unifiedpush；`token` |
 
 `entity_type` 取值（与 `shared/model/EntityType` 一致）：

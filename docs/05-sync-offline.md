@@ -33,7 +33,7 @@ VALUES (:roomId, :newSeq, :type, :id, 'upsert', :userId, now());
 |---|---|
 | `GET /api/v1/rooms/{roomId}/bootstrap` | 首次安装或清除数据后：返回房间信息、成员、`lastSeq`、除消息外所有同步实体的当前状态（含已软删除的，用于回收站）、最近 50 条消息 |
 | `GET /api/v1/rooms/{roomId}/sync?since={seq}&limit=500` | 增量：返回 `since` 之后变化过的实体 |
-| `GET /api/v1/rooms/{roomId}/messages?beforeSeq={seq}&limit=50` | 往上翻历史消息 |
+| `GET /api/v1/rooms/{roomId}/messages?beforeSeq={createdSeq}&limit=50` | 往上翻历史消息（按消息的 `createdSeq`） |
 | `WS /api/v1/ws` | 前台实时提示 |
 
 `sync` 的响应：
@@ -107,7 +107,9 @@ loop:
 | 409 且是版本冲突 | 实体标记 `CONFLICT`，保留本地内容（文稿进入「重基线」流程），删除这条 outbox，继续 |
 | 其它 4xx | 实体标记 `FAILED`，界面上显示「发送失败」，可重试或放弃；同一实体后面排队的操作一并标记失败 |
 
-界面上：`PENDING` 的消息排在最底部，按本机创建时间排序，旁边显示一个小时钟图标；发送成功后按服务端 `seq` 归位。
+界面上：`PENDING` 的消息排在最底部，按本机创建时间排序，旁边显示一个小时钟图标；发送成功后按服务端分配的 `createdSeq` 归位。
+
+> 消息的 `seq` 会随撤回、删除、恢复而变大（它表示「最后一次变化」），所以消息在列表里的位置、翻历史、未读计数都用创建时分配、之后不变的 `createdSeq`。
 
 ### 3.4 不进发件箱的操作
 
@@ -131,7 +133,9 @@ loop:
 
 - `PUT /rooms/{roomId}/read-marker {"lastReadSeq": n}`，按**用户**保存（不是按设备），所以跨设备同步。
 - 进入聊天、滚动到新消息时推进；推进本身也走发件箱（多次推进只保留最后一次）。
-- 未读数 = 对方发的、`seq > 我的 lastReadSeq`、未删除的消息条数，在本地计算。
+- `lastReadSeq` 指的是消息的 `createdSeq`。
+- 未读数 = 对方发的、`createdSeq > 我的 lastReadSeq`、未删除的消息条数，在本地计算。
+- 服务端的 `sync` / `bootstrap` 只返回**自己的** `read_marker`，对方的未读位置不下发。
 - 这是给自己看的位置，**不会**展示给对方（不做已读回执）。
 
 ### 3.7 删除、回收站与撤回

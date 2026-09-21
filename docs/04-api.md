@@ -15,7 +15,7 @@
 | 修改 | `PATCH`，只发改动的字段；返回完整对象 |
 | 删除 | `DELETE` = 软删除（进回收站），返回完整对象（带 `deletedAt`）；彻底删除走回收站接口 |
 | 版本冲突 | 需要基线的写入（文稿、档案、留言编辑）带 `baseVersion`；不是最新 → **409**，`code = "conflict_version"`，响应里附最新版本号 |
-| 分页 | 游标式：消息用 `beforeSeq`，其它列表用 `cursor` + `limit`，响应带 `nextCursor` |
+| 分页 | 游标式：消息用 `beforeSeq`（指消息的 `createdSeq`），其它列表用 `cursor` + `limit`，响应带 `nextCursor` |
 | 客户端信息 | 请求头 `X-Qichi-Client: android/{versionName}`，便于排查 |
 | 大小限制 | 文字消息正文 ≤ 10,000 字；图片 ≤ 20MB；其它文件、EPUB、审稿文件 ≤ 100MB |
 
