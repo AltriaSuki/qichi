@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 仅调试版：组件陈列页（启动命令见 ShowcaseActivity.kt 顶部注释） -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name=".debug.ShowcaseActivity"
+            android:exported="true"
+            android:label="组件陈列" />
+    </application>
+</manifest>

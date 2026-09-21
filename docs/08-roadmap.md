@@ -25,7 +25,7 @@ AI 做完后，你检查三件事：测试是否全部通过、截图或演示�
   - 验收：`./gradlew test` 通过（Testcontainers 起 PostgreSQL，验证迁移成功和 health 返回）；按 `CLAUDE.md` 的命令本地运行成功；`docker build -f deploy/server.Dockerfile .` 在仓库根目录能构建成功。
 - [x] **P0-03 Android 骨架** — 在 `android/` 创建工程（包名 `app.qichi`，minSdk 26，Compose + Material 3 + Hilt），`includeBuild("../shared")` 并依赖它；`BuildConfig.BASE_URL` 从 `local.properties` 的 `qichi.baseUrl` 读取；把 Noto Serif SC 与 Cormorant Garamond 字体文件（SIL OFL 许可，保留许可文件）放进 `res/font/`。
   - 验收：`./gradlew :app:assembleDebug` 通过；装到模拟器能打开，显示用思源宋体写的「栖迟」。
-- [ ] **P0-04 设计系统** — 按 `06-design-system.md` 实现四套天色、`skyAt()`、字号层级、间距常量，以及第 5 节组件清单中前 10 个组件（到 `CheckCircle` 为止）。做一个仅调试版可见的「组件陈列」页，四种天色可切换。
+- [x] **P0-04 设计系统** — 按 `06-design-system.md` 实现四套天色、`skyAt()`、字号层级、间距常量，以及第 5 节组件清单中前 10 个组件（到 `CheckCircle` 为止）。做一个仅调试版可见的「组件陈列」页，四种天色可切换。
   - 验收：`skyAt()` 边界时间有单元测试；在模拟器截四张陈列页截图（四种天色）给人类确认。
 - [ ] **P0-05 导航骨架** — 单 Activity；底部四个标签各自独立返回栈；「一起」页三组标签；深链 `qichi://room/{roomId}/{page}[/{id}]`；各页面先放占位。
   - 验收：`adb shell am start -d "qichi://room/test/chat"` 能直接打开聊天标签；在「一起 → 心情」按返回回到「一起」，再按返回回到上一个标签。
