@@ -4,7 +4,9 @@ import android.content.Context
 import app.qichi.BuildConfig
 import app.qichi.core.auth.LocalDataCleaner
 import app.qichi.core.auth.TokenStore
+import app.qichi.core.auth.SessionManager
 import app.qichi.core.data.DataStoreProfileStore
+import app.qichi.core.data.MoodRepository
 import app.qichi.core.data.ProfileStore
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.database.QichiDatabase
@@ -73,6 +75,11 @@ object SyncModule {
         scheduler: SyncScheduler,
         profile: ProfileStore,
     ): RoomRepository = RoomRepository(api, db, store, syncEngine, scheduler, profile)
+
+    @Provides
+    @Singleton
+    fun moodRepository(db: QichiDatabase, store: LocalStore, scheduler: SyncScheduler, session: SessionManager): MoodRepository =
+        MoodRepository(db, store, scheduler, session)
 
     /** 登出时清掉本机保存的「我」与当前房间。 */
     @Provides

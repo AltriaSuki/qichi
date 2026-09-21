@@ -51,13 +51,14 @@ fun MistCard(
     )
 }
 
-/** surface 背景的胶囊按钮，如心情回应「我在这里」。 */
+/** surface 背景的胶囊按钮，如心情回应「我在这里」。[selected] 时文字用 accent 色（如已经给出的回应）。 */
 @Composable
 fun Pill(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    selected: Boolean = false,
 ) {
     val colors = QichiTheme.colors
     Box(
@@ -75,7 +76,11 @@ fun Pill(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.W400,
                 letterSpacing = 0.06.em,
-                color = if (enabled) colors.ink else colors.faint,
+                color = when {
+                    !enabled -> colors.faint
+                    selected -> colors.accent
+                    else -> colors.ink
+                },
             ),
         )
     }
