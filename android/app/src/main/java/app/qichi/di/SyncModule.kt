@@ -6,6 +6,7 @@ import app.qichi.core.auth.LocalDataCleaner
 import app.qichi.core.auth.TokenStore
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.data.DataStoreProfileStore
+import app.qichi.core.data.EventRepository
 import app.qichi.core.data.MoodRepository
 import app.qichi.core.data.TodoRepository
 import app.qichi.core.data.ProfileStore
@@ -86,6 +87,11 @@ object SyncModule {
     @Singleton
     fun todoRepository(db: QichiDatabase, store: LocalStore, scheduler: SyncScheduler, session: SessionManager): TodoRepository =
         TodoRepository(db, store, scheduler, session)
+
+    @Provides
+    @Singleton
+    fun eventRepository(db: QichiDatabase, store: LocalStore, scheduler: SyncScheduler, session: SessionManager): EventRepository =
+        EventRepository(db, store, scheduler, session)
 
     /** 登出时清掉本机保存的「我」与当前房间。 */
     @Provides

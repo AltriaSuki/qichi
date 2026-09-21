@@ -30,6 +30,7 @@ import androidx.navigation.toRoute
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.component.QichiTabBar
 import app.qichi.core.designsystem.component.TabItem
+import app.qichi.feature.calendar.EventListScreen
 import app.qichi.feature.me.MeScreen
 import app.qichi.feature.mood.MoodScreen
 import app.qichi.feature.todo.TodoScreen
@@ -110,6 +111,7 @@ fun QichiApp(
                         when (route.page) {
                             Page.Mood -> MoodScreen(roomId = roomId, onBack = navigator::back)
                             Page.Todo -> TodoScreen(roomId = roomId, onBack = navigator::back)
+                            Page.Calendar -> EventListScreen(roomId = roomId, onBack = navigator::back)
                             else -> PagePlaceholder(route.page.title, onBack = navigator::back)
                         }
                     }
