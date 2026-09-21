@@ -60,6 +60,13 @@ interface EntityDao {
     )
     fun observeNewestMessage(roomId: String): Flow<EntityRow?>
 
+    /** 列表里排在这条之前（更新）的消息数，即它在倒序列表里的位置。待发送的消息都算更新。 */
+    @Query(
+        """SELECT COUNT(*) FROM entities WHERE roomId = :roomId AND type = 'message' AND deleted = 0
+           AND (sortSeq IS NULL OR sortSeq > :createdSeq)""",
+    )
+    suspend fun countNewerMessages(roomId: String, createdSeq: Long): Int
+
     @Query("SELECT MIN(sortSeq) FROM entities WHERE roomId = :roomId AND type = 'message' AND sortSeq IS NOT NULL")
     suspend fun oldestMessageSeq(roomId: String): Long?
 

@@ -1,8 +1,14 @@
 package app.qichi.feature.chat
 
+import android.content.ClipData
+import android.widget.Toast
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -22,7 +28,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,16 +40,24 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -62,12 +78,17 @@ import app.qichi.core.sync.Local
 import app.qichi.core.ui.chatDay
 import app.qichi.shared.api.Message
 import app.qichi.shared.model.MessageKind
+import app.qichi.shared.rules.MessageRules
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Duration
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import kotlin.math.abs
 
 /** 同一个人 5 分钟内连着发的算一组：组内间距小，只在最后一条下面写时间。 */
 private val GROUP_WINDOW: Duration = Duration.ofMinutes(5)
@@ -87,10 +108,43 @@ fun ChatScreen(
     val scope = rememberCoroutineScope()
     val people = state.people
 
+    val replyTo by viewModel.replyTo.collectAsStateWithLifecycle()
+    val jumping by viewModel.jumping.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val clipboard = LocalClipboard.current
+
     val atBottom by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
     var unseen by remember { mutableStateOf(false) }
+    var highlighted by remember { mutableStateOf<UUID?>(null) }
+    var menuFor by remember { mutableStateOf<Local<Message>?>(null) }
 
-    LaunchedEffect(Unit) { viewModel.sent.collect { listState.scrollToItem(0) } }
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is ChatEvent.ScrollTo -> {
+                    // 刚从服务端补下来的历史，列表可能还没刷新到：等它包含这个位置
+                    withTimeoutOrNull(5_000) { snapshotFlow { items.itemCount }.first { it > event.index } }
+                    fun locate(): Int? = (0 until items.itemCount)
+                        .sortedBy { abs(it - event.index) }
+                        .take(80)
+                        .firstOrNull { items.peek(it)?.value?.id == event.id }
+                    // 先滚到大致位置；那一段从数据库读出来、占位换成真实高度后，再按 id 校准一次
+                    listState.scrollToItem((event.index - 2).coerceIn(0, (items.itemCount - 1).coerceAtLeast(0)))
+                    val exact = withTimeoutOrNull(3_000) { snapshotFlow { locate() }.first { it != null } }
+                    // 让原消息停在靠下的位置，而不是贴着输入框
+                    if (exact != null) listState.scrollToItem((exact - 2).coerceAtLeast(0))
+                    highlighted = event.id
+                }
+                is ChatEvent.Toast -> Toast.makeText(context, event.text, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    LaunchedEffect(highlighted) {
+        if (highlighted != null) {
+            delay(1_600)
+            highlighted = null
+        }
+    }
     // 最新一条变了：在底部就跟上去，翻在上面时给个「新消息」提示
     val newest by viewModel.newest.collectAsStateWithLifecycle()
     var lastNewestId by remember { mutableStateOf<UUID?>(null) }
@@ -99,10 +153,13 @@ fun ChatScreen(
         val first = lastNewestId == null
         lastNewestId = current.id
         if (first) return@LaunchedEffect
-        if (listState.firstVisibleItemIndex <= 1) {
-            listState.animateScrollToItem(0)
-        } else if (current.authorId != people.myUserId) {
-            unseen = true
+        val wasAtBottom = listState.firstVisibleItemIndex <= 1
+        // 分页列表和这条查询各自刷新，先等列表里真的出现这条再滚，否则会停在它上面一条
+        withTimeoutOrNull(2_000) { snapshotFlow { items.peek(0)?.value?.id }.first { it == current.id } }
+        when {
+            // 自己刚发的：总是滚到底
+            current.authorId == people.myUserId || wasAtBottom -> listState.animateScrollToItem(0)
+            else -> unseen = true
         }
     }
     LaunchedEffect(atBottom) { if (atBottom) unseen = false }
@@ -143,9 +200,23 @@ fun ChatScreen(
                     val newer = if (index > 0) items.peek(index - 1)?.value else null
                     MessageRow(
                         local = local, older = older, newer = newer, people = people, zone = zone, today = today,
-                        maxBubble = maxBubble, onRetry = viewModel::retry, onAbandon = viewModel::abandon,
+                        maxBubble = maxBubble, highlighted = local.value.id == highlighted,
+                        onRetry = viewModel::retry, onAbandon = viewModel::abandon,
+                        onLongPress = { menuFor = local }, onQuoteClick = viewModel::jumpTo,
                     )
                 }
+            }
+            if (jumping) {
+                Text(
+                    "正在找原消息…",
+                    style = QichiTheme.typography.caption.copy(fontSize = 12.tsp, letterSpacing = 0.12.em, color = colors.muted),
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 8.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.paper)
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                )
             }
             if (!atBottom) {
                 JumpToBottom(
@@ -157,10 +228,23 @@ fun ChatScreen(
                 )
             }
         }
+        replyTo?.let { ReplyStrip(it, people, onCancel = viewModel::cancelReply) }
         InputBar(
             draft = draft,
             onDraftChange = viewModel::onDraftChange,
             onSend = viewModel::send,
+        )
+    }
+
+    menuFor?.let { target ->
+        MessageActions(
+            local = target,
+            people = people,
+            onDismiss = { menuFor = null },
+            onReply = { viewModel.startReply(target.value) },
+            onCopy = {
+                scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("消息", target.value.body))) }
+            },
         )
     }
 }
@@ -196,10 +280,20 @@ private fun MessageRow(
     zone: ZoneId,
     today: LocalDate,
     maxBubble: Dp,
+    highlighted: Boolean,
     onRetry: (Message) -> Unit,
     onAbandon: (Message) -> Unit,
+    onLongPress: () -> Unit,
+    onQuoteClick: (UUID) -> Unit,
 ) {
     val m = local.value
+    val colors = QichiTheme.colors
+    // 跳转过来的原消息：底色闪一下再淡去
+    val flash by animateColorAsState(
+        targetValue = if (highlighted) colors.accent.copy(alpha = 0.12f) else Color.Transparent,
+        animationSpec = if (QichiTheme.reduceMotion) snap() else tween(if (highlighted) 200 else 900),
+        label = "highlight",
+    )
     val day = m.createdAt.atZone(zone).toLocalDate()
     val newDay = older == null || older.createdAt.atZone(zone).toLocalDate() != day
     val groupedWithOlder = !newDay && older != null && sameGroup(older, m)
@@ -215,15 +309,34 @@ private fun MessageRow(
             DaySeparator(day, today)
             Box(Modifier.size(16.dp))
         }
-        when {
-            m.retractedAt != null -> Notice(if (m.retractedBy == people.myUserId) "你撤回了一条消息" else "${people.name(m.retractedBy)}撤回了一条消息")
-            m.kind == MessageKind.System -> Notice(m.body)
-            else -> {
-                TextBubble(local, mine, people, maxBubble)
-                when {
-                    local.isFailed -> FailedActions(onRetry = { onRetry(m) }, onAbandon = { onAbandon(m) })
-                    !local.isPending && !groupedWithNewer -> TimeLabel(m, mine, zone)
-                }
+        Column(Modifier.background(flash, RoundedCornerShape(8.dp))) {
+            MessageBody(local, mine, groupedWithNewer, people, zone, maxBubble, onRetry, onAbandon, onLongPress, onQuoteClick)
+        }
+    }
+}
+
+@Composable
+private fun MessageBody(
+    local: Local<Message>,
+    mine: Boolean,
+    groupedWithNewer: Boolean,
+    people: People,
+    zone: ZoneId,
+    maxBubble: Dp,
+    onRetry: (Message) -> Unit,
+    onAbandon: (Message) -> Unit,
+    onLongPress: () -> Unit,
+    onQuoteClick: (UUID) -> Unit,
+) {
+    val m = local.value
+    when {
+        m.retractedAt != null -> Notice(if (m.retractedBy == people.myUserId) "你撤回了一条消息" else "${people.name(m.retractedBy)}撤回了一条消息")
+        m.kind == MessageKind.System -> Notice(m.body)
+        else -> {
+            TextBubble(local, mine, people, maxBubble, onLongPress = onLongPress, onQuoteClick = onQuoteClick)
+            when {
+                local.isFailed -> FailedActions(onRetry = { onRetry(m) }, onAbandon = { onAbandon(m) })
+                !local.isPending && !groupedWithNewer -> TimeLabel(m, mine, zone)
             }
         }
     }
@@ -234,7 +347,15 @@ private fun sameGroup(older: Message, newer: Message): Boolean =
         Duration.between(older.createdAt, newer.createdAt) < GROUP_WINDOW
 
 @Composable
-private fun TextBubble(local: Local<Message>, mine: Boolean, people: People, maxBubble: Dp) {
+private fun TextBubble(
+    local: Local<Message>,
+    mine: Boolean,
+    people: People,
+    maxBubble: Dp,
+    onLongPress: () -> Unit,
+    onQuoteClick: (UUID) -> Unit,
+) {
+    val haptics = LocalHapticFeedback.current
     val m = local.value
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
@@ -267,21 +388,30 @@ private fun TextBubble(local: Local<Message>, mine: Boolean, people: People, max
                         else -> Modifier.background(colors.surface)
                     },
                 )
+                .combinedClickable(
+                    onClick = {},
+                    onLongClickLabel = "更多操作",
+                    onLongClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onLongPress()
+                    },
+                )
                 .padding(horizontal = 16.dp, vertical = 11.dp),
         ) {
-            if (m.replyToId != null || m.replyExcerpt != null) ReplyQuote(m, people)
+            if (m.replyToId != null || m.replyExcerpt != null) ReplyQuote(m, people, onClick = m.replyToId?.let { id -> { onQuoteClick(id) } })
             Text(m.body, style = type.body.copy(color = colors.ink))
         }
     }
 }
 
 @Composable
-private fun ReplyQuote(m: Message, people: People) {
+private fun ReplyQuote(m: Message, people: People, onClick: (() -> Unit)?) {
     val colors = QichiTheme.colors
     val line = colors.line2
     Row(
         Modifier
             .padding(bottom = 6.dp)
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClickLabel = "跳到原消息", onClick = onClick) else Modifier)
             .drawBehind {
                 val y = size.height - 0.5.dp.toPx()
                 drawLine(line, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
@@ -308,7 +438,7 @@ private fun TimeLabel(m: Message, mine: Boolean, zone: ZoneId) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 6.dp, end = 6.dp, top = 6.dp),
-        textAlign = if (mine) androidx.compose.ui.text.style.TextAlign.End else androidx.compose.ui.text.style.TextAlign.Start,
+        textAlign = if (mine) TextAlign.End else TextAlign.Start,
     )
 }
 
@@ -332,7 +462,7 @@ private fun Notice(text: String) {
         text,
         style = QichiTheme.typography.caption.copy(fontSize = 12.tsp, letterSpacing = 0.12.em, color = QichiTheme.colors.muted),
         modifier = Modifier.fillMaxWidth(),
-        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        textAlign = TextAlign.Center,
     )
 }
 
@@ -345,7 +475,7 @@ private fun DaySeparator(day: LocalDate, today: LocalDate) {
         text,
         style = if (numeral) type.numeral.copy(fontSize = 15.tsp, color = colors.muted) else type.caption.copy(fontSize = 12.tsp, letterSpacing = 0.2.em, color = colors.muted),
         modifier = Modifier.fillMaxWidth(),
-        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        textAlign = TextAlign.Center,
     )
 }
 
@@ -367,6 +497,72 @@ private fun JumpToBottom(unseen: Boolean, onClick: () -> Unit, modifier: Modifie
         if (unseen) Text("新消息", style = QichiTheme.typography.caption.copy(fontSize = 12.tsp, letterSpacing = 0.2.em, color = colors.accent))
         Icon(QichiIcons.Down, contentDescription = null, tint = if (unseen) colors.accent else colors.ink, modifier = Modifier.size(18.dp))
     }
+}
+
+/** 输入框上方：正在回复谁的哪句话，可取消。 */
+@Composable
+private fun ReplyStrip(message: Message, people: People, onCancel: () -> Unit) {
+    val colors = QichiTheme.colors
+    val excerpt = MessageRules.replyExcerpt(message.kind, message.body, message.file?.fileName, message.retractedAt != null).orEmpty()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = 26.dp, end = 12.dp, top = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        PersonMark(people.markChar(message.authorId), people.person(message.authorId), size = 14.dp)
+        Text(
+            "回复 ${people.name(message.authorId)}：$excerpt",
+            style = QichiTheme.typography.caption.copy(fontSize = 12.tsp, color = colors.muted),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        IconAction(QichiIcons.Close, contentDescription = "取消回复", onClick = onCancel, iconSize = 16, tint = colors.muted)
+    }
+}
+
+/** 长按消息：回复、复制。待发送或发送失败的消息只能复制。 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MessageActions(
+    local: Local<Message>,
+    people: People,
+    onDismiss: () -> Unit,
+    onReply: () -> Unit,
+    onCopy: () -> Unit,
+) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    val m = local.value
+    val synced = !local.isPending && !local.isFailed
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.paper) {
+        Column(Modifier.padding(start = 28.dp, end = 28.dp, bottom = 28.dp)) {
+            Text(
+                "${people.name(m.authorId)}：${m.body}",
+                style = type.caption.copy(color = colors.muted),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            if (synced) ActionRow("回复") { onReply(); onDismiss() }
+            if (m.body.isNotEmpty()) ActionRow("复制") { onCopy(); onDismiss() }
+        }
+    }
+}
+
+@Composable
+private fun ActionRow(label: String, onClick: () -> Unit) {
+    Text(
+        label,
+        style = QichiTheme.typography.bodyLarge.copy(color = QichiTheme.colors.ink),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = 13.dp),
+    )
 }
 
 @Composable

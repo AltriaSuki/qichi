@@ -94,6 +94,37 @@ class ChatRepository(
     /** 发送失败的消息：不发了（本机删掉）。 */
     suspend fun abandon(message: Message) = store.abandon(EntityType.Message, message.id)
 
+    /** 跳到某条消息的结果。 */
+    sealed interface Position {
+        /** 在倒序列表里的位置（0 = 最新） */
+        data class Found(val index: Int) : Position
+        data object Deleted : Position
+        data object Missing : Position
+    }
+
+    /**
+     * 找到一条消息在列表里的位置；本机没有时一页一页往上取历史直到找到（最多 [MAX_JUMP_PAGES] 页）。
+     */
+    suspend fun positionOf(roomId: UUID, messageId: UUID): Position {
+        repeat(MAX_JUMP_PAGES + 1) { attempt ->
+            visiblePosition(roomId, messageId)?.let { return it }
+            // 到头了（或翻得太多）：最后一页可能正好带回了它
+            if (attempt == MAX_JUMP_PAGES || !loadOlder(roomId)) return visiblePosition(roomId, messageId) ?: Position.Missing
+        }
+        return Position.Missing
+    }
+
+    /** 本机有、且在连续历史之内（列表里看得到）时返回位置；否则 null。 */
+    private suspend fun visiblePosition(roomId: UUID, messageId: UUID): Position? {
+        val row = db.entities().get(EntityType.Message.wireName, messageId.toString()) ?: return null
+        val seq = row.sortSeq
+        val floor = db.chatHistory().floor(roomId.toString()) ?: 0
+        if (seq != null && seq < floor) return null
+        if (row.deleted) return Position.Deleted
+        // 待发送的消息都在最下面
+        return Position.Found(if (seq == null) 0 else db.entities().countNewerMessages(roomId.toString(), seq))
+    }
+
     /**
      * 往上翻历史：从本机连续历史的最早一条（chat_history.floorSeq）往前取一页。
      * 往下（更新的消息）由同步负责，不经过这里。
@@ -132,5 +163,6 @@ class ChatRepository(
 
     private companion object {
         const val PAGE_SIZE = 50
+        const val MAX_JUMP_PAGES = 200
     }
 }

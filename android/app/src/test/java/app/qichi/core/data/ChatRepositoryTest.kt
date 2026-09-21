@@ -127,6 +127,36 @@ class ChatRepositoryTest {
     }
 
     @Test
+    fun `跳到本机还没有的原消息：一页页往上取，直到找到；位置是比它新的消息数`() = runTest {
+        val local = (500L..549L).associateWith { serverMessage(it) }
+        local.values.forEach { store.applyServer(it) }
+        db.chatHistory().upsert(ChatHistoryRow(roomId.toString(), 500))
+        val all = (1L..499L).associateWith { serverMessage(it) }
+        var requests = 0
+        server.custom = { request ->
+            requests++
+            val before = request.url.parameters["beforeSeq"]!!.toLong()
+            val page = ((before - 50).coerceAtLeast(1) until before).reversed().map { all.getValue(it) }
+            respond(QichiJson.encodeToString(MessagePage.serializer(), MessagePage(page, hasMore = page.last().createdSeq > 1)), HttpStatusCode.OK, json)
+        }
+        val target = all.getValue(30)
+
+        val position = chat.positionOf(roomId, target.id)
+        assertEquals(ChatRepository.Position.Found(549 - 30), position)
+        assertEquals(10, requests, "从 500 往前到 30，每页 50 条")
+
+        // 已在本机：不再请求
+        assertEquals(ChatRepository.Position.Found(549 - 520), chat.positionOf(roomId, local.getValue(520).id))
+        assertEquals(10, requests)
+
+        // 在回收站里
+        store.applyServer(all.getValue(40).copy(deletedAt = SyncFixtures.t0, deletedBy = partner, seq = 600))
+        assertEquals(ChatRepository.Position.Deleted, chat.positionOf(roomId, all.getValue(40).id))
+        // 翻到最早也没有
+        assertEquals(ChatRepository.Position.Missing, chat.positionOf(roomId, UUID.randomUUID()))
+    }
+
+    @Test
     fun `聊天日期分隔的说法`() {
         val today = LocalDate.of(2026, 9, 21)
         assertEquals("今天" to false, chatDay(today, today))
