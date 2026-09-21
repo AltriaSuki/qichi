@@ -82,7 +82,7 @@ Docker Compose：`caddy`（自动申请 HTTPS 证书）+ `server` + `db`（Postg
 
 - JDK 21（Android Studio 自带的 JBR 即可）
 - Android：minSdk 26；compileSdk / targetSdk 用初始化当天的最新稳定版
-- 所有库在初始化时取最新稳定版，写死在 `libs.versions.toml`；之后升级要单独一个任务
+- 所有库在初始化时取最新稳定版，写死在根目录的 `gradle/libs.versions.toml`（三个构建共用）；之后升级要单独一个任务
 
 ## 3. 仓库结构
 
@@ -91,6 +91,7 @@ qichi/
 ├── CLAUDE.md                    给 AI 的总规约
 ├── README.md                    给人看的使用说明
 ├── api/openapi.yaml             接口契约（唯一来源）
+├── gradle/libs.versions.toml    三个 Gradle 构建共用的版本清单
 ├── docs/                        本目录
 ├── design/screens/*.html        设计稿（参考用）
 ├── deploy/
@@ -139,7 +140,6 @@ qichi/
 │       └── test/kotlin/…        与 main 同结构
 └── android/                     独立 Gradle 构建
     ├── settings.gradle.kts      include(":app"); includeBuild("../shared")
-    ├── gradle/libs.versions.toml
     └── app/src/main/java/app/qichi/
         ├── QichiApplication.kt  @HiltAndroidApp
         ├── MainActivity.kt      唯一的 Activity，承载 NavHost
@@ -225,3 +225,4 @@ App 在前台时靠 WebSocket 实时收到变更，不需要推送。App 在后�
 | D6 | 字体打包进 App | 不依赖谷歌服务 |
 | D7 | 中文搜索用 pg_trgm | 数据量小，免装分词插件 |
 | D8 | 推送 FCM / UnifiedPush 双实现 | 手机是否有谷歌服务尚未确定 |
+| D9 | 版本清单放在仓库根目录 `gradle/libs.versions.toml`，shared / server / android 共用（2026-09-21，人类同意） | 以源码方式互相引用的构建必须使用同一个 Kotlin 版本，否则容易编译失败 |
