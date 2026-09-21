@@ -8,6 +8,7 @@ import app.qichi.core.auth.SessionManager
 import app.qichi.core.data.DataStoreProfileStore
 import app.qichi.core.data.AttachmentPreparer
 import app.qichi.core.data.ChatRepository
+import app.qichi.core.data.DraftStore
 import app.qichi.core.data.EventRepository
 import app.qichi.core.data.MoodRepository
 import app.qichi.core.data.TodoRepository
@@ -91,6 +92,10 @@ object SyncModule {
     @Singleton
     fun todoRepository(db: QichiDatabase, store: LocalStore, scheduler: SyncScheduler, session: SessionManager): TodoRepository =
         TodoRepository(db, store, scheduler, session)
+
+    @Provides
+    @Singleton
+    fun draftStore(db: QichiDatabase): DraftStore = DraftStore(db)
 
     @Provides
     @Singleton

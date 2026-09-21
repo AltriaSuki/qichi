@@ -10,6 +10,7 @@ import app.qichi.core.auth.SessionManager
 import app.qichi.core.data.AttachmentException
 import app.qichi.core.data.AttachmentPreparer
 import app.qichi.core.data.ChatRepository
+import app.qichi.core.data.DraftStore
 import app.qichi.core.data.People
 import app.qichi.core.data.PreparedAttachment
 import app.qichi.core.data.RoomRepository
@@ -17,6 +18,7 @@ import app.qichi.core.network.ApiException
 import app.qichi.core.network.FileUrls
 import app.qichi.core.network.NetworkMonitor
 import app.qichi.core.sync.Local
+import app.qichi.di.ApplicationScope
 import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
 import app.qichi.shared.rules.Limits
@@ -28,6 +30,7 @@ import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -85,6 +88,8 @@ class ChatViewModel @AssistedInject constructor(
     @Assisted private val roomId: UUID,
     private val chat: ChatRepository,
     private val preparer: AttachmentPreparer,
+    private val drafts: DraftStore,
+    @ApplicationScope private val appScope: CoroutineScope,
     val urls: FileUrls,
     rooms: RoomRepository,
     private val network: NetworkMonitor,
@@ -134,8 +139,30 @@ class ChatViewModel @AssistedInject constructor(
     private val _jumping = MutableStateFlow(false)
     val jumping: StateFlow<Boolean> = _jumping.asStateFlow()
 
+    private var draftSave: Job? = null
+
+    init {
+        // 恢复上次没发出去的草稿（用户已经开始输入就不覆盖）
+        viewModelScope.launch {
+            val saved = drafts.load(roomId, DraftStore.CHAT)
+            if (saved != null && _draft.value.isEmpty()) _draft.value = saved
+        }
+    }
+
     fun onDraftChange(text: String) {
         _draft.value = text.take(Limits.MESSAGE_BODY_MAX)
+        // 停下 400 毫秒就存一次：App 被杀掉也不丢
+        draftSave?.cancel()
+        draftSave = viewModelScope.launch {
+            delay(400)
+            drafts.save(roomId, DraftStore.CHAT, _draft.value)
+        }
+    }
+
+    override fun onCleared() {
+        // 离开时马上存（viewModelScope 已经取消，用应用级的作用域）
+        val text = _draft.value
+        appScope.launch { drafts.save(roomId, DraftStore.CHAT, text) }
     }
 
     fun send() {
@@ -144,7 +171,11 @@ class ChatViewModel @AssistedInject constructor(
         val reply = _replyTo.value
         _draft.value = ""
         _replyTo.value = null
-        viewModelScope.launch { chat.sendText(roomId, text, replyTo = reply) }
+        draftSave?.cancel()
+        viewModelScope.launch {
+            chat.sendText(roomId, text, replyTo = reply)
+            drafts.delete(roomId, DraftStore.CHAT)
+        }
     }
 
     /** 选好了图片或文件：离线时不接受（上传必须在线），否则准备好后开始上传。 */
