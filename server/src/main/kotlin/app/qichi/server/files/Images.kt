@@ -21,8 +21,6 @@ enum class ImageFormat(val mimeType: String) {
 }
 
 object Images {
-    /** 缩略图允许的宽度（docs/04-api.md） */
-    val THUMB_WIDTHS = setOf(200, 400, 800)
     private const val THUMB_QUALITY = 0.82f
     private val HEIC_BRANDS = setOf("heic", "heix", "hevc", "hevx", "heim", "heis", "mif1", "msf1")
 

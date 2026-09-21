@@ -4,6 +4,7 @@ import app.qichi.shared.api.AuthTokens
 import app.qichi.shared.api.CreateRoomRequest
 import app.qichi.shared.api.Invite
 import app.qichi.shared.api.LoginRequest
+import app.qichi.shared.api.Me
 import app.qichi.shared.api.Problem
 import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.RegisterRequest
@@ -88,6 +89,8 @@ class Session(val api: Api, var tokens: AuthTokens) {
     suspend fun post(path: String, body: Any? = null): HttpResponse = client.post(path) { auth(); if (body != null) json(body) }
     suspend fun patch(path: String, body: Any): HttpResponse = client.patch(path) { auth(); json(body) }
     suspend fun put(path: String, body: Any): HttpResponse = client.put(path) { auth(); json(body) }
+
+    suspend fun userId(): UUID = get("/api/v1/me").body<Me>().user.id
 
     /** multipart 上传；[kindFirst] 为 false 时把 kind 字段放在文件后面。 */
     suspend fun upload(

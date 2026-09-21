@@ -2,8 +2,10 @@ package app.qichi.server.plugins
 
 import app.qichi.shared.api.CLIENT_HEADER
 import app.qichi.shared.api.QichiJson
+import app.qichi.shared.model.ProblemCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.install
 import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.calllogging.processingTimeMillis
@@ -41,4 +43,13 @@ fun Application.installDefaultHeaders() {
     install(DefaultHeaders) {
         header("X-Content-Type-Options", "nosniff")
     }
+}
+
+/** 可选的整数查询参数；写了但不是整数时 400。 */
+fun ApplicationCall.longQuery(name: String): Long? = request.queryParameters[name]?.let {
+    it.toLongOrNull() ?: throw ApiException(ProblemCode.InvalidRequest, "请求参数不合法", detail = "$name 必须是整数")
+}
+
+fun ApplicationCall.intQuery(name: String): Int? = longQuery(name)?.let {
+    if (it in Int.MIN_VALUE..Int.MAX_VALUE) it.toInt() else throw ApiException(ProblemCode.InvalidRequest, "请求参数不合法", detail = "$name 超出范围")
 }

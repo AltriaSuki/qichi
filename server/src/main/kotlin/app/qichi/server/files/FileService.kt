@@ -147,7 +147,7 @@ class FileService(
 
     /** 缩略图（JPEG），首次请求时生成并缓存在原文件旁边。只对图片有效；解不开的格式（HEIC）也返回 404。 */
     suspend fun thumbnail(userId: UUID, fileId: UUID, width: Int): Path {
-        if (width !in Images.THUMB_WIDTHS) {
+        if (width !in Limits.THUMBNAIL_WIDTHS) {
             throw ApiException(ProblemCode.InvalidRequest, "请求参数不合法", detail = "w 只能是 200、400、800")
         }
         val file = open(userId, fileId)

@@ -15,6 +15,8 @@ import app.qichi.server.files.FileStorage
 import app.qichi.server.files.LocalFileStorage
 import app.qichi.server.files.fileRoutes
 import app.qichi.server.life.lifeRoutes
+import app.qichi.server.messages.MessageService
+import app.qichi.server.messages.messageRoutes
 import app.qichi.server.moods.MoodService
 import app.qichi.server.todos.TodoService
 import app.qichi.server.me.MeService
@@ -88,6 +90,7 @@ fun Application.module(ctx: AppContext) {
             syncRoutes(ctx)
             lifeRoutes(ctx)
             fileRoutes(ctx)
+            messageRoutes(ctx)
         }
     }
 }
@@ -115,6 +118,7 @@ class AppContext(
     val events = EventService(database, rooms, writes)
     val fileStorage: FileStorage = LocalFileStorage(config.filesDir)
     val files = FileService(database, fileStorage, clock)
+    val messages = MessageService(database, rooms, writer, writes, fileStorage, clock)
 }
 
 class MicrosClock(private val base: Clock) : Clock() {

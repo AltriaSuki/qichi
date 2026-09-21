@@ -38,5 +38,7 @@ object Limits {
     const val SYNC_PAGE_DEFAULT: Int = 500
     const val SYNC_PAGE_MAX: Int = 1000
     const val MESSAGE_PAGE_DEFAULT: Int = 50
+    /** 搜索、回收站等游标分页接口的默认页大小 */
+    const val CURSOR_PAGE_DEFAULT: Int = 30
     const val BOOTSTRAP_MESSAGES: Int = 50
 }
