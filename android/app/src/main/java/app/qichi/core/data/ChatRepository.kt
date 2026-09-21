@@ -21,6 +21,7 @@ import app.qichi.core.sync.SyncScheduler
 import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.MessagePage
+import app.qichi.shared.api.MessageSearchPage
 import app.qichi.shared.api.SendMessageRequest
 import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.FileKind
@@ -40,6 +41,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.io.File
+import java.net.URLEncoder
 import java.time.Clock
 import java.util.UUID
 
@@ -152,6 +154,35 @@ class ChatRepository(
             if (all > 0) onProgress((received.toFloat() / all).coerceIn(0f, 1f))
         }
         return target
+    }
+
+    /** 撤回自己发的消息：本机立即显示「你撤回了一条消息」，经发件箱发出。 */
+    suspend fun retract(message: Message) {
+        val now = clock.instant()
+        store.writeLocal(
+            message.roomId,
+            message.copy(body = "", file = null, retractedAt = now, retractedBy = me, updatedAt = now),
+            OutboxOp.action("rooms/${message.roomId}/messages/${message.id}/retract"),
+        )
+        scheduler.kickOutbox()
+    }
+
+    /** 删除进回收站：本机立即从列表消失。 */
+    suspend fun delete(message: Message) {
+        val now = clock.instant()
+        store.writeLocal(
+            message.roomId,
+            message.copy(deletedAt = now, deletedBy = me, updatedAt = now),
+            OutboxOp.delete("rooms/${message.roomId}/messages/${message.id}"),
+        )
+        scheduler.kickOutbox()
+    }
+
+    /** 搜索（服务端，需要联网）：不含撤回、删除的，最新的在前。 */
+    suspend fun search(roomId: UUID, query: String, cursor: String?): MessageSearchPage {
+        val q = URLEncoder.encode(query, Charsets.UTF_8)
+        val after = cursor?.let { "&cursor=" + URLEncoder.encode(it, Charsets.UTF_8) }.orEmpty()
+        return api.get("rooms/$roomId/messages/search?q=$q&limit=${Limits.CURSOR_PAGE_DEFAULT}$after")
     }
 
     /** 发送失败的消息：重新放回发件箱。 */

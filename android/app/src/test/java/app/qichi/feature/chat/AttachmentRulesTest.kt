@@ -34,3 +34,12 @@ class AttachmentRulesTest {
         assertEquals("3.4 MB", formatBytes((3.4 * 1024 * 1024).toLong()))
     }
 }
+
+class SearchHighlightTest {
+    @Test
+    fun `搜索词的每一处都标出来，不分大小写`() {
+        val text = highlight("Offline 和 offline", "offline", androidx.compose.ui.graphics.Color.Red)
+        assertEquals(listOf(0 to 7, 10 to 17), text.spanStyles.map { it.start to it.end })
+        assertEquals(0, highlight("河边", " ", androidx.compose.ui.graphics.Color.Red).spanStyles.size)
+    }
+}

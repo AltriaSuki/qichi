@@ -20,6 +20,7 @@ import app.qichi.core.sync.Local
 import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
 import app.qichi.shared.rules.Limits
+import app.qichi.shared.rules.MessageRules
 import app.qichi.shared.util.UuidV7
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
@@ -27,6 +28,8 @@ import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,6 +56,18 @@ data class Upload(
     val attachment: PreparedAttachment,
     val progress: Float = 0f,
     val failed: String? = null,
+)
+
+/** 聊天搜索（服务端搜索，需要联网）。 */
+data class SearchState(
+    val open: Boolean = false,
+    val query: String = "",
+    val results: List<Message> = emptyList(),
+    val nextCursor: String? = null,
+    val loading: Boolean = false,
+    /** 搜过至少一次（区分「还没搜」和「没搜到」） */
+    val searched: Boolean = false,
+    val error: String? = null,
 )
 
 /** 一次性的界面事件。 */
@@ -103,6 +118,10 @@ class ChatViewModel @AssistedInject constructor(
     /** 正在下载的附件：文件 id → 进度 */
     private val _downloads = MutableStateFlow<Map<UUID, Float>>(emptyMap())
     val downloads: StateFlow<Map<UUID, Float>> = _downloads.asStateFlow()
+
+    private val _search = MutableStateFlow(SearchState())
+    val search: StateFlow<SearchState> = _search.asStateFlow()
+    private var searchJob: Job? = null
 
     /** 正在往上找原消息（可能要从服务端翻好几页） */
     private val _jumping = MutableStateFlow(false)
@@ -197,6 +216,73 @@ class ChatViewModel @AssistedInject constructor(
 
     fun offlineAttachHint() {
         _events.tryEmit(ChatEvent.Toast(OFFLINE_ATTACH))
+    }
+
+    /** 撤回自己的消息（不可恢复，界面先确认）。 */
+    fun retract(message: Message) = viewModelScope.launch { chat.retract(message) }
+
+    /** 删除进回收站。 */
+    fun delete(message: Message) = viewModelScope.launch {
+        chat.delete(message)
+        _events.emit(ChatEvent.Toast("已移到回收站"))
+    }
+
+    fun openSearch() {
+        _search.value = SearchState(open = true)
+    }
+
+    fun closeSearch() {
+        searchJob?.cancel()
+        _search.value = SearchState()
+    }
+
+    /** 输入停下 300 毫秒后再搜，避免每个字都请求一次。 */
+    fun onSearchQuery(query: String) {
+        _search.update { it.copy(query = query, error = null) }
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            delay(300)
+            runSearch(reset = true)
+        }
+    }
+
+    fun loadMoreResults() {
+        val current = _search.value
+        if (current.loading || current.nextCursor == null) return
+        searchJob = viewModelScope.launch { runSearch(reset = false) }
+    }
+
+    /** 点搜索结果：关掉搜索，跳到那条消息。 */
+    fun openResult(message: Message) {
+        closeSearch()
+        jumpTo(message.id)
+    }
+
+    private suspend fun runSearch(reset: Boolean) {
+        val current = _search.value
+        val query = MessageRules.searchQuery(current.query)
+        if (query == null) {
+            _search.update { it.copy(results = emptyList(), nextCursor = null, searched = false, loading = false) }
+            return
+        }
+        if (!network.isOnline.value) {
+            _search.update { it.copy(error = "离线时不能搜索", loading = false) }
+            return
+        }
+        _search.update { it.copy(loading = true) }
+        try {
+            val page = chat.search(roomId, query, if (reset) null else current.nextCursor)
+            _search.update {
+                it.copy(
+                    results = if (reset) page.messages else it.results + page.messages,
+                    nextCursor = page.nextCursor, loading = false, searched = true, error = null,
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            _search.update { it.copy(loading = false, error = "没搜成，稍后再试") }
+        }
     }
 
     fun startReply(message: Message) {

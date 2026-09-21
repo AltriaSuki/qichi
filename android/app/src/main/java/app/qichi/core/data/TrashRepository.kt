@@ -1,0 +1,136 @@
+package app.qichi.core.data
+
+import app.qichi.core.auth.SessionManager
+import app.qichi.core.database.QichiDatabase
+import app.qichi.core.network.ApiClient
+import app.qichi.core.network.get
+import app.qichi.core.sync.LocalStore
+import app.qichi.core.sync.OutboxOp
+import app.qichi.core.sync.SyncScheduler
+import app.qichi.shared.api.EntityCodec
+import app.qichi.shared.api.Event
+import app.qichi.shared.api.Message
+import app.qichi.shared.api.Mood
+import app.qichi.shared.api.SyncEntity
+import app.qichi.shared.api.Todo
+import app.qichi.shared.api.TrashPage
+import app.qichi.shared.model.EntityType
+import app.qichi.shared.model.TrashType
+import app.qichi.shared.model.wireName
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import java.net.URLEncoder
+import java.time.Instant
+import java.util.UUID
+
+/** 回收站里的一项。 */
+data class TrashEntry(
+    val type: TrashType,
+    val entity: SyncEntity,
+    val deletedAt: Instant,
+    val deletedBy: UUID?,
+) {
+    val id: UUID get() = entity.id
+}
+
+/**
+ * 回收站：从本机数据库读（离线也能看），恢复与彻底删除先改本机、再经发件箱发出。
+ * 规则同服务端：随父待办一起删掉的子任务不单独列出；心情只有作者能恢复或彻底删除，所以只列自己的。
+ */
+class TrashRepository(
+    private val db: QichiDatabase,
+    private val store: LocalStore,
+    private val api: ApiClient,
+    private val scheduler: SyncScheduler,
+    private val session: SessionManager,
+) {
+    private val me: UUID? get() = session.currentUserId
+
+    fun observe(roomId: UUID): Flow<List<TrashEntry>> =
+        db.entities().observeDeleted(roomId.toString(), TYPES.map { it.entityType.wireName }).map { rows ->
+            val entities = rows.map { LocalStore.toLocal<SyncEntity>(it).value }
+            val deletedTodos = entities.filterIsInstance<Todo>().map { it.id }.toSet()
+            entities.mapNotNull { entity ->
+                when (entity) {
+                    is Message -> TrashEntry(TrashType.Message, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
+                    is Mood -> if (entity.authorId != me) null else TrashEntry(TrashType.Mood, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
+                    is Todo -> if (entity.parentId in deletedTodos) null else TrashEntry(TrashType.Todo, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
+                    is Event -> TrashEntry(TrashType.Event, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
+                    else -> null
+                }
+            }.sortedByDescending { it.deletedAt }
+        }
+
+    /**
+     * 打开回收站时（在线）从服务端补齐：这台手机装好之前就删掉的旧消息，本机原本没有。
+     * 取到的实体照常存进本机，列表仍然从本机读。
+     */
+    suspend fun refresh(roomId: UUID) {
+        var cursor: String? = null
+        repeat(MAX_PAGES) {
+            val after = cursor?.let { "&cursor=" + URLEncoder.encode(it, Charsets.UTF_8) }.orEmpty()
+            val page = api.get<TrashPage>("rooms/$roomId/trash?limit=100$after")
+            db.transaction {
+                page.items.forEach { item -> store.applyServer(EntityCodec.decode(item.type.entityType, item.data) as SyncEntity) }
+            }
+            cursor = page.nextCursor ?: return
+        }
+    }
+
+    /** 恢复：内容按删除前的样子回来（消息回到原来的位置）。 */
+    suspend fun restore(roomId: UUID, entry: TrashEntry) {
+        val restored: SyncEntity = when (val e = entry.entity) {
+            is Message -> e.copy(deletedAt = null, deletedBy = null)
+            is Mood -> e.copy(deletedAt = null, deletedBy = null)
+            is Todo -> e.copy(deletedAt = null, deletedBy = null)
+            is Event -> e.copy(deletedAt = null, deletedBy = null)
+            else -> return
+        }
+        db.transaction {
+            store.writeLocal(roomId, restored, OutboxOp.action(path(roomId, entry) + "/restore", kind = OutboxOp.KIND_CHANGE))
+            // 和父待办同时删掉的子任务一起回来（服务端也是这样做的）
+            if (entry.entity is Todo) {
+                childrenDeletedWith(roomId, entry.entity).forEach { store.applyOptimistic(it.copy(deletedAt = null, deletedBy = null)) }
+            }
+        }
+        scheduler.kickOutbox()
+    }
+
+    /** 彻底删除：本机马上删掉（连同子任务、心情的回应），再告诉服务端。 */
+    suspend fun purge(roomId: UUID, entry: TrashEntry) {
+        db.transaction {
+            val entity = entry.entity
+            if (entity is Todo) {
+                db.entities().children(roomId.toString(), EntityType.Todo.wireName, entity.id.toString())
+                    .forEach { store.deleteLocal(EntityType.Todo, UUID.fromString(it.id)) }
+            }
+            if (entity is Mood) {
+                db.entities().children(roomId.toString(), EntityType.MoodResponse.wireName, entity.id.toString())
+                    .forEach { store.deleteLocal(EntityType.MoodResponse, UUID.fromString(it.id)) }
+            }
+            store.deleteLocal(entry.type.entityType, entry.id)
+            store.enqueue(roomId, entry.type.entityType, entry.id, OutboxOp.delete(path(roomId, entry), kind = OutboxOp.KIND_NO_CONTENT))
+        }
+        scheduler.kickOutbox()
+    }
+
+    private suspend fun childrenDeletedWith(roomId: UUID, parent: Todo): List<Todo> =
+        db.entities().children(roomId.toString(), EntityType.Todo.wireName, parent.id.toString())
+            .map { LocalStore.toLocal<Todo>(it).value }
+            .filter { it.deletedAt != null && it.deletedAt == parent.deletedAt }
+
+    private fun path(roomId: UUID, entry: TrashEntry) = "rooms/$roomId/trash/${entry.type.wireName}/${entry.id}"
+
+    private companion object {
+        val TYPES = TrashType.entries
+        const val MAX_PAGES = 10
+    }
+}
+
+val TrashType.entityType: EntityType
+    get() = when (this) {
+        TrashType.Message -> EntityType.Message
+        TrashType.Mood -> EntityType.Mood
+        TrashType.Todo -> EntityType.Todo
+        TrashType.Event -> EntityType.Event
+    }

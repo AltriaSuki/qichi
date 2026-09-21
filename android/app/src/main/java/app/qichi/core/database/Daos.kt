@@ -77,6 +77,13 @@ interface EntityDao {
     )
     fun observeUnread(roomId: String, myUserId: String, lastReadSeq: Long): Flow<Int>
 
+    /** 回收站里的实体（给「我的 → 回收站」）。 */
+    @Query("SELECT * FROM entities WHERE roomId = :roomId AND deleted = 1 AND type IN (:types)")
+    fun observeDeleted(roomId: String, types: List<String>): Flow<List<EntityRow>>
+
+    @Query("SELECT * FROM entities WHERE roomId = :roomId AND type = :type AND parentId = :parentId")
+    suspend fun children(roomId: String, type: String, parentId: String): List<EntityRow>
+
     @Query("DELETE FROM entities")
     suspend fun clear()
 }

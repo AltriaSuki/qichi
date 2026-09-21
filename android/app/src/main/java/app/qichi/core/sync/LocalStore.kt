@@ -50,6 +50,9 @@ data class OutboxOp(
         const val KIND_READ_MARKER = "read_marker"
         const val KIND_NO_CONTENT = "no_content"
 
+        /** 响应是一条 Change（如从回收站恢复） */
+        const val KIND_CHANGE = "change"
+
         inline fun <reified B> post(path: String, body: B, kind: String = KIND_ENTITY) =
             OutboxOp(HttpMethod.Post, path, QichiJson.encodeToJsonElement(body), kind)
 
@@ -59,9 +62,9 @@ data class OutboxOp(
         inline fun <reified B> put(path: String, body: B, kind: String = KIND_ENTITY) =
             OutboxOp(HttpMethod.Put, path, QichiJson.encodeToJsonElement(body), kind)
 
-        fun delete(path: String) = OutboxOp(HttpMethod.Delete, path)
+        fun delete(path: String, kind: String = KIND_ENTITY) = OutboxOp(HttpMethod.Delete, path, kind = kind)
 
-        fun action(path: String) = OutboxOp(HttpMethod.Post, path)
+        fun action(path: String, kind: String = KIND_ENTITY) = OutboxOp(HttpMethod.Post, path, kind = kind)
     }
 }
 
@@ -93,6 +96,11 @@ class LocalStore(
             else -> existing.copy(seq = entity.seq, serverJson = serverJson)
         }
         entities.upsert(row)
+    }
+
+    /** 本机先删掉一行（彻底删除），操作另外入发件箱。 */
+    suspend fun deleteLocal(type: EntityType, id: UUID) {
+        entities.delete(type.wireName, id.toString())
     }
 
     /** 服务端彻底删除了这个实体。 */

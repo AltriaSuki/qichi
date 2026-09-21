@@ -42,6 +42,7 @@ import app.qichi.feature.today.TodayScreen
 import app.qichi.feature.todo.TodoScreen
 import app.qichi.feature.me.ProfileScreen
 import app.qichi.feature.me.RoomSettingsScreen
+import app.qichi.feature.me.TrashScreen
 import app.qichi.feature.room.MembersScreen
 import app.qichi.feature.together.TogetherHubScreen
 
@@ -131,6 +132,7 @@ fun QichiApp(
                             Page.Members -> MembersScreen(roomId = LocalRoomId.current, onBack = navigator::back)
                             Page.Profile -> ProfileScreen(onBack = navigator::back)
                             Page.Display -> DisplayScreen(onBack = navigator::back)
+                            Page.Trash -> TrashScreen(roomId = LocalRoomId.current, onBack = navigator::back)
                             Page.RoomSettings -> RoomSettingsScreen(roomId = LocalRoomId.current, onBack = navigator::back)
                             else -> PagePlaceholder(route.page.title, onBack = navigator::back)
                         }

@@ -6,6 +6,7 @@ import app.qichi.core.network.ApiClient
 import app.qichi.core.network.ApiException
 import app.qichi.core.network.NetworkException
 import app.qichi.core.network.SessionExpiredException
+import app.qichi.shared.api.Change
 import app.qichi.shared.api.CompleteTodoResponse
 import app.qichi.shared.api.EntityCodec
 import app.qichi.shared.api.QichiJson
@@ -109,6 +110,10 @@ class OutboxProcessor(
     private suspend fun handleResponse(row: OutboxRow, body: String) {
         when (row.kind) {
             OutboxOp.KIND_NO_CONTENT -> Unit
+            OutboxOp.KIND_CHANGE -> {
+                val change = QichiJson.decodeFromString(Change.serializer(), body)
+                change.data?.let { store.applyResponse(EntityCodec.decode(change.type, it) as SyncEntity) }
+            }
             OutboxOp.KIND_TODO_COMPLETE -> {
                 val result = QichiJson.decodeFromString(CompleteTodoResponse.serializer(), body)
                 store.applyResponse(result.todo)

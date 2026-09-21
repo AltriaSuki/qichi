@@ -2,6 +2,7 @@ package app.qichi.feature.chat
 
 import android.content.ClipData
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -74,6 +75,7 @@ import androidx.paging.compose.itemContentType
 import androidx.paging.compose.itemKey
 import app.qichi.core.data.People
 import app.qichi.core.designsystem.QichiTheme
+import app.qichi.core.designsystem.component.ConfirmDialog
 import app.qichi.core.designsystem.component.IconAction
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.TextAction
@@ -118,6 +120,8 @@ fun ChatScreen(
     val replyTo by viewModel.replyTo.collectAsStateWithLifecycle()
     val jumping by viewModel.jumping.collectAsStateWithLifecycle()
     val uploads by viewModel.uploads.collectAsStateWithLifecycle()
+    val search by viewModel.search.collectAsStateWithLifecycle()
+    var retracting by remember { mutableStateOf<Message?>(null) }
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
     var attaching by remember { mutableStateOf(false) }
     var viewing by remember { mutableStateOf<FileMeta?>(null) }
@@ -190,7 +194,7 @@ fun ChatScreen(
             .background(colors.background)
             .imePadding(),
     ) {
-        ChatHeader(online = state.online)
+        ChatHeader(online = state.online, onSearch = viewModel::openSearch)
         BoxWithConstraints(
             Modifier
                 .weight(1f)
@@ -289,12 +293,34 @@ fun ChatScreen(
             onCopy = {
                 scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("消息", target.value.body))) }
             },
+            onRetract = { retracting = target.value },
+            onDelete = { viewModel.delete(target.value) },
+        )
+    }
+    retracting?.let { message ->
+        ConfirmDialog(
+            title = "撤回这条消息？",
+            text = "撤回后对方会看到「${people.name(people.myUserId)}撤回了一条消息」，内容不能恢复。",
+            confirmLabel = "撤回",
+            onConfirm = { viewModel.retract(message) },
+            onDismiss = { retracting = null },
+        )
+    }
+    if (search.open) {
+        BackHandler { viewModel.closeSearch() }
+        ChatSearch(
+            state = search,
+            people = people,
+            onQuery = viewModel::onSearchQuery,
+            onClose = viewModel::closeSearch,
+            onLoadMore = viewModel::loadMoreResults,
+            onOpen = viewModel::openResult,
         )
     }
 }
 
 @Composable
-private fun ChatHeader(online: Boolean) {
+private fun ChatHeader(online: Boolean, onSearch: () -> Unit) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     Row(
@@ -312,6 +338,8 @@ private fun ChatHeader(online: Boolean) {
             modifier = Modifier.semantics { heading() },
         )
         if (!online) Text("离线", style = type.caption.copy(fontSize = 12.tsp, letterSpacing = 0.2.em, color = colors.accent))
+        Box(Modifier.weight(1f))
+        IconAction(QichiIcons.Search, contentDescription = "搜索", onClick = onSearch)
     }
 }
 
@@ -610,7 +638,7 @@ private fun ReplyStrip(message: Message, people: People, onCancel: () -> Unit) {
     }
 }
 
-/** 长按消息：回复、复制。待发送或发送失败的消息只能复制。 */
+/** 长按消息：回复、复制、撤回（自己的）、删除。待发送或发送失败的消息只能复制。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MessageActions(
@@ -619,6 +647,8 @@ private fun MessageActions(
     onDismiss: () -> Unit,
     onReply: () -> Unit,
     onCopy: () -> Unit,
+    onRetract: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
@@ -635,6 +665,8 @@ private fun MessageActions(
             )
             if (synced) ActionRow("回复") { onReply(); onDismiss() }
             if (m.body.isNotEmpty()) ActionRow("复制") { onCopy(); onDismiss() }
+            if (synced && m.authorId == people.myUserId && m.retractedAt == null) ActionRow("撤回") { onRetract(); onDismiss() }
+            if (synced) ActionRow("删除") { onDelete(); onDismiss() }
         }
     }
 }

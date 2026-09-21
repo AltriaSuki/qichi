@@ -11,6 +11,7 @@ import app.qichi.core.data.ChatRepository
 import app.qichi.core.data.EventRepository
 import app.qichi.core.data.MoodRepository
 import app.qichi.core.data.TodoRepository
+import app.qichi.core.data.TrashRepository
 import app.qichi.core.data.ProfileStore
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.database.QichiDatabase
@@ -90,6 +91,11 @@ object SyncModule {
     @Singleton
     fun todoRepository(db: QichiDatabase, store: LocalStore, scheduler: SyncScheduler, session: SessionManager): TodoRepository =
         TodoRepository(db, store, scheduler, session)
+
+    @Provides
+    @Singleton
+    fun trashRepository(db: QichiDatabase, store: LocalStore, api: ApiClient, scheduler: SyncScheduler, session: SessionManager): TrashRepository =
+        TrashRepository(db, store, api, scheduler, session)
 
     @Provides
     @Singleton
