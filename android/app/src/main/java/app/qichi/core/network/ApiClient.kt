@@ -25,7 +25,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.contentType
+import io.ktor.http.content.TextContent
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.util.AttributeKey
@@ -37,6 +37,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.serializer
 import java.io.IOException
 import kotlin.time.Duration.Companion.seconds
@@ -99,8 +100,7 @@ class ApiClient(
             http.request("auth/refresh") {
                 method = HttpMethod.Post
                 attributes.put(NoAuth, Unit)
-                contentType(ContentType.Application.Json)
-                setBody(RefreshRequest(current.refreshToken))
+                setBody(jsonBody(RefreshRequest(current.refreshToken)))
             }
         } catch (e: CancellationException) {
             throw e
@@ -152,10 +152,7 @@ class ApiClient(
             http.request(path.trimStart('/')) {
                 this.method = method
                 if (!auth) attributes.put(NoAuth, Unit)
-                if (body != null) {
-                    contentType(ContentType.Application.Json)
-                    setBody(body)
-                }
+                if (body != null) setBody(jsonBody(body))
                 configure()
             }
         } catch (e: CancellationException) {
@@ -174,6 +171,19 @@ class ApiClient(
             throw ApiException(response.status.value, parseProblem(response))
         }
         return response
+    }
+
+    /**
+     * 请求体统一由 QichiJson 编码成文本（不经 ContentNegotiation 按运行时类型猜序列化器）：
+     * JsonElement 原样输出，数据类用它自己的序列化器（@EncodeDefault 等注解生效）。
+     */
+    private fun jsonBody(body: Any): TextContent {
+        val text = when (body) {
+            is JsonElement -> QichiJson.encodeToString(JsonElement.serializer(), body)
+            is String -> body
+            else -> QichiJson.encodeToString(QichiJson.serializersModule.serializer(body.javaClass), body)
+        }
+        return TextContent(text, ContentType.Application.Json)
     }
 
     private suspend fun parseProblem(response: HttpResponse): Problem? = runCatching {

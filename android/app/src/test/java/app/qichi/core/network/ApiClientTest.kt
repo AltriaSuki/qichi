@@ -7,6 +7,7 @@ import app.qichi.core.auth.SessionManager
 import app.qichi.core.auth.SessionState
 import app.qichi.shared.api.AuthTokens
 import app.qichi.shared.api.Health
+import app.qichi.shared.api.LoginRequest
 import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.RefreshRequest
 import app.qichi.shared.model.ProblemCode
@@ -140,7 +141,7 @@ class ApiClientTest {
         val server = FakeServer(validAccess = tokens(1).accessToken, validRefresh = "r1")
         val api = client(server, store)
 
-        val e = assertFailsWith<ApiException> { api.post<AuthTokens>("auth/login", mapOf("x" to "y"), auth = false) }
+        val e = assertFailsWith<ApiException> { api.post<AuthTokens>("auth/login", LoginRequest("aqi", "x"), auth = false) }
         assertEquals(401, e.status)
         assertEquals(0, server.refreshCalls.get())
         assertEquals(tokens(1), store.read())
