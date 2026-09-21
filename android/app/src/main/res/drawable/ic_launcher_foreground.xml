@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 应用图标：雾海与远山（取自设计稿的雾海插画），安全区在中间 66dp 内 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 月 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.85"
+        android:pathData="M68,38m-6,0a6,6 0,1 1,12 0a6,6 0,1 1,-12 0" />
+    <!-- 远山 -->
+    <path
+        android:fillColor="#BAC3C6"
+        android:pathData="M21,58C27,54 32,51 38,52S47,47 54,49S64,54 71,51S81,45 87,48V87H21z" />
+    <!-- 中山 -->
+    <path
+        android:fillColor="#9DA9AD"
+        android:pathData="M21,66C29,62 35,60 43,62S55,65 62,61S75,57 87,63V87H21z" />
+    <!-- 近山 -->
+    <path
+        android:fillColor="#7F8D92"
+        android:pathData="M21,72C28,70 36,68 44,70S59,74 67,70S80,67 87,71V87H21z" />
+    <!-- 雾 -->
+    <path
+        android:fillColor="#EEF0EE"
+        android:pathData="M21,76H87V87H21z" />
+    <!-- 岩石上的人影 -->
+    <path
+        android:fillColor="#39413F"
+        android:pathData="M44,87C47,82 50,79 54,77S61,75 64,75L68,75C70,76 72,78 74,80S78,85 80,87Z" />
+    <path
+        android:fillColor="#1D2423"
+        android:pathData="M63.2,75.2L63.6,70.7Q64.5,69.8 65.4,70.7L65.8,75.2ZM64.5,68.9m-0.8,0a0.8,0.8 0,1 1,1.6 0a0.8,0.8 0,1 1,-1.6 0" />
+</vector>

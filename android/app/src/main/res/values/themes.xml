@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 窗口底色用白天的 background，避免启动时闪白；界面主题全部在 Compose 里 -->
+    <style name="Theme.Qichi" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/qichi_day_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>
