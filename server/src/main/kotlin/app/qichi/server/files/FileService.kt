@@ -1,6 +1,7 @@
 package app.qichi.server.files
 
 import app.qichi.server.db.Files
+import app.qichi.server.db.Messages
 import app.qichi.server.db.QichiDatabase
 import app.qichi.server.db.tx
 import app.qichi.server.plugins.ApiException
@@ -21,8 +22,11 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
+import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.slf4j.LoggerFactory
 import java.nio.file.Path
 import java.time.Clock
 import java.time.ZoneOffset
@@ -40,6 +44,8 @@ class UploadForm(
 
 /** 下载时需要的信息。 */
 class StoredFile(val meta: FileMeta, val path: Path)
+
+private val log = LoggerFactory.getLogger(FileService::class.java)
 
 class FileService(
     private val db: QichiDatabase,
@@ -164,6 +170,32 @@ class FileService(
     }
 
     /** 去掉路径部分和控制字符；过长时保留扩展名截断。 */
+    /**
+     * 事务内调用：文件不再被任何消息引用时删掉它的记录，返回提交后要从磁盘删除的路径。
+     * 用于撤回、彻底删除消息。
+     */
+    fun releaseIfUnused(fileId: UUID): String? {
+        val stillUsed = Messages.select(Messages.id).where { Messages.fileId eq fileId }.limit(1).any()
+        if (stillUsed) return null
+        val path = Files.select(Files.storagePath).where { Files.id eq fileId }.singleOrNull()?.get(Files.storagePath) ?: return null
+        Files.deleteWhere { Files.id eq fileId }
+        return path
+    }
+
+    /** 事务提交后调用：删除磁盘上的文件和它的缩略图。失败只记日志，不影响请求。 */
+    suspend fun deleteStored(paths: Collection<String>) {
+        if (paths.isEmpty()) return
+        withContext(Dispatchers.IO) {
+            for (relative in paths) {
+                runCatching {
+                    val path = storage.resolve(relative)
+                    path.parent?.toFile()?.listFiles { f -> f.name.startsWith("${path.fileName}.w") }?.forEach { it.delete() }
+                    storage.delete(relative)
+                }.onFailure { log.warn("删除文件失败：{}", relative, it) }
+            }
+        }
+    }
+
     private fun cleanFileName(raw: String): String {
         val base = raw.substringAfterLast('/').substringAfterLast('\\').filterNot { it.isISOControl() }.trim()
         if (base.length <= 255) return base

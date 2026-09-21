@@ -32,6 +32,8 @@ import app.qichi.server.sync.SyncService
 import app.qichi.server.sync.installWebSockets
 import app.qichi.server.sync.syncRoutes
 import app.qichi.server.system.systemRoutes
+import app.qichi.server.trash.TrashService
+import app.qichi.server.trash.trashRoutes
 import app.qichi.shared.api.API_PREFIX
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
@@ -91,6 +93,7 @@ fun Application.module(ctx: AppContext) {
             lifeRoutes(ctx)
             fileRoutes(ctx)
             messageRoutes(ctx)
+            trashRoutes(ctx)
         }
     }
 }
@@ -118,7 +121,8 @@ class AppContext(
     val events = EventService(database, rooms, writes)
     val fileStorage: FileStorage = LocalFileStorage(config.filesDir)
     val files = FileService(database, fileStorage, clock)
-    val messages = MessageService(database, rooms, writer, writes, fileStorage, clock)
+    val messages = MessageService(database, rooms, writer, writes, files, clock)
+    val trash = TrashService(database, rooms, writer, writes, todos, files, clock)
 }
 
 class MicrosClock(private val base: Clock) : Clock() {

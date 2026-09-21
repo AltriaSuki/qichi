@@ -8,6 +8,7 @@ import app.qichi.server.plugins.longQuery
 import app.qichi.server.plugins.user
 import app.qichi.server.plugins.uuidParam
 import app.qichi.shared.api.SendMessageRequest
+import app.qichi.shared.api.UpdateReadMarkerRequest
 import app.qichi.shared.rules.Limits
 import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
@@ -16,6 +17,7 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
+import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 
 /** 聊天（第 3 阶段）的路由。 */
@@ -41,6 +43,9 @@ fun Route.messageRoutes(ctx: AppContext) {
             post("/{id}/retract") {
                 call.respond(ctx.messages.retract(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id")))
             }
+        }
+        put("/rooms/{roomId}/read-marker") {
+            call.respond(ctx.messages.updateReadMarker(call.user.userId, call.uuidParam("roomId"), call.receive<UpdateReadMarkerRequest>()))
         }
     }
 }
