@@ -1,0 +1,28 @@
+# Gradle / Kotlin
+.gradle/
+.kotlin/
+build/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Android
+local.properties
+captures/
+*.apk
+*.aab
+*.jks
+*.keystore
+android/app/google-services.json
+
+# 部署密钥与本地数据
+deploy/.env
+deploy/secrets/
+/server/data/
+
+# 日志与临时文件
+*.log
+*.hprof
