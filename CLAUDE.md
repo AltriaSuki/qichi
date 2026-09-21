@@ -52,7 +52,7 @@ cd android && ./gradlew :app:testDebugUnitTest
 cd android && ./gradlew :app:installDebug
 
 # 模拟器（名字 qichi_api37，见 SETUP-ARCH.md）
-emulator -avd qichi_api37 -no-snapshot-save &
+emulator -avd qichi_api37 -gpu host -no-snapshot-save &
 adb wait-for-device
 adb shell am start -d "qichi://room/test/chat"      # 深链
 adb exec-out screencap -p > shot.png                # 截图
