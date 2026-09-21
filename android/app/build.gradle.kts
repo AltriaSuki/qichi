@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.room)
 }
 
 // 服务器地址从 android/local.properties 的 qichi.baseUrl 读入（不写死在代码里）
@@ -59,6 +60,11 @@ kotlin {
     jvmToolchain(21)
 }
 
+// Room 数据库结构导出到 schemas/，纳入版本管理，用来写和校验迁移
+room {
+    schemaDirectory("$projectDir/schemas")
+}
+
 dependencies {
     implementation("app.qichi:qichi-shared")
 
@@ -90,9 +96,25 @@ dependencies {
     implementation(libs.datastore.preferences)
     implementation(libs.tink.android)
 
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    implementation(libs.room.paging)
+    ksp(libs.room.compiler)
+    implementation(libs.paging.runtime)
+    implementation(libs.paging.compose)
+    implementation(libs.work.runtime.ktx)
+    implementation(libs.androidx.hilt.work)
+    ksp(libs.androidx.hilt.compiler)
+    implementation(libs.androidx.hilt.navigation.compose)
+    implementation(libs.androidx.lifecycle.process)
+
     testImplementation(kotlin("test-junit"))
     testImplementation(libs.junit4)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.ktor.client.mock)
     testImplementation(libs.turbine)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.junit)
+    testImplementation(libs.room.testing)
+    testImplementation(libs.work.testing)
 }

@@ -42,7 +42,7 @@ AI 做完后，你检查三件事：测试是否全部通过、截图或演示�
   - 验收：集成测试：写入 3 次同一待办，`sync` 只返回 1 条且为最新；`limit` 分页的 `hasMore` 正确；另一个成员的 WebSocket 能收到 `changed`。
 - [x] **P1-04 客户端网络与会话** — Ktor Client；令牌用 Android Keystore 加密保存；401 时自动刷新一次再重试；problem+json 解析为类型化错误；登出清除本地数据。
   - 验收：单元测试（Ktor MockEngine）覆盖自动刷新和刷新失败后跳回登录。
-- [ ] **P1-05 客户端同步引擎** — Room 数据库（V1 全部实体 + `sync_state` + `outbox` + `drafts`）；`SyncEngine.pull`；`OutboxWorker`（按房间先进先出、指数退避、4xx 与 409 处理）；前台 WebSocket；每 15 分钟的定期同步。严格按 `05-sync-offline.md`。
+- [x] **P1-05 客户端同步引擎** — Room 数据库（V1 全部实体 + `sync_state` + `outbox` + `drafts`）；`SyncEngine.pull`；`OutboxWorker`（按房间先进先出、指数退避、4xx 与 409 处理）；前台 WebSocket；每 15 分钟的定期同步。严格按 `05-sync-offline.md`。
   - 验收：`05-sync-offline.md` 第 5 节列出的客户端测试全部实现并通过。
 - [ ] **P1-06 登录与建房界面** — 欢迎、注册、登录、建房间、输入邀请码加入、生成并分享邀请码。视觉遵循设计系统（设计稿里没有这几页，按规则设计后截图确认）。
   - 验收：两个模拟器：A 注册建房并生成邀请码，B 用邀请码注册后两边都能看到对方的名字。
