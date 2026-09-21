@@ -42,7 +42,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.EventDraft
@@ -61,6 +60,7 @@ import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.icon.QichiIcons
+import app.qichi.core.designsystem.tsp
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.chinese
 import app.qichi.core.ui.relativeDay
@@ -104,7 +104,7 @@ fun EventListScreen(
                 Column(Modifier.padding(bottom = Spacing.l)) {
                     val (label, _) = relativeDay(day.date, state.today)
                     SectionLabel(if (label.startsWith("周") || label == "今天" || label == "明天" || label == "昨天") label else day.date.dayOfWeek.chinese) {
-                        Text("${day.date.monthValue} · ${day.date.dayOfMonth}", style = type.numeral.copy(fontSize = 15.sp, color = colors.muted))
+                        Text("${day.date.monthValue} · ${day.date.dayOfMonth}", style = type.numeral.copy(fontSize = 15.tsp, color = colors.muted))
                     }
                     day.events.forEach { item ->
                         EventRow(item, state.people, state.zone, day.date) { editing = item.value.id.toString() }
@@ -156,7 +156,7 @@ private fun EventRow(item: Local<Event>, people: People, zone: ZoneId, day: Loca
         }
         Text(
             time,
-            style = if (e.allDay || time == "续") type.caption.copy(color = colors.muted) else type.numeral.copy(fontSize = 18.sp, color = colors.ink),
+            style = if (e.allDay || time == "续") type.caption.copy(color = colors.muted) else type.numeral.copy(fontSize = 18.tsp, color = colors.ink),
             modifier = Modifier.width(52.dp),
         )
         Column(Modifier.weight(1f)) {
@@ -355,6 +355,6 @@ private fun DateTimeChip(text: String, numeral: Boolean, onClick: () -> Unit) {
             .clickable(role = Role.Button, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text, style = if (numeral) type.numeral.copy(fontSize = 22.sp, color = colors.ink) else type.bodyLarge.copy(color = colors.ink))
+        Text(text, style = if (numeral) type.numeral.copy(fontSize = 22.tsp, color = colors.ink) else type.bodyLarge.copy(color = colors.ink))
     }
 }

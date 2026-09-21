@@ -7,6 +7,8 @@ import app.qichi.core.auth.EncryptedTokenStore
 import app.qichi.core.auth.LocalDataCleaner
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.auth.TokenStore
+import app.qichi.core.data.DataStoreDisplaySettingsStore
+import app.qichi.core.data.DisplaySettingsStore
 import app.qichi.core.network.ApiClient
 import dagger.Module
 import dagger.Provides
@@ -47,6 +49,10 @@ object AppModule {
     @Provides
     @Singleton
     fun tokenStore(@ApplicationContext context: Context): TokenStore = EncryptedTokenStore(context)
+
+    @Provides
+    @Singleton
+    fun displaySettingsStore(@ApplicationContext context: Context): DisplaySettingsStore = DataStoreDisplaySettingsStore(context)
 
     @Provides
     @Singleton

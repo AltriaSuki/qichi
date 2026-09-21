@@ -31,6 +31,7 @@ import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.component.QichiTabBar
 import app.qichi.core.designsystem.component.TabItem
 import app.qichi.feature.calendar.EventListScreen
+import app.qichi.feature.me.DisplayScreen
 import app.qichi.feature.me.MeScreen
 import app.qichi.feature.mood.MoodScreen
 import app.qichi.feature.today.TodayScreen
@@ -124,6 +125,7 @@ fun QichiApp(
                         when (route.page) {
                             Page.Members -> MembersScreen(roomId = LocalRoomId.current, onBack = navigator::back)
                             Page.Profile -> ProfileScreen(onBack = navigator::back)
+                            Page.Display -> DisplayScreen(onBack = navigator::back)
                             Page.RoomSettings -> RoomSettingsScreen(roomId = LocalRoomId.current, onBack = navigator::back)
                             else -> PagePlaceholder(route.page.title, onBack = navigator::back)
                         }

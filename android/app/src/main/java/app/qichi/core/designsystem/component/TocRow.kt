@@ -17,8 +17,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import app.qichi.core.designsystem.QichiTheme
+import app.qichi.core.designsystem.tsp
 
 /** 罗马数字（目录序号用）：1 → i，4 → iv。 */
 fun romanNumeral(n: Int): String {
@@ -56,7 +56,7 @@ fun TocRow(
     ) {
         Text(
             text = romanNumeral(index),
-            style = type.numeral.copy(fontSize = 19.sp, color = colors.accent),
+            style = type.numeral.copy(fontSize = 19.tsp, color = colors.accent),
             modifier = Modifier.width(26.dp),
         )
         Text(text = title, style = type.tocItem.copy(color = colors.ink))
@@ -76,7 +76,7 @@ fun TocRow(
             )
         }
         if (trailing != null) {
-            Text(text = trailing, style = type.numeral.copy(fontSize = 20.sp, color = colors.muted))
+            Text(text = trailing, style = type.numeral.copy(fontSize = 20.tsp, color = colors.muted))
         }
     }
 }

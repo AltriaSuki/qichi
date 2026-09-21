@@ -25,12 +25,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
-import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.qichi.core.auth.SessionManager
+import app.qichi.core.data.DisplaySettings
+import app.qichi.core.data.DisplaySettingsStore
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sizes
@@ -40,6 +41,7 @@ import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.markCharOf
 import app.qichi.core.designsystem.icon.QichiIcons
+import app.qichi.core.designsystem.tsp
 import app.qichi.navigation.Page
 import app.qichi.shared.api.Member
 import app.qichi.shared.api.Room
@@ -57,6 +59,7 @@ data class MeState(
     val room: Room? = null,
     val me: Member? = null,
     val fallbackName: String = "",
+    val display: DisplaySettings = DisplaySettings(),
 ) {
     val displayName: String get() = me?.displayName ?: fallbackName
     val person: Person get() = if (room != null && me != null && room.createdBy == me.userId) Person.A else Person.B
@@ -67,9 +70,12 @@ class MeViewModel @AssistedInject constructor(
     @Assisted roomId: UUID,
     rooms: RoomRepository,
     session: SessionManager,
+    display: DisplaySettingsStore,
 ) : ViewModel() {
-    val state: StateFlow<MeState> = combine(rooms.observeRoom(roomId), rooms.observeMembers(roomId), rooms.me) { room, members, me ->
-        MeState(room, members.firstOrNull { it.userId == session.currentUserId }, me?.user?.displayName.orEmpty())
+    val state: StateFlow<MeState> = combine(
+        rooms.observeRoom(roomId), rooms.observeMembers(roomId), rooms.me, display.settings,
+    ) { room, members, me, settings ->
+        MeState(room, members.firstOrNull { it.userId == session.currentUserId }, me?.user?.displayName.orEmpty(), settings)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MeState())
 
     @AssistedFactory
@@ -83,7 +89,6 @@ class MeViewModel @AssistedInject constructor(
 fun MeScreen(
     roomId: UUID,
     onOpen: (Page) -> Unit,
-    displayModeLabel: String = "标准",
     viewModel: MeViewModel = hiltViewModel<MeViewModel, MeViewModel.Factory>(key = roomId.toString()) { it.create(roomId) },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -105,7 +110,7 @@ fun MeScreen(
             Column {
                 Text(
                     state.displayName,
-                    style = type.feeling.copy(fontSize = 28.sp, letterSpacing = 0.3.em, lineHeight = 39.sp, color = colors.ink),
+                    style = type.feeling.copy(fontSize = 28.tsp, letterSpacing = 0.3.em, lineHeight = 39.tsp, color = colors.ink),
                     modifier = Modifier.semantics { heading() },
                 )
                 Text(state.room?.name.orEmpty(), style = type.caption.copy(letterSpacing = 0.2.em, color = colors.muted))
@@ -122,7 +127,7 @@ fun MeScreen(
             MeSection("房间", listOf(Page.Members to null, Page.RoomSettings to null, Page.Trash to null), onOpen)
             MeSection(
                 "账号",
-                listOf(Page.Profile to null, Page.Display to displayModeLabel, Page.Notifications to null, Page.Security to null),
+                listOf(Page.Profile to null, Page.Display to state.display.textSizeLabel, Page.Notifications to null, Page.Security to null),
                 onOpen,
             )
             Column(
@@ -133,10 +138,10 @@ fun MeScreen(
             ) {
                 Text(
                     "两份孤独，彼此守护，彼此为界，彼此致意。",
-                    style = type.caption.copy(letterSpacing = 0.12.em, lineHeight = 26.sp, color = colors.muted),
+                    style = type.caption.copy(letterSpacing = 0.12.em, lineHeight = 26.tsp, color = colors.muted),
                     textAlign = TextAlign.Center,
                 )
-                Text("Rilke", style = type.numeral.copy(fontSize = 15.sp, letterSpacing = 0.04.em, color = colors.muted))
+                Text("Rilke", style = type.numeral.copy(fontSize = 15.tsp, letterSpacing = 0.04.em, color = colors.muted))
             }
         }
     }

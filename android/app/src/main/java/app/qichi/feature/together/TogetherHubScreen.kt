@@ -36,10 +36,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
-import androidx.compose.ui.unit.sp
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
 import app.qichi.core.designsystem.component.TocRow
+import app.qichi.core.designsystem.tsp
 import app.qichi.navigation.Page
 import app.qichi.navigation.TogetherGroup
 
@@ -118,7 +118,7 @@ private fun GroupTab(label: String, selected: Boolean, onClick: () -> Unit) {
             Text(
                 text = label,
                 style = QichiTheme.typography.body.copy(
-                    fontSize = 16.sp,
+                    fontSize = 16.tsp,
                     letterSpacing = 0.26.em,
                     fontWeight = if (selected) FontWeight.W400 else FontWeight.W300,
                     color = if (selected) colors.ink else colors.muted,

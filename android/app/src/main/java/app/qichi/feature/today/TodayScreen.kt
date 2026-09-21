@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -27,11 +27,11 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
-import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.designsystem.QichiTheme
@@ -42,6 +42,7 @@ import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.PersonMarks
 import app.qichi.core.designsystem.component.Pill
 import app.qichi.core.designsystem.component.SectionLabel
+import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.TodoRow
 import app.qichi.core.ui.feelingWord
 import app.qichi.core.ui.monthRoman
@@ -121,10 +122,10 @@ fun TodayScreen(
                 Column(Modifier.padding(bottom = 4.dp)) {
                     Text(
                         chineseMonths[state.today.monthValue - 1],
-                        style = type.pageTitle.copy(fontSize = 20.sp, letterSpacing = 0.3.em, color = colors.ink),
+                        style = type.pageTitle.copy(fontSize = 20.tsp, letterSpacing = 0.3.em, color = colors.ink),
                         modifier = Modifier.semantics { heading() },
                     )
-                    Text(state.today.year.toString(), style = type.numeral.copy(fontSize = 18.sp, lineHeight = 23.sp, color = colors.muted))
+                    Text(state.today.year.toString(), style = type.numeral.copy(fontSize = 18.tsp, lineHeight = 23.tsp, color = colors.muted))
                 }
             }
         }
@@ -157,8 +158,8 @@ fun TodayScreen(
                             if (mood.needsComfort) ComfortFlag()
                         }
                         Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(feelingWord(mood.label, mood.intensity), style = type.feeling.copy(fontSize = 32.sp, lineHeight = 42.sp, color = colors.ink))
-                            Text(mood.intensity.toString(), style = type.numeral.copy(fontSize = 24.sp, color = colors.muted), modifier = Modifier.padding(bottom = 6.dp))
+                            Text(feelingWord(mood.label, mood.intensity), style = type.feeling.copy(fontSize = 32.tsp, lineHeight = 42.tsp, color = colors.ink))
+                            Text(mood.intensity.toString(), style = type.numeral.copy(fontSize = 24.tsp, color = colors.muted), modifier = Modifier.padding(bottom = 6.dp))
                         }
                         mood.note?.let {
                             Text(it, style = type.body.copy(color = colors.muted), modifier = Modifier.padding(top = 4.dp, bottom = 14.dp))
@@ -176,8 +177,8 @@ fun TodayScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             PersonMark(people.markChar(mood.authorId), people.person(mood.authorId), size = 22.dp, modifier = Modifier.padding(bottom = 6.dp))
-                            Text(feelingWord(mood.label, mood.intensity), style = type.feeling.copy(fontSize = 24.sp, lineHeight = 31.sp, color = colors.ink))
-                            Text(mood.intensity.toString(), style = type.numeral.copy(fontSize = 20.sp, color = colors.muted), modifier = Modifier.padding(bottom = 4.dp))
+                            Text(feelingWord(mood.label, mood.intensity), style = type.feeling.copy(fontSize = 24.tsp, lineHeight = 31.tsp, color = colors.ink))
+                            Text(mood.intensity.toString(), style = type.numeral.copy(fontSize = 20.tsp, color = colors.muted), modifier = Modifier.padding(bottom = 4.dp))
                         }
                     }
                 }
@@ -217,10 +218,18 @@ fun TodayScreen(
                                 starts != null && starts.toLocalDate() == state.today -> starts.format(hm)
                                 else -> null
                             }
+                            // 时间列随字号一起放宽，大字模式下标题仍然对齐
+                            val timeColumn = Modifier.widthIn(min = (66 * type.scale).dp)
                             if (time != null) {
-                                Text(time, style = type.numeral.copy(fontSize = 28.sp, fontWeight = FontWeight.W300, fontStyle = androidx.compose.ui.text.font.FontStyle.Normal, color = colors.ink), modifier = Modifier.width(66.dp))
+                                Text(
+                                    time,
+                                    style = type.numeral.copy(fontSize = 28.tsp, fontWeight = FontWeight.W300, fontStyle = FontStyle.Normal, color = colors.ink),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = timeColumn,
+                                )
                             } else {
-                                Text("全天", style = type.caption.copy(color = colors.muted), modifier = Modifier.width(66.dp))
+                                Text("全天", style = type.caption.copy(color = colors.muted), modifier = timeColumn)
                             }
                             Text(e.title, style = type.bodyLarge.copy(color = colors.ink), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             if (e.participantIds.size == 1) {
@@ -240,13 +249,13 @@ fun TodayScreen(
                 Column(Modifier.padding(horizontal = Spacing.page)) {
                     SectionLabel("一年前")
                     val d = state.yearAgo
-                    Text("${d.dayOfMonth} · ${monthRoman(d.monthValue)} · ${d.year}", style = type.numeral.copy(fontSize = 18.sp, lineHeight = 22.sp, color = colors.muted))
+                    Text("${d.dayOfMonth} · ${monthRoman(d.monthValue)} · ${d.year}", style = type.numeral.copy(fontSize = 18.tsp, lineHeight = 22.tsp, color = colors.muted))
                     state.yearAgoMoods.forEach { mood ->
                         Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             PersonMark(people.markChar(mood.authorId), people.person(mood.authorId), size = 18.dp)
                             Text(
                                 mood.note ?: feelingWord(mood.label, mood.intensity),
-                                style = type.body.copy(fontSize = 18.sp, letterSpacing = 0.04.em, color = colors.ink),
+                                style = type.body.copy(fontSize = 18.tsp, letterSpacing = 0.04.em, color = colors.ink),
                             )
                         }
                     }

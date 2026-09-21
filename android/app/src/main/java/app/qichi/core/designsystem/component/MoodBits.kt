@@ -22,8 +22,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
-import androidx.compose.ui.unit.sp
 import app.qichi.core.designsystem.QichiTheme
+import app.qichi.core.designsystem.tsp
 
 /**
  * 1–10 强度刻度（Mood.dc.html「深浅」）：十根渐高的细线，选中那根加粗为 personA 色，
@@ -72,7 +72,7 @@ fun IntensityTicks(
         }
         Text(
             text = value.toString(),
-            style = QichiTheme.typography.numeral.copy(fontSize = 34.sp, fontWeight = FontWeight.W300, color = colors.personA),
+            style = QichiTheme.typography.numeral.copy(fontSize = 34.tsp, fontWeight = FontWeight.W300, color = colors.personA),
             modifier = Modifier.padding(bottom = 4.dp),
         )
     }
@@ -88,6 +88,6 @@ fun ComfortFlag(modifier: Modifier = Modifier) {
                 .size(6.dp)
                 .background(colors.accent, CircleShape),
         )
-        Text("需要安慰", style = QichiTheme.typography.caption.copy(fontSize = 12.sp, letterSpacing = 0.2.em, color = colors.accent))
+        Text("需要安慰", style = QichiTheme.typography.caption.copy(fontSize = 12.tsp, letterSpacing = 0.2.em, color = colors.accent))
     }
 }

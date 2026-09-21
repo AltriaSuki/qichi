@@ -19,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
-import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -37,6 +36,7 @@ import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.component.markCharOf
+import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.toFormError
 import app.qichi.shared.api.Invite
 import app.qichi.shared.api.Member
@@ -172,7 +172,7 @@ fun MembersScreen(
                             text = invite.code,
                             // 邀请码要照着输入：用正体、等高数字（lnum），避免旧式数字的高低错落
                             style = type.numeral.copy(
-                                fontSize = 40.sp, letterSpacing = 0.18.em, color = colors.ink,
+                                fontSize = 40.tsp, letterSpacing = 0.18.em, color = colors.ink,
                                 fontStyle = androidx.compose.ui.text.font.FontStyle.Normal, fontFeatureSettings = "lnum",
                             ),
                         )

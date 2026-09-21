@@ -17,13 +17,13 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import app.qichi.core.data.People
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.component.CheckCircle
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.PersonMarks
 import app.qichi.core.designsystem.icon.QichiIcons
+import app.qichi.core.designsystem.tsp
 import app.qichi.core.sync.Local
 import app.qichi.shared.api.Todo
 import java.time.LocalDate
@@ -66,7 +66,7 @@ fun TodoRow(
         )
         Text(
             text = todo.title,
-            style = (if (subtask) type.body.copy(fontSize = 14.sp) else type.bodyLarge).copy(
+            style = (if (subtask) type.body.copy(fontSize = 14.tsp) else type.bodyLarge).copy(
                 color = if (done) colors.faint else colors.ink,
                 textDecoration = if (done) TextDecoration.None else null,
             ),
@@ -85,7 +85,7 @@ fun TodoRow(
                 val (label, numeral) = relativeDay(due, today)
                 val overdue = !done && due.isBefore(today)
                 val color = if (overdue) colors.accent else colors.muted
-                Text(label, style = if (numeral) type.numeral.copy(fontSize = 16.sp, color = color) else type.caption.copy(color = color))
+                Text(label, style = if (numeral) type.numeral.copy(fontSize = 16.tsp, color = color) else type.caption.copy(color = color))
             }
             if (!subtask) {
                 val assignee = todo.assigneeId

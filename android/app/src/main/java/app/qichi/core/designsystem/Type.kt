@@ -1,11 +1,14 @@
 package app.qichi.core.designsystem
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 
@@ -41,12 +44,15 @@ data class QichiTypography(
     val numeral: TextStyle,
     /** 底部标签（未选中；选中时字重改为 400） */
     val tab: TextStyle,
+    /** 「大字」模式下的放大倍数；标准模式为 1 */
+    val scale: Float = 1f,
 ) {
     /** 「大字」模式：全部 ×[factor]，dateDisplay 不变。 */
     fun scaled(factor: Float): QichiTypography {
         if (factor == 1f) return this
         fun TextStyle.x() = copy(fontSize = fontSize * factor, lineHeight = lineHeight * factor)
         return copy(
+            scale = factor,
             hubTitle = hubTitle.x(), pageTitle = pageTitle.x(), feeling = feeling.x(), question = question.x(),
             tocItem = tocItem.x(), body = body.x(), bodyLarge = bodyLarge.x(), reading = reading.x(),
             sectionLabel = sectionLabel.x(), caption = caption.x(), numeral = numeral.x(), tab = tab.x(),
@@ -57,6 +63,14 @@ data class QichiTypography(
         const val LARGE_TEXT_FACTOR = 1.2f
     }
 }
+
+/**
+ * 页面里单独指定的字号写 `28.tsp`（不写 `28.sp`），这样会跟着「大字」一起放大。
+ * 只有 dateDisplay 和人物圆标里的字（跟着圆的大小走）不用它。
+ */
+val Number.tsp: TextUnit
+    @Composable @ReadOnlyComposable
+    get() = (toFloat() * LocalQichiTypography.current.scale).sp
 
 private val TrimNone = LineHeightStyle(
     alignment = LineHeightStyle.Alignment.Center,

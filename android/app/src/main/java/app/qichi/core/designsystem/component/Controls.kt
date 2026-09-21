@@ -1,5 +1,8 @@
 package app.qichi.core.designsystem.component
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -7,16 +10,21 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,11 +36,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
-import androidx.compose.ui.unit.sp
 import app.qichi.core.designsystem.QichiShapes
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sizes
 import app.qichi.core.designsystem.icon.QichiIcons
+import app.qichi.core.designsystem.tsp
 
 /** 雾层卡片：surface 背景、4dp 圆角、无描边无投影。 */
 @Composable
@@ -73,7 +81,7 @@ fun Pill(
         Text(
             text = text,
             style = QichiTheme.typography.body.copy(
-                fontSize = 14.sp,
+                fontSize = 14.tsp,
                 fontWeight = FontWeight.W400,
                 letterSpacing = 0.06.em,
                 color = when {
@@ -107,7 +115,7 @@ fun ChoicePill(
         Text(
             text = text,
             style = QichiTheme.typography.body.copy(
-                fontSize = 17.sp,
+                fontSize = 17.tsp,
                 letterSpacing = 0.16.em,
                 fontWeight = if (selected) FontWeight.W400 else FontWeight.W300,
                 color = if (selected) colors.accent else colors.muted,
@@ -138,7 +146,7 @@ fun PrimaryButton(
         Text(
             text = text,
             style = QichiTheme.typography.body.copy(
-                fontSize = 15.sp,
+                fontSize = 15.tsp,
                 fontWeight = FontWeight.W400,
                 letterSpacing = 0.16.em,
                 color = colors.background,
@@ -167,7 +175,7 @@ fun TextAction(
         Text(
             text = text,
             style = QichiTheme.typography.body.copy(
-                fontSize = 14.sp,
+                fontSize = 14.tsp,
                 fontWeight = FontWeight.W400,
                 letterSpacing = 0.1.em,
                 color = if (enabled) color else QichiTheme.colors.faint,
@@ -227,6 +235,56 @@ fun CheckCircle(
                 Modifier
                     .size(size)
                     .border(1.dp, colors.faint, CircleShape),
+            )
+        }
+    }
+}
+
+/**
+ * 带开关的设置行：整行可点，读屏读作「开关」。
+ * 开关本身是细线胶囊 + 圆点；开启时 ink 实心，关闭时 line2 细线。
+ */
+@Composable
+fun SwitchRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    description: String? = null,
+) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = Sizes.listRowTall)
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = type.bodyLarge.copy(color = colors.ink))
+            if (description != null) Text(description, style = type.caption.copy(color = colors.muted))
+        }
+        Spacer(Modifier.width(16.dp))
+        val knob by animateDpAsState(
+            targetValue = if (checked) 18.dp else 0.dp,
+            animationSpec = if (QichiTheme.reduceMotion) snap() else tween(180),
+            label = "switch",
+        )
+        Box(
+            Modifier
+                .size(width = 40.dp, height = 22.dp)
+                .clip(QichiShapes.pill)
+                .background(if (checked) colors.ink else Color.Transparent)
+                .border(1.dp, if (checked) colors.ink else colors.line2, QichiShapes.pill)
+                .padding(3.dp),
+        ) {
+            Box(
+                Modifier
+                    .offset(x = knob)
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .background(if (checked) colors.background else colors.faint),
             )
         }
     }

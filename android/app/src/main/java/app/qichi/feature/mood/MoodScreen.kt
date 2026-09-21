@@ -30,7 +30,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
-import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -52,6 +51,7 @@ import app.qichi.core.designsystem.component.Pill
 import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.icon.QichiIcons
+import app.qichi.core.designsystem.tsp
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.displayName
 import app.qichi.core.ui.feelingWord
@@ -195,7 +195,7 @@ fun MoodScreen(
                 BasicTextField(
                     value = draft.note,
                     onValueChange = viewModel::onNote,
-                    textStyle = type.body.copy(fontSize = 16.sp, lineHeight = 30.sp, color = colors.ink),
+                    textStyle = type.body.copy(fontSize = 16.tsp, lineHeight = 30.tsp, color = colors.ink),
                     cursorBrush = SolidColor(colors.accent),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -262,7 +262,7 @@ private fun MoodBlock(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             PersonMark(people.markChar(mood.authorId), people.person(mood.authorId), size = 22.dp)
             Text(feelingWord(mood.label, mood.intensity), style = type.feeling.copy(color = colors.ink))
-            Text(mood.intensity.toString(), style = type.numeral.copy(fontSize = 21.sp, color = colors.muted))
+            Text(mood.intensity.toString(), style = type.numeral.copy(fontSize = 21.tsp, color = colors.muted))
             if (pending) {
                 androidx.compose.material3.Icon(
                     QichiIcons.Clock, contentDescription = "待发送", tint = colors.muted,

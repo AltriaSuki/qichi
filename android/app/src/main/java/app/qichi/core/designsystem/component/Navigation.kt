@@ -33,11 +33,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sizes
 import app.qichi.core.designsystem.Spacing
 import app.qichi.core.designsystem.icon.QichiIcons
+import app.qichi.core.designsystem.tsp
 
 data class TabItem(
     val label: String,
@@ -103,7 +103,7 @@ fun QichiTabBar(
                     if (badge != null) {
                         Text(
                             text = if (badge > 99) "99+" else badge.toString(),
-                            style = type.numeral.copy(fontSize = 15.sp, color = colors.accent),
+                            style = type.numeral.copy(fontSize = 15.tsp, color = colors.accent),
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .offset(x = 14.dp, y = (-9).dp),

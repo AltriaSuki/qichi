@@ -36,6 +36,9 @@ class DesignSystemTest {
     @Test
     fun `大字模式放大 1点2 倍，日期大字不变`() {
         val large = DefaultTypography.scaled(QichiTypography.LARGE_TEXT_FACTOR)
+        // 页面里写死的字号（28.tsp）按 scale 放大
+        assertEquals(1f, DefaultTypography.scale)
+        assertEquals(1.2f, large.scale)
         assertEquals(DefaultTypography.body.fontSize.value * 1.2f, large.body.fontSize.value, 0.001f)
         assertEquals(DefaultTypography.body.lineHeight.value * 1.2f, large.body.lineHeight.value, 0.001f)
         assertEquals(DefaultTypography.dateDisplay, large.dateDisplay)
