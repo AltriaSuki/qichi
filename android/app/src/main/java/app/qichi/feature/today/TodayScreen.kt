@@ -3,6 +3,7 @@ package app.qichi.feature.today
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -22,7 +23,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -44,11 +47,14 @@ import app.qichi.core.designsystem.component.Pill
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.TodoRow
+import app.qichi.core.ui.displayName
 import app.qichi.core.ui.feelingWord
 import app.qichi.core.ui.monthRoman
-import app.qichi.core.ui.displayName
 import app.qichi.navigation.Page
 import app.qichi.shared.model.MoodReplyKind
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import java.time.DayOfWeek
 import java.time.format.DateTimeFormatter
 import java.util.UUID
@@ -130,13 +136,26 @@ fun TodayScreen(
             }
         }
 
-        // ── 主视觉：没有照片时是雾海插画（P3-11 接上房间照片）──
-        FogSeaHero(
+        // ── 主视觉：房间设了照片就显示照片（盖在雾海上：照片还没加载出来、或离线读不到时仍是插画）──
+        Box(
             Modifier
                 .padding(start = 100.dp, top = Spacing.xxl)
                 .fillMaxWidth()
                 .height(300.dp),
-        )
+        ) {
+            FogSeaHero(Modifier.fillMaxSize())
+            state.people.room?.heroFileId?.let { hero ->
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(viewModel.urls.thumbnail(hero))
+                        .crossfade(!QichiTheme.reduceMotion)
+                        .build(),
+                    contentDescription = "主视觉照片",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
 
         Column(
             Modifier.padding(top = Spacing.todaySection),

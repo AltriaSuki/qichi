@@ -10,6 +10,7 @@ import app.qichi.core.data.AttachmentPreparer
 import app.qichi.core.data.ChatRepository
 import app.qichi.core.data.DraftStore
 import app.qichi.core.data.EventRepository
+import app.qichi.core.data.FileRepository
 import app.qichi.core.data.MoodRepository
 import app.qichi.core.data.TodoRepository
 import app.qichi.core.data.TrashRepository
@@ -92,6 +93,10 @@ object SyncModule {
     @Singleton
     fun todoRepository(db: QichiDatabase, store: LocalStore, scheduler: SyncScheduler, session: SessionManager): TodoRepository =
         TodoRepository(db, store, scheduler, session)
+
+    @Provides
+    @Singleton
+    fun fileRepository(api: ApiClient): FileRepository = FileRepository(api)
 
     @Provides
     @Singleton

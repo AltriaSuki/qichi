@@ -11,6 +11,7 @@ import app.qichi.core.data.AttachmentException
 import app.qichi.core.data.AttachmentPreparer
 import app.qichi.core.data.ChatRepository
 import app.qichi.core.data.DraftStore
+import app.qichi.core.data.FileRepository
 import app.qichi.core.data.People
 import app.qichi.core.data.PreparedAttachment
 import app.qichi.core.data.RoomRepository
@@ -89,6 +90,7 @@ class ChatViewModel @AssistedInject constructor(
     private val chat: ChatRepository,
     private val preparer: AttachmentPreparer,
     private val drafts: DraftStore,
+    private val files: FileRepository,
     @ApplicationScope private val appScope: CoroutineScope,
     val urls: FileUrls,
     rooms: RoomRepository,
@@ -217,7 +219,7 @@ class ChatViewModel @AssistedInject constructor(
     private suspend fun runUpload(upload: Upload) {
         val reply = _replyTo.value
         try {
-            val file = chat.upload(roomId, upload.id, upload.attachment) { p -> updateUpload(upload.id) { it.copy(progress = p) } }
+            val file = files.upload(roomId, upload.id, upload.attachment) { p -> updateUpload(upload.id) { it.copy(progress = p) } }
             _replyTo.value = if (_replyTo.value == reply) null else _replyTo.value
             chat.sendAttachment(roomId, file, replyTo = reply)
             _uploads.update { list -> list.filterNot { it.id == upload.id } }
@@ -240,7 +242,7 @@ class ChatViewModel @AssistedInject constructor(
         viewModelScope.launch {
             _downloads.update { it + (file.id to 0f) }
             try {
-                val local = chat.download(file, File(context.cacheDir, "attachments")) { p -> _downloads.update { it + (file.id to p) } }
+                val local = files.download(file, File(context.cacheDir, "attachments")) { p -> _downloads.update { it + (file.id to p) } }
                 _events.emit(ChatEvent.OpenFile(local, file.mimeType))
             } catch (e: CancellationException) {
                 throw e

@@ -9,6 +9,7 @@ import app.qichi.core.data.People
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.data.TodoRepository
 import app.qichi.core.data.days
+import app.qichi.core.network.FileUrls
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.todayIn
 import app.qichi.core.ui.zoneOf
@@ -60,6 +61,7 @@ class TodayViewModel @AssistedInject constructor(
     private val todos: TodoRepository,
     events: EventRepository,
     session: SessionManager,
+    val urls: FileUrls,
 ) : ViewModel() {
 
     private val minuteTicker = flow {

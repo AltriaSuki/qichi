@@ -210,4 +210,30 @@ class RoomTest {
         assertEquals(before.lastSeq + 1, after.lastSeq)
         assertEquals(after.lastSeq, me.seq)
     }
+
+    @Test
+    fun `主视觉照片：只能用这个房间的图片；换掉后旧的主视觉文件删除`() = serverTest { client ->
+        val (owner, member, roomId) = Api(client).pair()
+        fun png(): ByteArray {
+            val image = java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB)
+            return java.io.ByteArrayOutputStream().also { javax.imageio.ImageIO.write(image, "png", it) }.toByteArray()
+        }
+        val first = owner.upload(roomId, png(), kind = "hero").body<app.qichi.shared.api.FileMeta>()
+        val room = owner.patch("/api/v1/rooms/$roomId", UpdateRoomRequest(heroFileId = Patch.of(first.id))).body<Room>()
+        assertEquals(first.id, room.heroFileId)
+        assertEquals(HttpStatusCode.OK, member.get("/api/v1/files/${first.id}/thumb?w=800").status)
+
+        val second = member.upload(roomId, png(), kind = "hero").body<app.qichi.shared.api.FileMeta>()
+        assertEquals(second.id, member.patch("/api/v1/rooms/$roomId", UpdateRoomRequest(heroFileId = Patch.of(second.id))).body<Room>().heroFileId)
+        owner.get("/api/v1/files/${first.id}").assertProblem(HttpStatusCode.NotFound, ProblemCode.NotFound)
+
+        val doc = owner.upload(roomId, "x".toByteArray(), fileName = "a.txt", kind = "file", contentType = "text/plain").body<app.qichi.shared.api.FileMeta>()
+        owner.patch("/api/v1/rooms/$roomId", UpdateRoomRequest(heroFileId = Patch.of(doc.id)))
+            .assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
+
+        // 移除：回到雾海插画；换下来的主视觉文件同样删掉
+        val cleared = owner.patch("/api/v1/rooms/$roomId", UpdateRoomRequest(heroFileId = Patch.of(null))).body<Room>()
+        assertEquals(null, cleared.heroFileId)
+        owner.get("/api/v1/files/${second.id}").assertProblem(HttpStatusCode.NotFound, ProblemCode.NotFound)
+    }
 }

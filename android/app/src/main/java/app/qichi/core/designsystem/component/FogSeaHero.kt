@@ -3,6 +3,7 @@ package app.qichi.core.designsystem.component
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -23,7 +24,8 @@ import app.qichi.core.designsystem.Sky
 @Composable
 fun FogSeaHero(modifier: Modifier = Modifier, sky: Sky = QichiTheme.sky) {
     val palette = heroPalette(sky)
-    Canvas(modifier.semantics { contentDescription = "雾海" }) {
+    // 居中裁切：放大铺满后超出的部分要裁掉，不能画到框外
+    Canvas(modifier.clipToBounds().semantics { contentDescription = "雾海" }) {
         val scale = maxOf(size.width / VIEW_W, size.height / VIEW_H)
         val dx = (size.width - VIEW_W * scale) / 2
         val dy = (size.height - VIEW_H * scale) / 2

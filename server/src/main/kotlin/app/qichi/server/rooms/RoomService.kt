@@ -7,6 +7,7 @@ import app.qichi.server.db.RoomMembers
 import app.qichi.server.db.RoomWriter
 import app.qichi.server.db.Rooms
 import app.qichi.server.db.Tx
+import app.qichi.server.files.FileService
 import app.qichi.server.db.tx
 import app.qichi.server.plugins.ApiException
 import app.qichi.server.plugins.forbidden
@@ -20,6 +21,7 @@ import app.qichi.shared.api.RoomDetail
 import app.qichi.shared.api.UpdateRoomRequest
 import app.qichi.shared.api.ifPresent
 import app.qichi.shared.model.EntityType
+import app.qichi.shared.model.FileKind
 import app.qichi.shared.model.MemberRole
 import app.qichi.shared.model.ProblemCode
 import app.qichi.shared.model.wireName
@@ -30,6 +32,7 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
+import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertIgnore
 import org.jetbrains.exposed.v1.jdbc.select
@@ -45,6 +48,7 @@ class RoomService(
     private val db: QichiDatabase,
     private val writer: RoomWriter,
     private val clock: Clock,
+    private val files: FileService,
 ) {
     private val random = SecureRandom()
 
@@ -100,10 +104,12 @@ class RoomService(
             req.name.ifPresent { check(it.trim().length in Limits.ROOM_NAME_LENGTH, "name", "房间名 1–40 个字") }
             req.timezone.ifPresent { check(isValidZone(it.trim()), "timezone", "不是合法的时区名") }
         }
-        return db.tx {
+        val released = mutableListOf<String>()
+        val room = db.tx {
             requireMember(roomId, userId)
-            req.avatarFileId.ifPresent { id -> if (id != null) requireFileInRoom(id, roomId, "avatarFileId") }
-            req.heroFileId.ifPresent { id -> if (id != null) requireFileInRoom(id, roomId, "heroFileId") }
+            req.avatarFileId.ifPresent { id -> if (id != null) requireImageInRoom(id, roomId, "avatarFileId", FileKind.Avatar) }
+            req.heroFileId.ifPresent { id -> if (id != null) requireImageInRoom(id, roomId, "heroFileId", FileKind.Hero) }
+            val previousHero = Rooms.select(Rooms.heroFileId).where { Rooms.id eq roomId }.single()[Rooms.heroFileId]
             val now = clock.instant()
             val seq = writer.change(this, roomId, EntityType.Room, roomId, userId, now)
             Rooms.update({ Rooms.id eq roomId }) { row ->
@@ -115,8 +121,20 @@ class RoomService(
                 row[Rooms.seq] = seq
                 row[updatedAt] = now
             }
+            // 换下来的主视觉照片（专门为主视觉上传的那种）不再有用，连文件一起删掉
+            req.heroFileId.ifPresent { newHero ->
+                if (previousHero != null && previousHero != newHero) {
+                    Files.select(Files.storagePath)
+                        .where { (Files.id eq previousHero) and (Files.kind eq FileKind.Hero.wireName) }
+                        .singleOrNull()
+                        ?.let { released += it[Files.storagePath] }
+                        ?.also { Files.deleteWhere { Files.id eq previousHero } }
+                }
+            }
             RoomRepository.room(roomId)!!
         }
+        files.deleteStored(released)
+        return room
     }
 
     /** 生成邀请码：仅 owner；房间满员时 409；之前未使用的邀请码全部失效。 */
@@ -198,9 +216,16 @@ class RoomService(
         lastSeq = RoomRepository.lastSeq(roomId),
     )
 
-    private fun requireFileInRoom(fileId: UUID, roomId: UUID, field: String) {
-        val exists = Files.select(Files.id).where { (Files.id eq fileId) and (Files.roomId eq roomId) }.any()
-        validate { check(exists, field, "文件不存在") }
+    /** 头像、主视觉只能用这个房间里的图片（专门上传的 [kind]，或聊天里的图片）。 */
+    private fun requireImageInRoom(fileId: UUID, roomId: UUID, field: String, kind: FileKind) {
+        val fileKind = Files.select(Files.kind).where { (Files.id eq fileId) and (Files.roomId eq roomId) }.singleOrNull()?.get(Files.kind)
+        validate {
+            when (fileKind) {
+                null -> fail(field, "文件不存在")
+                kind.wireName, FileKind.Image.wireName -> Unit
+                else -> fail(field, "需要一张图片")
+            }
+        }
     }
 
     private fun newInviteCode(): String =
