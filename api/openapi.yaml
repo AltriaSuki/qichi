@@ -144,9 +144,9 @@ paths:
       tags: [auth]
       operationId: logout
       summary: 登出
-      description: 作废这次登录的所有刷新令牌，并注销这次登录注册的推送设备。
+      description: 作废这次登录（以访问令牌为准）的所有刷新令牌，并注销这次登录注册的推送设备。请求体可省略。
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema: { $ref: '#/components/schemas/RefreshRequest' }
