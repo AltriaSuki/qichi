@@ -13,9 +13,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,10 +28,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.navigation
 import androidx.navigation.toRoute
 import app.qichi.core.designsystem.QichiTheme
-import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.component.QichiTabBar
 import app.qichi.core.designsystem.component.TabItem
+import app.qichi.feature.me.MeScreen
+import app.qichi.feature.me.ProfileScreen
+import app.qichi.feature.me.RoomSettingsScreen
 import app.qichi.feature.room.MembersScreen
 import app.qichi.feature.together.TogetherHubScreen
 
@@ -110,11 +108,13 @@ fun QichiApp(
                     }
                 }
                 navigation<MeGraph>(startDestination = MeHome) {
-                    composable<MeHome> { MeHomePlaceholder(onOpen = { navigator.open(it) }) }
+                    composable<MeHome> { MeScreen(roomId = LocalRoomId.current, onOpen = { navigator.open(it) }) }
                     composable<MePage> { entry ->
                         val route = entry.toRoute<MePage>()
                         when (route.page) {
                             Page.Members -> MembersScreen(roomId = LocalRoomId.current, onBack = navigator::back)
+                            Page.Profile -> ProfileScreen(onBack = navigator::back)
+                            Page.RoomSettings -> RoomSettingsScreen(roomId = LocalRoomId.current, onBack = navigator::back)
                             else -> PagePlaceholder(route.page.title, onBack = navigator::back)
                         }
                     }
@@ -133,27 +133,6 @@ fun QichiApp(
                 items = TopTab.entries.map { TabItem(it.label, selected = it == currentTab) },
                 onSelect = { navigator.selectTab(TopTab.entries[it]) },
             )
-        }
-    }
-}
-
-@Composable
-private fun MeHomePlaceholder(onOpen: (Page) -> Unit) {
-    // 「我的」页在 P1-07 按 Me.dc.html 完成；这里先列出入口，方便检查导航
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(QichiTheme.colors.background)
-            .statusBarsPadding()
-            .padding(horizontal = Spacing.page),
-    ) {
-        Text(
-            text = "我的",
-            style = QichiTheme.typography.pageTitle.copy(color = QichiTheme.colors.ink),
-            modifier = Modifier.padding(top = 28.dp, bottom = Spacing.m),
-        )
-        Page.entries.filter { it.tab == TopTab.Me }.forEach { page ->
-            TextAction(text = page.title, onClick = { onOpen(page) }, color = QichiTheme.colors.ink)
         }
     }
 }
