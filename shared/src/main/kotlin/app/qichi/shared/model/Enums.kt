@@ -108,3 +108,23 @@ enum class ProblemCode {
     @SerialName("ai_quota_exceeded") AiQuotaExceeded,
     @SerialName("internal_error") InternalError,
 }
+
+/** AI 调用的种类（ai_jobs.kind）。 */
+@Serializable
+enum class AiJobKind {
+    @SerialName("chat_answer") ChatAnswer,
+    @SerialName("question_suggest") QuestionSuggest,
+    @SerialName("read_explain") ReadExplain,
+    @SerialName("review_findings") ReviewFindings,
+    @SerialName("summary") Summary,
+    @SerialName("yearly_review") YearlyReview,
+}
+
+/** AI 任务的状态。 */
+@Serializable
+enum class AiJobStatus {
+    @SerialName("queued") Queued,
+    @SerialName("running") Running,
+    @SerialName("done") Done,
+    @SerialName("failed") Failed,
+}

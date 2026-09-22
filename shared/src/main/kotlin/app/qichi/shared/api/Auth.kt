@@ -63,6 +63,8 @@ data class MyRoom(
 data class Me(
     val user: User,
     val rooms: List<MyRoom>,
+    /** 服务端配置了 AI（否则 App 里的 AI 按钮显示为不可用） */
+    val aiEnabled: Boolean = false,
 )
 
 @OptIn(ExperimentalSerializationApi::class)

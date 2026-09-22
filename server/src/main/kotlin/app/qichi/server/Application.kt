@@ -4,6 +4,9 @@ import app.qichi.server.auth.AuthService
 import app.qichi.server.auth.PasswordHasher
 import app.qichi.server.auth.TokenService
 import app.qichi.server.auth.authRoutes
+import app.qichi.server.ai.AiGateway
+import app.qichi.server.ai.AiService
+import app.qichi.server.ai.aiRoutes
 import app.qichi.server.config.AppConfig
 import app.qichi.server.config.ConfigException
 import app.qichi.server.db.QichiDatabase
@@ -14,6 +17,7 @@ import app.qichi.server.files.FileService
 import app.qichi.server.files.FileStorage
 import app.qichi.server.files.LocalFileStorage
 import app.qichi.server.files.fileRoutes
+import app.qichi.server.jobs.JobQueue
 import app.qichi.server.life.lifeRoutes
 import app.qichi.server.messages.MessageService
 import app.qichi.server.messages.messageRoutes
@@ -67,8 +71,16 @@ fun main() {
     val database = QichiDatabase.start(config.database)
     val ctx = AppContext(config, database, Clock.systemUTC(), buildInfo)
 
+    when {
+        ctx.ai.enabled -> log.info("AI：{}（{}）", config.ai.provider, config.ai.model)
+        config.ai.isConfigured -> log.warn("AI_PROVIDER 只能是 openai-compatible 或 anthropic，现在是「{}」，AI 不可用", config.ai.provider)
+        else -> log.info("AI：未配置")
+    }
+
     embeddedServer(Netty, port = config.port, host = "0.0.0.0") {
         module(ctx)
+        // 后台任务（AI 等）随服务一起启动和停止
+        ctx.jobs.start(this)
         monitor.subscribe(ApplicationStopped) { database.close() }
     }.start(wait = true)
 }
@@ -94,6 +106,7 @@ fun Application.module(ctx: AppContext) {
             fileRoutes(ctx)
             messageRoutes(ctx)
             trashRoutes(ctx)
+            aiRoutes(ctx)
         }
     }
 }
@@ -105,6 +118,8 @@ class AppContext(
     baseClock: Clock,
     val buildInfo: BuildInfo,
     hasher: PasswordHasher = PasswordHasher(),
+    /** 默认按配置创建；测试里换成假的网关 */
+    aiGateway: AiGateway? = AiGateway.fromConfig(config.ai),
 ) {
     /** 截到微秒：PostgreSQL 只存到微秒，这样写入与读回的时间完全相等。 */
     val clock: Clock = MicrosClock(baseClock)
@@ -115,7 +130,7 @@ class AppContext(
     val files = FileService(database, fileStorage, clock)
     val rooms = RoomService(database, writer, clock, files)
     val auth = AuthService(database, hasher, tokens, rooms, clock)
-    val me = MeService(database, writer, clock)
+    val me = MeService(database, writer, clock, aiEnabled = aiGateway != null)
     val sync = SyncService(database)
     val writes = EntityWrites(writer, clock)
     val moods = MoodService(database, rooms, writes)
@@ -123,6 +138,8 @@ class AppContext(
     val events = EventService(database, rooms, writes)
     val messages = MessageService(database, rooms, writer, writes, files, clock)
     val trash = TrashService(database, rooms, writer, writes, todos, files, clock)
+    val jobs = JobQueue(database, clock)
+    val ai = AiService(database, rooms, writer, jobs, aiGateway, config.ai, realtime, clock)
 }
 
 class MicrosClock(private val base: Clock) : Clock() {

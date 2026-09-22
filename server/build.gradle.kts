@@ -33,6 +33,9 @@ dependencies {
     implementation(libs.ktor.server.forwarded.header)
     implementation(libs.ktor.server.websockets)
     implementation(libs.ktor.server.partial.content)
+    // 调用大模型接口（AiGateway）
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.cio)
     // 缩略图：JDK 自带 JPEG/PNG/GIF，补上 WebP 和更耐用的 JPEG（CMYK 等）解码
     implementation(libs.imageio.jpeg)
     implementation(libs.imageio.webp)
@@ -56,6 +59,7 @@ dependencies {
     testImplementation(libs.ktor.server.test.host)
     testImplementation(libs.ktor.client.content.negotiation)
     testImplementation(libs.ktor.client.websockets)
+    testImplementation(libs.ktor.client.mock)
     testImplementation(libs.testcontainers.postgresql)
 }
 

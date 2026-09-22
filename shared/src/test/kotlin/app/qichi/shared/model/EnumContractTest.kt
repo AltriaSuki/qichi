@@ -41,6 +41,8 @@ class EnumContractTest {
     @Test fun trashType() = assertMatches<TrashType>("TrashType")
     @Test fun pushProvider() = assertMatches<PushProvider>("PushProvider")
     @Test fun problemCode() = assertMatches<ProblemCode>("ProblemCode")
+    @Test fun aiJobKind() = assertMatches<AiJobKind>("AiJobKind")
+    @Test fun aiJobStatus() = assertMatches<AiJobStatus>("AiJobStatus")
 
     @Test
     fun `JSON 序列化使用小写字符串`() {

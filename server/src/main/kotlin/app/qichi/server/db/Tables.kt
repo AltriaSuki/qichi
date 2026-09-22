@@ -124,6 +124,7 @@ object Messages : SyncedTable("messages") {
     val retractedAt = timestamp("retracted_at").nullable()
     val retractedBy = javaUUID("retracted_by").nullable()
     val createdSeq = long("created_seq")
+    val aiPrompt = text("ai_prompt").nullable()
 }
 
 object ReadMarkers : SyncedTable("read_markers") {
@@ -181,5 +182,38 @@ object Devices : Table("devices") {
     val refreshFamilyId = javaUUID("refresh_family_id").nullable()
     val createdAt = timestamp("created_at")
     val updatedAt = timestamp("updated_at")
+    override val primaryKey = PrimaryKey(id)
+}
+
+object Jobs : Table("jobs") {
+    val id = javaUUID("id")
+    val kind = text("kind")
+    val payload = jsonb("payload", QichiJson, JsonObject.serializer())
+    val status = text("status")
+    val runAt = timestamp("run_at")
+    val attempts = integer("attempts")
+    val maxAttempts = integer("max_attempts")
+    val lastError = text("last_error").nullable()
+    val lockedAt = timestamp("locked_at").nullable()
+    val createdAt = timestamp("created_at")
+    val updatedAt = timestamp("updated_at")
+    override val primaryKey = PrimaryKey(id)
+}
+
+object AiJobs : Table("ai_jobs") {
+    val id = javaUUID("id")
+    val roomId = javaUUID("room_id")
+    val requestedBy = javaUUID("requested_by").nullable()
+    val kind = text("kind")
+    val status = text("status")
+    val request = jsonb("request", QichiJson, JsonObject.serializer())
+    val model = text("model").nullable()
+    val inputTokens = integer("input_tokens")
+    val outputTokens = integer("output_tokens")
+    val resultRef = text("result_ref").nullable()
+    val error = text("error").nullable()
+    val createdAt = timestamp("created_at")
+    val updatedAt = timestamp("updated_at")
+    val finishedAt = timestamp("finished_at").nullable()
     override val primaryKey = PrimaryKey(id)
 }

@@ -53,6 +53,8 @@ data class Message(
     val retractedBy: Id?,
     /** 创建时分配的 seq，决定消息在聊天里的位置，之后不变 */
     val createdSeq: Long,
+    /** AI 回答（kind = ai）是回答哪个问题的；其它消息为空 */
+    val aiPrompt: String? = null,
 ) : SyncEntity
 
 /** 只同步给本人（不做已读回执）。 */

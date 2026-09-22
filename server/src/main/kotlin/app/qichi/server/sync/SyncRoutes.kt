@@ -76,8 +76,7 @@ fun Route.syncRoutes(ctx: AppContext) {
                     }.also { if (it) rooms += event.roomId }
                 }
                 .onEach { event ->
-                    val changed = WsEvent.Changed(event.roomId, event.seq)
-                    send(Frame.Text(QichiJson.encodeToString(WsEvent.serializer(), changed)))
+                    send(Frame.Text(QichiJson.encodeToString(WsEvent.serializer(), event.event)))
                 }
                 .collect()
         }

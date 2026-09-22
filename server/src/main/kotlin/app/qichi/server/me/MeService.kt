@@ -32,6 +32,8 @@ class MeService(
     private val db: QichiDatabase,
     private val writer: RoomWriter,
     private val clock: Clock,
+    /** 服务端是否配置了 AI（告诉 App 要不要显示 AI 按钮） */
+    private val aiEnabled: Boolean = false,
 ) {
     suspend fun get(userId: UUID): Me = db.tx { load(userId) }
 
@@ -89,6 +91,6 @@ class MeService(
             .where { (RoomMembers.userId eq userId) and RoomMembers.deletedAt.isNull() }
             .orderBy(RoomMembers.joinedAt)
             .map { MyRoom(it[Rooms.id], it[Rooms.name], fromWire<MemberRole>(it[RoomMembers.role])) }
-        return Me(user, rooms)
+        return Me(user, rooms, aiEnabled)
     }
 }

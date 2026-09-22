@@ -1,5 +1,6 @@
 package app.qichi.server
 
+import app.qichi.server.ai.AiGateway
 import app.qichi.server.auth.PasswordHasher
 import app.qichi.server.config.AppConfig
 import app.qichi.server.config.DatabaseConfig
@@ -67,8 +68,8 @@ fun testConfig(): AppConfig = AppConfig.fromEnv(emptyMap()).copy(
 /** 测试用的密码哈希：参数调低以加快速度（格式与正式一致）。 */
 val fastHasher = PasswordHasher(memoryKib = 1024, iterations = 1, parallelism = 1)
 
-fun testContext(config: AppConfig = testConfig(), clock: Clock = MutableClock()): AppContext =
-    AppContext(config, TestDatabase.database, clock, BuildInfo.load(), fastHasher)
+fun testContext(config: AppConfig = testConfig(), clock: Clock = MutableClock(), aiGateway: AiGateway? = null): AppContext =
+    AppContext(config, TestDatabase.database, clock, BuildInfo.load(), fastHasher, aiGateway)
 
 /** 可以拨动的时钟：测试过期、限流窗口。 */
 class MutableClock(private var now: Instant = Instant.now()) : Clock() {
