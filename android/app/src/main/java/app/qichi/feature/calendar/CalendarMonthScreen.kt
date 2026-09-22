@@ -60,12 +60,15 @@ fun CalendarMonthScreen(
     roomId: UUID,
     onBack: () -> Unit,
     onDayClick: (LocalDate) -> Unit,
+    onEventsClick: () -> Unit,
     vm: CalendarMonthViewModel = hiltViewModel<CalendarMonthViewModel, CalendarMonthViewModel.Factory>(key = roomId.toString()) { it.create(roomId) },
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val colors = QichiTheme.colors
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("日历", onBack)
+        BackBar("日历", onBack) {
+            TextAction("日程", onEventsClick, color = colors.muted)
+        }
         Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.page), horizontalArrangement = Arrangement.spacedBy(Spacing.xl)) {
             CalendarTab("日", false) { onDayClick(state.selectedDate) }
             CalendarTab("周", state.view == CalendarView.Week) { vm.show(CalendarView.Week) }

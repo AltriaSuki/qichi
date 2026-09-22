@@ -37,6 +37,7 @@ import app.qichi.core.designsystem.component.QichiTabBar
 import app.qichi.core.designsystem.component.TabItem
 import app.qichi.feature.calendar.CalendarDayScreen
 import app.qichi.feature.calendar.CalendarMonthScreen
+import app.qichi.feature.calendar.EventListScreen
 import app.qichi.feature.chat.ChatScreen
 import app.qichi.feature.chat.UnreadViewModel
 import app.qichi.feature.me.AiUsageScreen
@@ -133,6 +134,7 @@ fun QichiApp(
                                 roomId = roomId,
                                 onBack = navigator::back,
                                 onDayClick = { date -> navigator.navController.navigate(CalendarDay(date.toString())) },
+                                onEventsClick = { navigator.navController.navigate(EventList) },
                             )
                             else -> PagePlaceholder(route.page.title, onBack = navigator::back)
                         }
@@ -143,6 +145,9 @@ fun QichiApp(
                         val roomId = LocalRoomId.current
                         val date = java.time.LocalDate.parse(route.date)
                         CalendarDayScreen(roomId = roomId, date = date, onBack = navigator::back)
+                    }
+                    composable<EventList> {
+                        EventListScreen(roomId = LocalRoomId.current, onBack = navigator::back)
                     }
                 }
                 navigation<MeGraph>(startDestination = MeHome) {
