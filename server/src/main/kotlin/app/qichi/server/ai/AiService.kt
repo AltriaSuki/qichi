@@ -30,6 +30,7 @@ import app.qichi.shared.model.ProblemCode
 import app.qichi.shared.model.QuestionSource
 import app.qichi.shared.model.fromWire
 import app.qichi.shared.model.wireName
+import app.qichi.shared.rules.Limits
 import app.qichi.shared.rules.MessageRules
 import app.qichi.shared.util.UuidV7
 import kotlinx.serialization.json.buildJsonObject
@@ -187,8 +188,10 @@ class AiService(
             if (e.retryable && !job.isLastAttempt) throw e
             return fail(jobId, roomId, "没有得到题目")
         }
-        val question = result.text.trim().removePrefix("问题：").trim().take(500)
-        if (question.isBlank()) return fail(jobId, roomId, "没有得到题目")
+        val question = result.text.lineSequence()
+            .map { it.trim().removePrefix("问题：").trim().trim('"', '“', '”') }
+            .firstOrNull { it.length in Limits.QUESTION_TEXT_LENGTH && (it.endsWith('？') || it.endsWith('?')) }
+            ?: return fail(jobId, roomId, "没有得到题目")
         db.tx {
             val now = clock.instant()
             val questionId = UuidV7.generate()

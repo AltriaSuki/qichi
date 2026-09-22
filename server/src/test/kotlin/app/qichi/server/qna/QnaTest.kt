@@ -105,7 +105,7 @@ class QnaTest {
     }
 
     @Test fun `AI 出题异步写进待采纳题库`() {
-        val gateway = FakeGateway().apply { answer = "你想一起再去哪里？" }
+        val gateway = FakeGateway().apply { answer = "一些无关说明\n你想一起再去哪里？\n另一段说明" }
         val ctx = testContext(aiGateway = gateway)
         serverTest(ctx) { client ->
             val (aqi, _, room) = Api(client).pair()
