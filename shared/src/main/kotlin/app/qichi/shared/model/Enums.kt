@@ -21,6 +21,10 @@ enum class EntityType {
     @SerialName("question") Question,
     @SerialName("qna_round") QnaRound,
     @SerialName("answer") Answer,
+    @SerialName("plan") Plan,
+    @SerialName("plan_stage") PlanStage,
+    @SerialName("milestone") Milestone,
+    @SerialName("plan_log") PlanLog,
 }
 
 /** 变化类型：软删除与恢复都是 upsert，只有彻底删除是 delete。 */
@@ -84,6 +88,14 @@ enum class TrashType {
     @SerialName("todo") Todo,
     @SerialName("event") Event,
     @SerialName("question") Question,
+    @SerialName("plan") Plan,
+}
+
+@Serializable
+enum class PlanStatus {
+    @SerialName("active") Active,
+    @SerialName("done") Done,
+    @SerialName("archived") Archived,
 }
 
 @Serializable

@@ -54,6 +54,8 @@ tags:
     description: 推送设备（P3）
   - name: ai
     description: AI（P4）：请求立即返回 202，结果异步写进对应实体，并通过 WebSocket 发 ai.done
+  - name: plans
+    description: 计划、阶段、里程碑与记录（P4）
 
 paths:
   # ───────────────────────── 系统 ─────────────────────────
@@ -1042,6 +1044,167 @@ paths:
         '429': { $ref: '#/components/responses/AiQuotaExceeded' }
         '503': { $ref: '#/components/responses/AiUnavailable' }
 
+  # ───────────────────────── 计划 ─────────────────────────
+  /rooms/{roomId}/plans:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [plans]
+      operationId: listPlans
+      responses:
+        '200':
+          description: 房间内未删除的计划
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Plan' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [plans]
+      operationId: createPlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePlanRequest' }
+      responses:
+        '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/Plan' } } } }
+        '201': { description: 已创建, content: { application/json: { schema: { $ref: '#/components/schemas/Plan' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rooms/{roomId}/plans/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [plans]
+      operationId: getPlan
+      responses:
+        '200': { description: 计划及其阶段、里程碑、记录, content: { application/json: { schema: { $ref: '#/components/schemas/PlanDetail' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [plans]
+      operationId: updatePlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdatePlanRequest' }
+      responses:
+        '200': { description: 修改后计划, content: { application/json: { schema: { $ref: '#/components/schemas/Plan' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [plans]
+      operationId: deletePlan
+      responses:
+        '200': { description: 已移入回收站, content: { application/json: { schema: { $ref: '#/components/schemas/Plan' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rooms/{roomId}/plans/{planId}/stages:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/PlanId'
+    post:
+      tags: [plans]
+      operationId: createPlanStage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePlanStageRequest' }
+      responses:
+        '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/PlanStage' } } } }
+        '201': { description: 已创建, content: { application/json: { schema: { $ref: '#/components/schemas/PlanStage' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rooms/{roomId}/plans/{planId}/stages/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/PlanId'
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [plans]
+      operationId: updatePlanStage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdatePlanStageRequest' }
+      responses:
+        '200': { description: 修改后阶段, content: { application/json: { schema: { $ref: '#/components/schemas/PlanStage' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [plans]
+      operationId: deletePlanStage
+      responses:
+        '200': { description: 已删除, content: { application/json: { schema: { $ref: '#/components/schemas/PlanStage' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rooms/{roomId}/plans/{planId}/milestones:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/PlanId'
+    post:
+      tags: [plans]
+      operationId: createMilestone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateMilestoneRequest' }
+      responses:
+        '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/Milestone' } } } }
+        '201': { description: 已创建, content: { application/json: { schema: { $ref: '#/components/schemas/Milestone' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rooms/{roomId}/plans/{planId}/milestones/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/PlanId'
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [plans]
+      operationId: updateMilestone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateMilestoneRequest' }
+      responses:
+        '200': { description: 修改后里程碑, content: { application/json: { schema: { $ref: '#/components/schemas/Milestone' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [plans]
+      operationId: deleteMilestone
+      responses:
+        '200': { description: 已删除, content: { application/json: { schema: { $ref: '#/components/schemas/Milestone' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rooms/{roomId}/plans/{planId}/logs:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/PlanId'
+    post:
+      tags: [plans]
+      operationId: createPlanLog
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreatePlanLogRequest' }
+      responses:
+        '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/PlanLog' } } } }
+        '201': { description: 已创建, content: { application/json: { schema: { $ref: '#/components/schemas/PlanLog' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rooms/{roomId}/plans/{planId}/complete:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/PlanId'
+    post:
+      tags: [plans]
+      operationId: completePlan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CompletePlanRequest' }
+      responses:
+        '200': { description: 已完成的计划, content: { application/json: { schema: { $ref: '#/components/schemas/Plan' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # ───────────────────────── AI ─────────────────────────
   /rooms/{roomId}/ai/chat:
     parameters:
@@ -1166,6 +1329,11 @@ components:
       schema: { type: string, format: uuid }
     Id:
       name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    PlanId:
+      name: planId
       in: path
       required: true
       schema: { type: string, format: uuid }
@@ -1570,7 +1738,7 @@ components:
     EntityType:
       type: string
       description: 与 `shared/model/EntityType` 一致，后续阶段追加
-      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer]
+      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log]
     ChangeOp:
       type: string
       description: '`upsert` 包括软删除与恢复；只有彻底删除是 `delete`'
@@ -1588,7 +1756,8 @@ components:
             实体的完整当前状态，结构由 `type` 决定：
             room → Room，member → Member，message → Message，read_marker → ReadMarker，
             mood → Mood，mood_response → MoodReply，todo → Todo，event → Event，
-            question → Question，qna_round → QnaRound，answer → Answer。
+            question → Question，qna_round → QnaRound，answer → Answer，
+            plan → Plan，plan_stage → PlanStage，milestone → Milestone，plan_log → PlanLog。
             `op = delete` 时为 `null`。
           oneOf:
             - $ref: '#/components/schemas/Room'
@@ -1602,6 +1771,10 @@ components:
             - $ref: '#/components/schemas/Question'
             - $ref: '#/components/schemas/QnaRound'
             - $ref: '#/components/schemas/Answer'
+            - $ref: '#/components/schemas/Plan'
+            - $ref: '#/components/schemas/PlanStage'
+            - $ref: '#/components/schemas/Milestone'
+            - $ref: '#/components/schemas/PlanLog'
             - type: 'null'
     SyncResponse:
       type: object
@@ -1615,7 +1788,7 @@ components:
           items: { $ref: '#/components/schemas/Change' }
     Bootstrap:
       type: object
-      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers]
+      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs]
       properties:
         room: { $ref: '#/components/schemas/Room' }
         members:
@@ -1654,6 +1827,10 @@ components:
           type: array
           description: 只含自己的答案及已揭晓的对方答案
           items: { $ref: '#/components/schemas/Answer' }
+        plans: { type: array, items: { $ref: '#/components/schemas/Plan' } }
+        planStages: { type: array, items: { $ref: '#/components/schemas/PlanStage' } }
+        milestones: { type: array, items: { $ref: '#/components/schemas/Milestone' } }
+        planLogs: { type: array, items: { $ref: '#/components/schemas/PlanLog' } }
     WsHello:
       type: object
       required: [type, userId, rooms]
@@ -1870,6 +2047,125 @@ components:
       properties:
         jobId: { $ref: '#/components/schemas/Uuid' }
 
+    # ── 计划 ──
+    PlanStatus:
+      type: string
+      enum: [active, done, archived]
+    Plan:
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [title, ownerId, status, targetDate, nextStep, nextStepOwnerId, nextStepDue, completedAt, completionNote]
+          properties:
+            title: { type: string, minLength: 1, maxLength: 200 }
+            ownerId: { $ref: '#/components/schemas/Uuid' }
+            status: { $ref: '#/components/schemas/PlanStatus' }
+            targetDate: { $ref: '#/components/schemas/NullableLocalDate' }
+            nextStep: { type: [string, 'null'], maxLength: 1000 }
+            nextStepOwnerId: { $ref: '#/components/schemas/NullableUuid' }
+            nextStepDue: { $ref: '#/components/schemas/NullableLocalDate' }
+            completedAt: { $ref: '#/components/schemas/NullableInstant' }
+            completionNote: { type: [string, 'null'], maxLength: 10000 }
+    PlanStage:
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [planId, title, sortOrder, doneAt]
+          properties:
+            planId: { $ref: '#/components/schemas/Uuid' }
+            title: { type: string, minLength: 1, maxLength: 200 }
+            sortOrder: { type: integer, minimum: 0 }
+            doneAt: { $ref: '#/components/schemas/NullableInstant' }
+    Milestone:
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [planId, title, targetDate, doneAt]
+          properties:
+            planId: { $ref: '#/components/schemas/Uuid' }
+            title: { type: string, minLength: 1, maxLength: 200 }
+            targetDate: { $ref: '#/components/schemas/NullableLocalDate' }
+            doneAt: { $ref: '#/components/schemas/NullableInstant' }
+    PlanLog:
+      description: 创建后不可修改的过程记录
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [planId, authorId, body]
+          properties:
+            planId: { $ref: '#/components/schemas/Uuid' }
+            authorId: { $ref: '#/components/schemas/Uuid' }
+            body: { type: string, minLength: 1, maxLength: 10000 }
+    PlanDetail:
+      type: object
+      required: [plan, stages, milestones, logs]
+      properties:
+        plan: { $ref: '#/components/schemas/Plan' }
+        stages: { type: array, items: { $ref: '#/components/schemas/PlanStage' } }
+        milestones: { type: array, items: { $ref: '#/components/schemas/Milestone' } }
+        logs: { type: array, items: { $ref: '#/components/schemas/PlanLog' } }
+    CreatePlanRequest:
+      type: object
+      required: [id, title, ownerId]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        ownerId: { $ref: '#/components/schemas/Uuid' }
+        targetDate: { $ref: '#/components/schemas/LocalDate' }
+        nextStep: { type: string, maxLength: 1000 }
+        nextStepOwnerId: { $ref: '#/components/schemas/Uuid' }
+        nextStepDue: { $ref: '#/components/schemas/LocalDate' }
+    UpdatePlanRequest:
+      type: object
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        ownerId: { $ref: '#/components/schemas/Uuid' }
+        status: { $ref: '#/components/schemas/PlanStatus' }
+        targetDate: { $ref: '#/components/schemas/NullableLocalDate' }
+        nextStep: { type: [string, 'null'], maxLength: 1000 }
+        nextStepOwnerId: { $ref: '#/components/schemas/NullableUuid' }
+        nextStepDue: { $ref: '#/components/schemas/NullableLocalDate' }
+    CreatePlanStageRequest:
+      type: object
+      required: [id, title, sortOrder]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        sortOrder: { type: integer, minimum: 0 }
+    UpdatePlanStageRequest:
+      type: object
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        sortOrder: { type: integer, minimum: 0 }
+        doneAt: { $ref: '#/components/schemas/NullableInstant' }
+    CreateMilestoneRequest:
+      type: object
+      required: [id, title]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        targetDate: { $ref: '#/components/schemas/LocalDate' }
+    UpdateMilestoneRequest:
+      type: object
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        targetDate: { $ref: '#/components/schemas/NullableLocalDate' }
+        doneAt: { $ref: '#/components/schemas/NullableInstant' }
+    CreatePlanLogRequest:
+      type: object
+      required: [id, body]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        body: { type: string, minLength: 1, maxLength: 10000 }
+    CompletePlanRequest:
+      type: object
+      required: [completionNote]
+      properties:
+        completionNote: { type: string, minLength: 1, maxLength: 10000 }
+
     # ── 日程 ──
     Event:
       description: |
@@ -2044,7 +2340,7 @@ components:
     TrashType:
       type: string
       description: 第 3 阶段可恢复的类型，后续阶段追加
-      enum: [message, mood, todo, event, question]
+      enum: [message, mood, todo, event, question, plan]
     TrashItem:
       type: object
       required: [type, id, deletedAt, deletedBy, data]

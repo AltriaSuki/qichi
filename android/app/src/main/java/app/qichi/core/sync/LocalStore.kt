@@ -10,8 +10,12 @@ import app.qichi.shared.api.EntityCodec
 import app.qichi.shared.api.Event
 import app.qichi.shared.api.Member
 import app.qichi.shared.api.Message
+import app.qichi.shared.api.Milestone
 import app.qichi.shared.api.Mood
 import app.qichi.shared.api.MoodReply
+import app.qichi.shared.api.Plan
+import app.qichi.shared.api.PlanLog
+import app.qichi.shared.api.PlanStage
 import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.QnaRound
 import app.qichi.shared.api.Question
@@ -235,6 +239,10 @@ class LocalStore(
             is Question -> EntityType.Question
             is QnaRound -> EntityType.QnaRound
             is Answer -> EntityType.Answer
+            is Plan -> EntityType.Plan
+            is PlanStage -> EntityType.PlanStage
+            is Milestone -> EntityType.Milestone
+            is PlanLog -> EntityType.PlanLog
         }
 
         fun encode(type: EntityType, entity: SyncEntity): String =
@@ -286,6 +294,11 @@ class LocalStore(
                 is Question -> base(entity.roomId, entity.deletedAt != null, entity.createdBy, null, null, entity.createdAt.toEpochMilli())
                 is QnaRound -> base(entity.roomId, entity.deletedAt != null, null, entity.questionId, null, entity.createdAt.toEpochMilli())
                 is Answer -> base(entity.roomId, entity.deletedAt != null, entity.authorId, entity.roundId, null, entity.createdAt.toEpochMilli())
+                is Plan -> base(entity.roomId, entity.deletedAt != null, entity.ownerId, null, null, entity.createdAt.toEpochMilli())
+                is PlanStage -> base(entity.roomId, entity.deletedAt != null, null, entity.planId, null, entity.createdAt.toEpochMilli())
+                is Milestone -> base(entity.roomId, entity.deletedAt != null, null, entity.planId, null,
+                    entity.targetDate?.atStartOfDay()?.toInstant(ZoneOffset.UTC)?.toEpochMilli())
+                is PlanLog -> base(entity.roomId, entity.deletedAt != null, entity.authorId, entity.planId, null, entity.createdAt.toEpochMilli())
             }
         }
     }

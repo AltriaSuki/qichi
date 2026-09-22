@@ -196,6 +196,38 @@ object Answers : SyncedTable("answers") {
     val confirmedAt = timestamp("confirmed_at").nullable()
 }
 
+object Plans : SyncedTable("plans") {
+    val title = text("title")
+    val ownerId = javaUUID("owner_id")
+    val status = text("status")
+    val targetDate = date("target_date").nullable()
+    val nextStep = text("next_step").nullable()
+    val nextStepOwnerId = javaUUID("next_step_owner_id").nullable()
+    val nextStepDue = date("next_step_due").nullable()
+    val completedAt = timestamp("completed_at").nullable()
+    val completionNote = text("completion_note").nullable()
+}
+
+object PlanStages : SyncedTable("plan_stages") {
+    val planId = javaUUID("plan_id")
+    val title = text("title")
+    val sortOrder = integer("sort_order")
+    val doneAt = timestamp("done_at").nullable()
+}
+
+object Milestones : SyncedTable("milestones") {
+    val planId = javaUUID("plan_id")
+    val title = text("title")
+    val targetDate = date("target_date").nullable()
+    val doneAt = timestamp("done_at").nullable()
+}
+
+object PlanLogs : SyncedTable("plan_logs") {
+    val planId = javaUUID("plan_id")
+    val authorId = javaUUID("author_id")
+    val body = text("body")
+}
+
 object Devices : Table("devices") {
     val id = javaUUID("id")
     val userId = javaUUID("user_id")

@@ -49,6 +49,10 @@ data class Bootstrap(
     val questions: List<Question> = emptyList(),
     val qnaRounds: List<QnaRound> = emptyList(),
     val answers: List<Answer> = emptyList(),
+    val plans: List<Plan> = emptyList(),
+    val planStages: List<PlanStage> = emptyList(),
+    val milestones: List<Milestone> = emptyList(),
+    val planLogs: List<PlanLog> = emptyList(),
 )
 
 /** 实体类型 ⇄ 数据类的对应关系，两端共用。 */
@@ -66,6 +70,10 @@ object EntityCodec {
         EntityType.Question -> Question.serializer()
         EntityType.QnaRound -> QnaRound.serializer()
         EntityType.Answer -> Answer.serializer()
+        EntityType.Plan -> Plan.serializer()
+        EntityType.PlanStage -> PlanStage.serializer()
+        EntityType.Milestone -> Milestone.serializer()
+        EntityType.PlanLog -> PlanLog.serializer()
     } as KSerializer<Any>
 
     fun decode(type: EntityType, data: JsonElement): Any = QichiJson.decodeFromJsonElement(serializer(type), data)

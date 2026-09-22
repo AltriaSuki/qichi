@@ -71,6 +71,10 @@ class SyncEngine(
                 addAll(snapshot.questions)
                 addAll(snapshot.qnaRounds)
                 addAll(snapshot.answers)
+                addAll(snapshot.plans)
+                addAll(snapshot.planStages)
+                addAll(snapshot.milestones)
+                addAll(snapshot.planLogs)
                 addAll(snapshot.messages)
             }
             all.forEach { store.applyServer(it) }

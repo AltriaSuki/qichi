@@ -10,6 +10,7 @@ import app.qichi.core.sync.SyncScheduler
 import app.qichi.shared.api.EntityCodec
 import app.qichi.shared.api.Event
 import app.qichi.shared.api.Message
+import app.qichi.shared.api.Plan
 import app.qichi.shared.api.Question
 import app.qichi.shared.api.Mood
 import app.qichi.shared.api.SyncEntity
@@ -58,6 +59,7 @@ class TrashRepository(
                     is Todo -> if (entity.parentId in deletedTodos) null else TrashEntry(TrashType.Todo, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     is Event -> TrashEntry(TrashType.Event, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     is Question -> TrashEntry(TrashType.Question, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
+                    is Plan -> TrashEntry(TrashType.Plan, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     else -> null
                 }
             }.sortedByDescending { it.deletedAt }
@@ -87,6 +89,7 @@ class TrashRepository(
             is Todo -> e.copy(deletedAt = null, deletedBy = null)
             is Event -> e.copy(deletedAt = null, deletedBy = null)
             is Question -> e.copy(deletedAt = null, deletedBy = null)
+            is Plan -> e.copy(deletedAt = null, deletedBy = null)
             else -> return
         }
         db.transaction {
@@ -110,6 +113,12 @@ class TrashRepository(
             if (entity is Mood) {
                 db.entities().children(roomId.toString(), EntityType.MoodResponse.wireName, entity.id.toString())
                     .forEach { store.deleteLocal(EntityType.MoodResponse, UUID.fromString(it.id)) }
+            }
+            if (entity is Plan) {
+                listOf(EntityType.PlanStage, EntityType.Milestone, EntityType.PlanLog).forEach { type ->
+                    db.entities().children(roomId.toString(), type.wireName, entity.id.toString())
+                        .forEach { store.deleteLocal(type, UUID.fromString(it.id)) }
+                }
             }
             store.deleteLocal(entry.type.entityType, entry.id)
             store.enqueue(roomId, entry.type.entityType, entry.id, OutboxOp.delete(path(roomId, entry), kind = OutboxOp.KIND_NO_CONTENT))
@@ -137,4 +146,5 @@ val TrashType.entityType: EntityType
         TrashType.Todo -> EntityType.Todo
         TrashType.Event -> EntityType.Event
         TrashType.Question -> EntityType.Question
+        TrashType.Plan -> EntityType.Plan
     }
