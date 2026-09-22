@@ -128,6 +128,8 @@ data class Todo(
     val recurrencePrevId: Id?,
     val doneAt: Timestamp?,
     val doneBy: Id?,
+    /** 属于哪个计划 */
+    val planId: Id?,
 ) : SyncEntity
 
 /**

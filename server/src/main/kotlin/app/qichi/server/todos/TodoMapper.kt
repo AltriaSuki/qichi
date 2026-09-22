@@ -23,4 +23,5 @@ fun ResultRow.toTodo() = Todo(
     recurrencePrevId = this[Todos.recurrencePrevId],
     doneAt = this[Todos.doneAt],
     doneBy = this[Todos.doneBy],
+    planId = this[Todos.planId],
 )

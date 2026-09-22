@@ -158,6 +158,7 @@ object Todos : SyncedTable("todos") {
     val recurrencePrevId = javaUUID("recurrence_prev_id").nullable()
     val doneAt = timestamp("done_at").nullable()
     val doneBy = javaUUID("done_by").nullable()
+    val planId = javaUUID("plan_id").nullable()
 }
 
 object Events : SyncedTable("events") {

@@ -1,6 +1,7 @@
 package app.qichi.server.todos
 
 import app.qichi.server.db.EntityWrites
+import app.qichi.server.db.Plans
 import app.qichi.server.db.QichiDatabase
 import app.qichi.server.db.Rooms
 import app.qichi.server.db.Todos
@@ -21,6 +22,7 @@ import app.qichi.shared.api.ifPresent
 import app.qichi.shared.model.EntityType
 import app.qichi.shared.rules.Limits
 import app.qichi.shared.rules.Recurrence
+import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
@@ -56,7 +58,7 @@ class TodoService(
         }
         return db.tx {
             rooms.requireMember(roomId, userId)
-            validateRefs(roomId, req.assigneeId, req.parentId, selfId = req.id)
+            validateRefs(roomId, req.assigneeId, req.parentId, req.planId, selfId = req.id)
             writes.create(this, roomId, userId, EntityType.Todo, req.id, Todos, ::todo) {
                 it[Todos.title] = title
                 it[Todos.note] = note
@@ -66,6 +68,7 @@ class TodoService(
                 it[Todos.dueDate] = req.dueDate
                 it[Todos.dueAt] = req.dueAt
                 it[Todos.recurrence] = req.recurrence?.let { r -> Recurrence.parse(r)!!.format() }
+                it[Todos.planId] = req.planId
             }
         }
     }
@@ -78,6 +81,7 @@ class TodoService(
         val dueDate = if (req.dueDate.isPresent) req.dueDate.orNull() else current.dueDate
         val dueAt = if (req.dueAt.isPresent) req.dueAt.orNull() else current.dueAt
         val recurrence = if (req.recurrence.isPresent) req.recurrence.orNull()?.takeIf { it.isNotBlank() } else current.recurrence
+        val planId = if (req.planId.isPresent) req.planId.orNull() else current.planId
         validate {
             checkTitle(title)
             checkNote(note)
@@ -85,7 +89,8 @@ class TodoService(
             checkRecurrence(recurrence, hasDue = dueDate != null || dueAt != null)
             check(current.parentId == null || recurrence == null, "recurrence", "子任务不能重复")
         }
-        req.assigneeId.ifPresent { validateRefs(roomId, it, null, selfId = id) }
+        req.assigneeId.ifPresent { validateRefs(roomId, it, null, null, selfId = id) }
+        req.planId.ifPresent { validateRefs(roomId, null, null, it, selfId = id) }
         writes.update(this, roomId, userId, EntityType.Todo, id, Todos) {
             it[Todos.title] = title
             it[Todos.note] = note
@@ -93,6 +98,7 @@ class TodoService(
             it[Todos.dueDate] = dueDate
             it[Todos.dueAt] = dueAt
             it[Todos.recurrence] = recurrence?.let { r -> Recurrence.parse(r)!!.format() }
+            req.planId.ifPresent { p -> it[Todos.planId] = p }
         }
         todo(id)!!
     }
@@ -183,7 +189,7 @@ class TodoService(
     }
 
     /** 指派的人必须是房间成员；父待办必须在同一房间、未删除、本身不是子任务。 */
-    private fun validateRefs(roomId: UUID, assigneeId: UUID?, parentId: UUID?, selfId: UUID) {
+    private fun validateRefs(roomId: UUID, assigneeId: UUID?, parentId: UUID?, planId: UUID?, selfId: UUID) {
         validate {
             if (assigneeId != null) check(RoomRepository.isMember(roomId, assigneeId), "assigneeId", "只能指派给房间里的人")
             if (parentId != null) {
@@ -193,6 +199,11 @@ class TodoService(
                     "parentId",
                     "父待办不存在或本身是子任务",
                 )
+            }
+            if (planId != null) {
+                val plan = Plans.selectAll().where { (Plans.id eq planId) and (Plans.roomId eq roomId) and Plans.deletedAt.isNull() }
+                    .singleOrNull()
+                check(plan != null, "planId", "计划不存在或已删除")
             }
         }
     }

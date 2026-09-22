@@ -36,6 +36,7 @@ data class CreateTodoRequest(
     val dueDate: Day? = null,
     val dueAt: Timestamp? = null,
     val recurrence: String? = null,
+    val planId: Id? = null,
 )
 
 @OptIn(ExperimentalSerializationApi::class)
@@ -47,6 +48,7 @@ data class UpdateTodoRequest(
     @EncodeDefault(EncodeDefault.Mode.NEVER) val dueDate: Patch<Day?> = Patch.Absent,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val dueAt: Patch<Timestamp?> = Patch.Absent,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val recurrence: Patch<String?> = Patch.Absent,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val planId: Patch<Id?> = Patch.Absent,
 )
 
 @Serializable
