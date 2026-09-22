@@ -30,6 +30,8 @@ object Limits {
     const val MESSAGE_BODY_MAX: Int = 10_000
     const val REPLY_EXCERPT_LENGTH: Int = 60
     const val MESSAGE_SEARCH_QUERY_MAX: Int = 100
+    val QUESTION_TEXT_LENGTH: IntRange = 1..500
+    val ANSWER_BODY_LENGTH: IntRange = 1..10_000
 
     const val IMAGE_MAX_BYTES: Long = 20L * 1024 * 1024
     const val FILE_MAX_BYTES: Long = 100L * 1024 * 1024

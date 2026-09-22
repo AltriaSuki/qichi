@@ -6,6 +6,7 @@ import app.qichi.server.plugins.ApiException
 import app.qichi.server.plugins.user
 import app.qichi.server.plugins.uuidParam
 import app.qichi.shared.api.AiChatRequest
+import app.qichi.shared.api.QuestionSuggestRequest
 import app.qichi.shared.model.ProblemCode
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.auth.authenticate
@@ -23,6 +24,9 @@ fun Route.aiRoutes(ctx: AppContext) {
         post("/rooms/{roomId}/ai/chat") {
             val accepted = ctx.ai.askInChat(call.user.userId, call.uuidParam("roomId"), call.receive<AiChatRequest>())
             call.respond(HttpStatusCode.Accepted, accepted)
+        }
+        post("/rooms/{roomId}/ai/question-suggest") {
+            call.respond(HttpStatusCode.Accepted, ctx.ai.suggest(call.user.userId, call.uuidParam("roomId"), call.receive<QuestionSuggestRequest>()))
         }
         get("/rooms/{roomId}/ai/jobs/{jobId}") {
             call.respond(ctx.ai.job(call.user.userId, call.uuidParam("roomId"), call.uuidParam("jobId")))

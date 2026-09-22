@@ -46,6 +46,9 @@ data class Bootstrap(
     /** 最近 50 条消息，按 createdSeq 降序 */
     val messages: List<Message>,
     val hasMoreMessages: Boolean,
+    val questions: List<Question> = emptyList(),
+    val qnaRounds: List<QnaRound> = emptyList(),
+    val answers: List<Answer> = emptyList(),
 )
 
 /** 实体类型 ⇄ 数据类的对应关系，两端共用。 */
@@ -60,6 +63,9 @@ object EntityCodec {
         EntityType.MoodResponse -> MoodReply.serializer()
         EntityType.Todo -> Todo.serializer()
         EntityType.Event -> Event.serializer()
+        EntityType.Question -> Question.serializer()
+        EntityType.QnaRound -> QnaRound.serializer()
+        EntityType.Answer -> Answer.serializer()
     } as KSerializer<Any>
 
     fun decode(type: EntityType, data: JsonElement): Any = QichiJson.decodeFromJsonElement(serializer(type), data)

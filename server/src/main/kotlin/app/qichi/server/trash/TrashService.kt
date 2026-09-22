@@ -6,6 +6,9 @@ import app.qichi.server.db.Messages
 import app.qichi.server.db.MoodResponses
 import app.qichi.server.db.Moods
 import app.qichi.server.db.QichiDatabase
+import app.qichi.server.db.Questions
+import app.qichi.server.db.QnaRounds
+import app.qichi.server.db.Answers
 import app.qichi.server.db.RoomWriter
 import app.qichi.server.db.SyncedTable
 import app.qichi.server.db.Todos
@@ -19,6 +22,7 @@ import app.qichi.server.moods.toMood
 import app.qichi.server.plugins.forbidden
 import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
+import app.qichi.server.qna.toQuestion
 import app.qichi.server.rooms.RoomService
 import app.qichi.server.todos.TodoService
 import app.qichi.server.todos.toTodo
@@ -113,6 +117,10 @@ class TrashService(
                     val e = row.toEvent()
                     add(Candidate(TrashType.Event, e, e.deletedAt!!, e.deletedBy!!))
                 }
+                Questions.selectAll().deleted(Questions, roomId, cursor, take).forEach { row ->
+                    val q = row.toQuestion()
+                    add(Candidate(TrashType.Question, q, q.deletedAt!!, q.deletedBy!!))
+                }
             }.sortedWith(compareByDescending<Candidate> { it.deletedAt }.thenByDescending { it.sortKey })
 
             val page = candidates.take(limit)
@@ -178,6 +186,15 @@ class TrashService(
                     hardDelete(this, roomId, userId, EntityType.Todo, id, Todos, now)
                 }
                 TrashType.Event -> hardDelete(this, roomId, userId, EntityType.Event, id, Events, now)
+                TrashType.Question -> {
+                    QnaRounds.selectAll().where { QnaRounds.questionId eq id }.map { it[QnaRounds.id] }.forEach { roundId ->
+                        Answers.selectAll().where { Answers.roundId eq roundId }.map { it[Answers.id] }.forEach { answerId ->
+                            hardDelete(this, roomId, userId, EntityType.Answer, answerId, Answers, now)
+                        }
+                        hardDelete(this, roomId, userId, EntityType.QnaRound, roundId, QnaRounds, now)
+                    }
+                    hardDelete(this, roomId, userId, EntityType.Question, id, Questions, now)
+                }
             }
         }
         files.deleteStored(orphanFiles)
@@ -211,6 +228,7 @@ class TrashService(
         TrashType.Mood -> Moods.selectAll().where { Moods.id eq id }.singleOrNull()?.toMood()
         TrashType.Todo -> Todos.selectAll().where { Todos.id eq id }.singleOrNull()?.toTodo()
         TrashType.Event -> Events.selectAll().where { Events.id eq id }.singleOrNull()?.toEvent()
+        TrashType.Question -> Questions.selectAll().where { Questions.id eq id }.singleOrNull()?.toQuestion()
     }
 
     /** 在查询上加「这个房间、已删除、在游标之后」，按 (deletedAt, id) 降序取 [take] 条。 */
@@ -231,6 +249,7 @@ val TrashType.entityType: EntityType
         TrashType.Mood -> EntityType.Mood
         TrashType.Todo -> EntityType.Todo
         TrashType.Event -> EntityType.Event
+        TrashType.Question -> EntityType.Question
     }
 
 private val TrashType.table: SyncedTable
@@ -239,4 +258,5 @@ private val TrashType.table: SyncedTable
         TrashType.Mood -> Moods
         TrashType.Todo -> Todos
         TrashType.Event -> Events
+        TrashType.Question -> Questions
     }

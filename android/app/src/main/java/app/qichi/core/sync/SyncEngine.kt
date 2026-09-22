@@ -68,6 +68,9 @@ class SyncEngine(
                 addAll(snapshot.moodReplies)
                 addAll(snapshot.todos)
                 addAll(snapshot.events)
+                addAll(snapshot.questions)
+                addAll(snapshot.qnaRounds)
+                addAll(snapshot.answers)
                 addAll(snapshot.messages)
             }
             all.forEach { store.applyServer(it) }

@@ -29,6 +29,8 @@ import app.qichi.server.plugins.installDefaultHeaders
 import app.qichi.server.plugins.installErrorHandling
 import app.qichi.server.plugins.installSecurity
 import app.qichi.server.plugins.installSerialization
+import app.qichi.server.qna.QnaService
+import app.qichi.server.qna.qnaRoutes
 import app.qichi.server.rooms.RoomService
 import app.qichi.server.rooms.roomRoutes
 import app.qichi.server.sync.RealtimeHub
@@ -107,6 +109,7 @@ fun Application.module(ctx: AppContext) {
             messageRoutes(ctx)
             trashRoutes(ctx)
             aiRoutes(ctx)
+            qnaRoutes(ctx)
         }
     }
 }
@@ -140,6 +143,7 @@ class AppContext(
     val trash = TrashService(database, rooms, writer, writes, todos, files, clock)
     val jobs = JobQueue(database, clock)
     val ai = AiService(database, rooms, writer, jobs, aiGateway, config.ai, realtime, clock)
+    val qna = QnaService(database, rooms, writes, writer, clock)
 }
 
 class MicrosClock(private val base: Clock) : Clock() {

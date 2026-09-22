@@ -891,6 +891,157 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  # ───────────────────────── 双人问答 ─────────────────────────
+  /rooms/{roomId}/qna/today:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [qna]
+      operationId: getTodayQna
+      summary: 按房间时区取得或创建今日轮次
+      responses:
+        '200':
+          description: 今日与昨日问答；揭晓前不含对方答案
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QnaToday' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rooms/{roomId}/qna/rounds/{roundId}/answer:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - name: roundId
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Uuid' }
+    put:
+      tags: [qna]
+      operationId: writeQnaAnswer
+      summary: 写入或修改自己的答案
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WriteAnswerRequest' }
+      responses:
+        '200':
+          description: 已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Answer' }
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Answer' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /rooms/{roomId}/qna/rounds/{roundId}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - name: roundId
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Uuid' }
+    post:
+      tags: [qna]
+      operationId: confirmQnaAnswer
+      summary: 确认自己的答案，双方确认后同时揭晓
+      responses:
+        '200':
+          description: 轮次当前状态
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QnaRound' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rooms/{roomId}/questions:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [qna]
+      operationId: listQuestions
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [adopted, suggested], default: adopted }
+      responses:
+        '200':
+          description: 题库或待采纳建议
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Question' }
+    post:
+      tags: [qna]
+      operationId: createQuestion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateQuestionRequest' }
+      responses:
+        '200':
+          description: 同 id 已存在
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Question' }
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Question' }
+  /rooms/{roomId}/questions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [qna]
+      operationId: deleteQuestion
+      summary: 软删除题目，进入回收站
+      responses:
+        '200':
+          description: 已删除
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Question' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rooms/{roomId}/questions/{id}/adopt:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [qna]
+      operationId: adoptQuestion
+      responses:
+        '200':
+          description: 已采纳
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Question' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rooms/{roomId}/ai/question-suggest:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [ai, qna]
+      operationId: suggestQuestion
+      summary: 根据共同历史异步出题
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuestionSuggestRequest' }
+      responses:
+        '202':
+          description: 已入队
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiJobAccepted' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/AiQuotaExceeded' }
+        '503': { $ref: '#/components/responses/AiUnavailable' }
+
   # ───────────────────────── AI ─────────────────────────
   /rooms/{roomId}/ai/chat:
     parameters:
@@ -1419,7 +1570,7 @@ components:
     EntityType:
       type: string
       description: 与 `shared/model/EntityType` 一致，后续阶段追加
-      enum: [room, member, message, read_marker, mood, mood_response, todo, event]
+      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer]
     ChangeOp:
       type: string
       description: '`upsert` 包括软删除与恢复；只有彻底删除是 `delete`'
@@ -1436,7 +1587,8 @@ components:
           description: |
             实体的完整当前状态，结构由 `type` 决定：
             room → Room，member → Member，message → Message，read_marker → ReadMarker，
-            mood → Mood，mood_response → MoodReply，todo → Todo，event → Event。
+            mood → Mood，mood_response → MoodReply，todo → Todo，event → Event，
+            question → Question，qna_round → QnaRound，answer → Answer。
             `op = delete` 时为 `null`。
           oneOf:
             - $ref: '#/components/schemas/Room'
@@ -1447,6 +1599,9 @@ components:
             - $ref: '#/components/schemas/MoodReply'
             - $ref: '#/components/schemas/Todo'
             - $ref: '#/components/schemas/Event'
+            - $ref: '#/components/schemas/Question'
+            - $ref: '#/components/schemas/QnaRound'
+            - $ref: '#/components/schemas/Answer'
             - type: 'null'
     SyncResponse:
       type: object
@@ -1460,7 +1615,7 @@ components:
           items: { $ref: '#/components/schemas/Change' }
     Bootstrap:
       type: object
-      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages]
+      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers]
       properties:
         room: { $ref: '#/components/schemas/Room' }
         members:
@@ -1489,6 +1644,16 @@ components:
           description: 最近 50 条消息，按 `createdSeq` 降序
           items: { $ref: '#/components/schemas/Message' }
         hasMoreMessages: { type: boolean }
+        questions:
+          type: array
+          items: { $ref: '#/components/schemas/Question' }
+        qnaRounds:
+          type: array
+          items: { $ref: '#/components/schemas/QnaRound' }
+        answers:
+          type: array
+          description: 只含自己的答案及已揭晓的对方答案
+          items: { $ref: '#/components/schemas/Answer' }
     WsHello:
       type: object
       required: [type, userId, rooms]
@@ -1634,6 +1799,76 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Todo'
             - type: 'null'
+
+    # ── 双人问答 ──
+    Question:
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [text, source, createdBy, suggestedByJobId, adoptedBy, adoptedAt]
+          properties:
+            text: { type: string, minLength: 1, maxLength: 500 }
+            source: { $ref: '#/components/schemas/QuestionSource' }
+            createdBy: { $ref: '#/components/schemas/NullableUuid' }
+            suggestedByJobId: { $ref: '#/components/schemas/NullableUuid' }
+            adoptedBy: { $ref: '#/components/schemas/NullableUuid' }
+            adoptedAt: { $ref: '#/components/schemas/NullableInstant' }
+    QuestionSource:
+      type: string
+      enum: [ai, user, preset]
+    QnaRound:
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [questionId, roundDate, revealedAt, confirmedBy]
+          properties:
+            questionId: { $ref: '#/components/schemas/Uuid' }
+            roundDate: { $ref: '#/components/schemas/LocalDate' }
+            revealedAt: { $ref: '#/components/schemas/NullableInstant' }
+            confirmedBy:
+              type: array
+              items: { $ref: '#/components/schemas/Uuid' }
+    Answer:
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [roundId, authorId, body, confirmedAt]
+          properties:
+            roundId: { $ref: '#/components/schemas/Uuid' }
+            authorId: { $ref: '#/components/schemas/Uuid' }
+            body: { type: string, minLength: 1, maxLength: 10000 }
+            confirmedAt: { $ref: '#/components/schemas/NullableInstant' }
+    QnaToday:
+      type: object
+      required: [round, question, myAnswer, partnerAnswer, partnerConfirmed, yesterday, yesterdayQuestion, yesterdayAnswers]
+      properties:
+        round: { $ref: '#/components/schemas/QnaRound' }
+        question: { $ref: '#/components/schemas/Question' }
+        myAnswer: { oneOf: [{ $ref: '#/components/schemas/Answer' }, { type: 'null' }] }
+        partnerAnswer: { oneOf: [{ $ref: '#/components/schemas/Answer' }, { type: 'null' }] }
+        partnerConfirmed: { type: boolean }
+        yesterday: { oneOf: [{ $ref: '#/components/schemas/QnaRound' }, { type: 'null' }] }
+        yesterdayQuestion: { oneOf: [{ $ref: '#/components/schemas/Question' }, { type: 'null' }] }
+        yesterdayAnswers:
+          type: array
+          items: { $ref: '#/components/schemas/Answer' }
+    CreateQuestionRequest:
+      type: object
+      required: [id, text]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        text: { type: string, minLength: 1, maxLength: 500 }
+    WriteAnswerRequest:
+      type: object
+      required: [id, body]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        body: { type: string, minLength: 1, maxLength: 10000 }
+    QuestionSuggestRequest:
+      type: object
+      required: [jobId]
+      properties:
+        jobId: { $ref: '#/components/schemas/Uuid' }
 
     # ── 日程 ──
     Event:
@@ -1809,7 +2044,7 @@ components:
     TrashType:
       type: string
       description: 第 3 阶段可恢复的类型，后续阶段追加
-      enum: [message, mood, todo, event]
+      enum: [message, mood, todo, event, question]
     TrashItem:
       type: object
       required: [type, id, deletedAt, deletedBy, data]
@@ -1824,6 +2059,7 @@ components:
             - $ref: '#/components/schemas/Mood'
             - $ref: '#/components/schemas/Todo'
             - $ref: '#/components/schemas/Event'
+            - $ref: '#/components/schemas/Question'
     TrashPage:
       type: object
       required: [items, nextCursor]

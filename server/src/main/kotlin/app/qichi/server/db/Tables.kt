@@ -174,6 +174,28 @@ object Events : SyncedTable("events") {
     val icsUid = text("ics_uid").nullable()
 }
 
+object Questions : SyncedTable("questions") {
+    val text = text("text")
+    val questionSource = text("source")
+    val createdBy = javaUUID("created_by").nullable()
+    val suggestedByJobId = javaUUID("suggested_by_job_id").nullable()
+    val adoptedBy = javaUUID("adopted_by").nullable()
+    val adoptedAt = timestamp("adopted_at").nullable()
+}
+
+object QnaRounds : SyncedTable("qna_rounds") {
+    val questionId = javaUUID("question_id")
+    val roundDate = date("round_date")
+    val revealedAt = timestamp("revealed_at").nullable()
+}
+
+object Answers : SyncedTable("answers") {
+    val roundId = javaUUID("round_id")
+    val authorId = javaUUID("author_id")
+    val body = text("body")
+    val confirmedAt = timestamp("confirmed_at").nullable()
+}
+
 object Devices : Table("devices") {
     val id = javaUUID("id")
     val userId = javaUUID("user_id")

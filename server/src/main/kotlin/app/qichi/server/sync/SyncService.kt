@@ -5,6 +5,9 @@ import app.qichi.server.db.Events
 import app.qichi.server.db.MoodResponses
 import app.qichi.server.db.Moods
 import app.qichi.server.db.QichiDatabase
+import app.qichi.server.db.Answers
+import app.qichi.server.db.Questions
+import app.qichi.server.db.QnaRounds
 import app.qichi.server.db.ReadMarkers
 import app.qichi.server.db.Messages
 import app.qichi.server.db.RoomMembers
@@ -18,6 +21,9 @@ import app.qichi.server.moods.toMood
 import app.qichi.server.moods.toMoodReply
 import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
+import app.qichi.server.qna.toAnswer
+import app.qichi.server.qna.toQuestion
+import app.qichi.server.qna.toQnaRound
 import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomRepository.toMember
 import app.qichi.server.todos.toTodo
@@ -69,6 +75,10 @@ class SyncService(private val db: QichiDatabase) {
                 events = Events.selectAll().where { Events.roomId eq roomId }.orderBy(Events.seq).map { it.toEvent() },
                 messages = messages.take(Limits.BOOTSTRAP_MESSAGES),
                 hasMoreMessages = messages.size > Limits.BOOTSTRAP_MESSAGES,
+                questions = Questions.selectAll().where { Questions.roomId eq roomId }.map { it.toQuestion() },
+                qnaRounds = QnaRounds.selectAll().where { QnaRounds.roomId eq roomId }.map { it.toQnaRound() },
+                answers = Answers.selectAll().where { Answers.roomId eq roomId }.map { it.toAnswer() }
+                    .filter { answer -> answer.authorId == userId || QnaRounds.selectAll().where { QnaRounds.id eq answer.roundId }.single()[QnaRounds.revealedAt] != null },
             )
         }
 
@@ -100,6 +110,8 @@ class SyncService(private val db: QichiDatabase) {
                 when {
                     // 对方的未读位置不下发
                     row.type == EntityType.ReadMarker && entity is app.qichi.shared.api.ReadMarker && entity.userId != userId -> null
+                    row.type == EntityType.Answer && entity is app.qichi.shared.api.Answer && entity.authorId != userId &&
+                        QnaRounds.selectAll().where { QnaRounds.id eq entity.roundId }.singleOrNull()?.get(QnaRounds.revealedAt) == null -> null
                     row.op == ChangeOp.Delete || entity == null -> Change(row.seq, row.type, row.id, ChangeOp.Delete, null)
                     else -> Change(row.seq, row.type, row.id, ChangeOp.Upsert, EntityCodec.encode(row.type, entity))
                 }
@@ -125,6 +137,9 @@ class SyncService(private val db: QichiDatabase) {
                 EntityType.MoodResponse -> MoodResponses.selectAll().where { MoodResponses.id inList ids }.map { it.toMoodReply() }
                 EntityType.Todo -> Todos.selectAll().where { Todos.id inList ids }.map { it.toTodo() }
                 EntityType.Event -> Events.selectAll().where { Events.id inList ids }.map { it.toEvent() }
+                EntityType.Question -> Questions.selectAll().where { Questions.id inList ids }.map { it.toQuestion() }
+                EntityType.QnaRound -> QnaRounds.selectAll().where { QnaRounds.id inList ids }.map { it.toQnaRound() }
+                EntityType.Answer -> Answers.selectAll().where { Answers.id inList ids }.map { it.toAnswer() }
             }
             loaded.forEach { result[type to it.id] = it }
         }

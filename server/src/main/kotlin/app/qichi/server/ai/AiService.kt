@@ -4,6 +4,7 @@ import app.qichi.server.config.AiConfig
 import app.qichi.server.db.AiJobs
 import app.qichi.server.db.Messages
 import app.qichi.server.db.QichiDatabase
+import app.qichi.server.db.Questions
 import app.qichi.server.db.RoomWriter
 import app.qichi.server.db.tx
 import app.qichi.server.jobs.JobQueue
@@ -20,14 +21,17 @@ import app.qichi.shared.api.AiChatRequest
 import app.qichi.shared.api.AiJob
 import app.qichi.shared.api.AiJobAccepted
 import app.qichi.shared.api.AiUsage
+import app.qichi.shared.api.QuestionSuggestRequest
 import app.qichi.shared.model.AiJobKind
 import app.qichi.shared.model.AiJobStatus
 import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.MessageKind
 import app.qichi.shared.model.ProblemCode
+import app.qichi.shared.model.QuestionSource
 import app.qichi.shared.model.fromWire
 import app.qichi.shared.model.wireName
 import app.qichi.shared.rules.MessageRules
+import app.qichi.shared.util.UuidV7
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -75,15 +79,16 @@ class AiService(
 
     init {
         queue.register(JOB_CHAT) { job -> answerInChat(job) }
+        queue.register(JOB_QUESTION) { job -> suggestQuestion(job) }
     }
 
     /** 问 AI（聊天里）。同一 jobId 再次请求：失败的重新排队，其余返回当前状态。 */
     suspend fun askInChat(userId: UUID, roomId: UUID, req: AiChatRequest): AiJobAccepted {
         val prompt = req.prompt.trim()
         validate { check(prompt.length in 1..PROMPT_MAX, "prompt", "问题 1–$PROMPT_MAX 字") }
-        if (gateway == null) throw unavailable()
         return db.tx {
             rooms.requireMember(roomId, userId)
+            if (gateway == null) throw unavailable()
             RoomRepository.lockRoom(roomId)
             val existing = AiJobs.selectAll().where { AiJobs.id eq req.jobId }.singleOrNull()
             if (existing != null) {
@@ -118,6 +123,99 @@ class AiService(
             queue.enqueue(this, JOB_CHAT, buildJsonObject { put("aiJobId", req.jobId.toString()) }, maxAttempts = CHAT_ATTEMPTS)
             AiJobAccepted(req.jobId, AiJobStatus.Queued)
         }
+    }
+
+    suspend fun suggest(userId: UUID, roomId: UUID, req: QuestionSuggestRequest): AiJobAccepted {
+        return db.tx {
+            rooms.requireMember(roomId, userId)
+            if (gateway == null) throw unavailable()
+            RoomRepository.lockRoom(roomId)
+            val existing = AiJobs.selectAll().where { AiJobs.id eq req.jobId }.singleOrNull()
+            if (existing != null) {
+                if (existing[AiJobs.roomId] != roomId || existing[AiJobs.requestedBy] != userId ||
+                    existing[AiJobs.kind] != AiJobKind.QuestionSuggest.wireName) {
+                    throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
+                }
+                val status = fromWire<AiJobStatus>(existing[AiJobs.status])
+                if (status != AiJobStatus.Failed) return@tx AiJobAccepted(req.jobId, status)
+                checkQuota()
+                AiJobs.update({ AiJobs.id eq req.jobId }) {
+                    it[AiJobs.status] = AiJobStatus.Queued.wireName
+                    it[error] = null
+                    it[finishedAt] = null
+                    it[updatedAt] = clock.instant()
+                }
+            } else {
+                checkQuota()
+                val now = clock.instant()
+                AiJobs.insert {
+                    it[id] = req.jobId
+                    it[AiJobs.roomId] = roomId
+                    it[requestedBy] = userId
+                    it[kind] = AiJobKind.QuestionSuggest.wireName
+                    it[status] = AiJobStatus.Queued.wireName
+                    it[request] = buildJsonObject { }
+                    it[inputTokens] = 0
+                    it[outputTokens] = 0
+                    it[createdAt] = now
+                    it[updatedAt] = now
+                }
+            }
+            queue.enqueue(this, JOB_QUESTION, buildJsonObject { put("aiJobId", req.jobId.toString()) }, maxAttempts = CHAT_ATTEMPTS)
+            AiJobAccepted(req.jobId, AiJobStatus.Queued)
+        }
+    }
+
+    private suspend fun suggestQuestion(job: QueuedJob) {
+        val jobId = UUID.fromString(job.payload["aiJobId"]!!.jsonPrimitive.content)
+        val row = db.tx { AiJobs.selectAll().where { AiJobs.id eq jobId }.singleOrNull() } ?: return
+        if (row[AiJobs.status] == AiJobStatus.Done.wireName) return
+        val roomId = row[AiJobs.roomId]
+        val askerId = row[AiJobs.requestedBy] ?: return
+        markRunning(jobId)
+        val gateway = gateway ?: return fail(jobId, roomId, "AI 服务没有开启")
+        val context = db.tx(readOnly = true) { chatContext(roomId) }
+        val names = db.tx(readOnly = true) { RoomRepository.activeMembers(roomId).associate { it.userId to it.displayName } }
+        val rendered = prompts.render("question_suggest", mapOf(
+            "history" to context.joinToString("\n") { m -> "${m.authorId?.let(names::get) ?: "AI"}：${m.text}" }
+                .ifEmpty { "（还没有聊天记录）" },
+        ))
+        val result = try {
+            gateway.complete(AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)), maxTokens = 120))
+        } catch (e: AiProviderException) {
+            log.warn("AI 出题失败（第 {} 次）：{}", job.attempts, e.message)
+            if (e.retryable && !job.isLastAttempt) throw e
+            return fail(jobId, roomId, "没有得到题目")
+        }
+        val question = result.text.trim().removePrefix("问题：").trim().take(500)
+        if (question.isBlank()) return fail(jobId, roomId, "没有得到题目")
+        db.tx {
+            val now = clock.instant()
+            val questionId = UuidV7.generate()
+            val seq = writer.change(this, roomId, EntityType.Question, questionId, askerId, now)
+            Questions.insert {
+                it[id] = questionId
+                it[Questions.roomId] = roomId
+                it[Questions.seq] = seq
+                it[createdAt] = now
+                it[updatedAt] = now
+                it[text] = question
+                it[questionSource] = QuestionSource.Ai.wireName
+                it[createdBy] = null
+                it[suggestedByJobId] = jobId
+            }
+            AiJobs.update({ AiJobs.id eq jobId }) {
+                it[status] = AiJobStatus.Done.wireName
+                it[model] = result.model
+                it[inputTokens] = result.inputTokens
+                it[outputTokens] = result.outputTokens
+                it[resultRef] = "question:$questionId"
+                it[error] = null
+                it[finishedAt] = now
+                it[updatedAt] = now
+            }
+        }
+        realtime.aiDone(roomId, jobId, AiJobStatus.Done.wireName)
     }
 
     suspend fun job(userId: UUID, roomId: UUID, jobId: UUID): AiJob = db.tx(readOnly = true) {
@@ -272,6 +370,7 @@ class AiService(
 
     companion object {
         const val JOB_CHAT = "ai.chat"
+        const val JOB_QUESTION = "ai.question_suggest"
         const val PROMPT_MAX = 2000
         private const val CHAT_ATTEMPTS = 2
         private const val CHAT_MAX_TOKENS = 800

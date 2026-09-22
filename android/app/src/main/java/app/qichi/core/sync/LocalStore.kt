@@ -5,6 +5,7 @@ import app.qichi.core.database.OutboxRow
 import app.qichi.core.database.OutboxState
 import app.qichi.core.database.QichiDatabase
 import app.qichi.core.database.SyncState
+import app.qichi.shared.api.Answer
 import app.qichi.shared.api.EntityCodec
 import app.qichi.shared.api.Event
 import app.qichi.shared.api.Member
@@ -12,6 +13,8 @@ import app.qichi.shared.api.Message
 import app.qichi.shared.api.Mood
 import app.qichi.shared.api.MoodReply
 import app.qichi.shared.api.QichiJson
+import app.qichi.shared.api.QnaRound
+import app.qichi.shared.api.Question
 import app.qichi.shared.api.ReadMarker
 import app.qichi.shared.api.Room
 import app.qichi.shared.api.SyncEntity
@@ -229,6 +232,9 @@ class LocalStore(
             is MoodReply -> EntityType.MoodResponse
             is Todo -> EntityType.Todo
             is Event -> EntityType.Event
+            is Question -> EntityType.Question
+            is QnaRound -> EntityType.QnaRound
+            is Answer -> EntityType.Answer
         }
 
         fun encode(type: EntityType, entity: SyncEntity): String =
@@ -277,6 +283,9 @@ class LocalStore(
                     entity.roomId, entity.deletedAt != null, entity.createdBy, null, null,
                     entity.startsAt?.toEpochMilli() ?: entity.startDate?.atStartOfDay()?.toInstant(ZoneOffset.UTC)?.toEpochMilli(),
                 )
+                is Question -> base(entity.roomId, entity.deletedAt != null, entity.createdBy, null, null, entity.createdAt.toEpochMilli())
+                is QnaRound -> base(entity.roomId, entity.deletedAt != null, null, entity.questionId, null, entity.createdAt.toEpochMilli())
+                is Answer -> base(entity.roomId, entity.deletedAt != null, entity.authorId, entity.roundId, null, entity.createdAt.toEpochMilli())
             }
         }
     }

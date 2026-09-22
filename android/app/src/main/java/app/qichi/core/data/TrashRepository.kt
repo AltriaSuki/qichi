@@ -10,6 +10,7 @@ import app.qichi.core.sync.SyncScheduler
 import app.qichi.shared.api.EntityCodec
 import app.qichi.shared.api.Event
 import app.qichi.shared.api.Message
+import app.qichi.shared.api.Question
 import app.qichi.shared.api.Mood
 import app.qichi.shared.api.SyncEntity
 import app.qichi.shared.api.Todo
@@ -56,6 +57,7 @@ class TrashRepository(
                     is Mood -> if (entity.authorId != me) null else TrashEntry(TrashType.Mood, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     is Todo -> if (entity.parentId in deletedTodos) null else TrashEntry(TrashType.Todo, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     is Event -> TrashEntry(TrashType.Event, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
+                    is Question -> TrashEntry(TrashType.Question, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     else -> null
                 }
             }.sortedByDescending { it.deletedAt }
@@ -84,6 +86,7 @@ class TrashRepository(
             is Mood -> e.copy(deletedAt = null, deletedBy = null)
             is Todo -> e.copy(deletedAt = null, deletedBy = null)
             is Event -> e.copy(deletedAt = null, deletedBy = null)
+            is Question -> e.copy(deletedAt = null, deletedBy = null)
             else -> return
         }
         db.transaction {
@@ -133,4 +136,5 @@ val TrashType.entityType: EntityType
         TrashType.Mood -> EntityType.Mood
         TrashType.Todo -> EntityType.Todo
         TrashType.Event -> EntityType.Event
+        TrashType.Question -> EntityType.Question
     }

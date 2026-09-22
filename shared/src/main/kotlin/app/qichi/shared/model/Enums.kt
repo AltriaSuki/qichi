@@ -18,6 +18,9 @@ enum class EntityType {
     @SerialName("mood_response") MoodResponse,
     @SerialName("todo") Todo,
     @SerialName("event") Event,
+    @SerialName("question") Question,
+    @SerialName("qna_round") QnaRound,
+    @SerialName("answer") Answer,
 }
 
 /** 变化类型：软删除与恢复都是 upsert，只有彻底删除是 delete。 */
@@ -80,6 +83,7 @@ enum class TrashType {
     @SerialName("mood") Mood,
     @SerialName("todo") Todo,
     @SerialName("event") Event,
+    @SerialName("question") Question,
 }
 
 @Serializable
@@ -127,4 +131,11 @@ enum class AiJobStatus {
     @SerialName("running") Running,
     @SerialName("done") Done,
     @SerialName("failed") Failed,
+}
+
+@Serializable
+enum class QuestionSource {
+    @SerialName("ai") Ai,
+    @SerialName("user") User,
+    @SerialName("preset") Preset,
 }
