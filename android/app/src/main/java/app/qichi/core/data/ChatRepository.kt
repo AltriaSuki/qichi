@@ -14,10 +14,14 @@ import app.qichi.core.database.EntityRow
 import app.qichi.core.database.QichiDatabase
 import app.qichi.core.network.ApiClient
 import app.qichi.core.network.get
+import app.qichi.core.network.post
 import app.qichi.core.sync.Local
 import app.qichi.core.sync.LocalStore
 import app.qichi.core.sync.OutboxOp
 import app.qichi.core.sync.SyncScheduler
+import app.qichi.shared.api.AiChatRequest
+import app.qichi.shared.api.AiJob
+import app.qichi.shared.api.AiJobAccepted
 import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.MessagePage
@@ -178,6 +182,19 @@ class ChatRepository(
         val after = cursor?.let { "&cursor=" + URLEncoder.encode(it, Charsets.UTF_8) }.orEmpty()
         return api.get("rooms/$roomId/messages/search?q=$q&limit=${Limits.CURSOR_PAGE_DEFAULT}$after")
     }
+
+    /**
+     * 问 AI（需要联网，不进发件箱）：服务端立即接受，回答稍后成为一条 id 等于 [jobId] 的 AI 消息。
+     * 同一个 jobId 再请求：失败的会重新排队（「重试」）。
+     */
+    suspend fun askAi(roomId: UUID, jobId: UUID, prompt: String): AiJobAccepted =
+        api.post("rooms/$roomId/ai/chat", AiChatRequest(jobId, prompt))
+
+    suspend fun aiJob(roomId: UUID, jobId: UUID): AiJob = api.get("rooms/$roomId/ai/jobs/$jobId")
+
+    /** 这条消息已经在本机了（AI 回答同步下来） */
+    fun observeHasMessage(id: UUID): Flow<Boolean> =
+        db.entities().observe(EntityType.Message.wireName, id.toString()).map { it != null }.distinctUntilChanged()
 
     /** 发送失败的消息：重新放回发件箱。 */
     suspend fun retry(message: Message) {

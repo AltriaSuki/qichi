@@ -42,6 +42,7 @@ import app.qichi.shared.api.Event
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.Mood
 import app.qichi.shared.api.Todo
+import app.qichi.shared.model.MessageKind
 import app.qichi.shared.model.TrashType
 import app.qichi.shared.rules.MessageRules
 import dagger.assisted.Assisted
@@ -186,7 +187,7 @@ private fun typeLabel(type: TrashType): String = when (type) {
 private fun summary(entry: TrashEntry, people: People): String = when (val e = entry.entity) {
     is Message -> {
         val content = e.body.ifBlank { MessageRules.replyExcerpt(e.kind, e.body, e.file?.fileName, e.retractedAt != null) ?: "（已撤回）" }
-        "${people.name(e.authorId)}：$content"
+        "${if (e.kind == MessageKind.Ai) "AI" else people.name(e.authorId)}：$content"
     }
     is Mood -> listOfNotNull(feelingWord(e.label, e.intensity), e.note).joinToString("  ")
     is Todo -> e.title

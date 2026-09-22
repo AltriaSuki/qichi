@@ -44,6 +44,7 @@ import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.chatDay
 import app.qichi.shared.api.Message
+import app.qichi.shared.model.MessageKind
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -126,7 +127,11 @@ internal fun ChatSearch(
                         .padding(vertical = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    PersonMark(people.markChar(message.authorId), people.person(message.authorId), size = 22.dp, modifier = Modifier.padding(top = 2.dp))
+                    if (message.kind == MessageKind.Ai) {
+                        Text("AI", style = type.numeral.copy(fontSize = 15.tsp, color = colors.personB), modifier = Modifier.padding(top = 2.dp))
+                    } else {
+                        PersonMark(people.markChar(message.authorId), people.person(message.authorId), size = 22.dp, modifier = Modifier.padding(top = 2.dp))
+                    }
                     Column(Modifier.weight(1f)) {
                         Text(
                             highlight(message.body, state.query, colors.accent),

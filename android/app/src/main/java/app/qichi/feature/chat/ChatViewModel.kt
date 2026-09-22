@@ -19,9 +19,14 @@ import app.qichi.core.network.ApiException
 import app.qichi.core.network.FileUrls
 import app.qichi.core.network.NetworkMonitor
 import app.qichi.core.sync.Local
+import app.qichi.core.sync.RealtimeClient
+import app.qichi.core.sync.SyncEngine
 import app.qichi.di.ApplicationScope
 import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
+import app.qichi.shared.model.AiJobStatus
+import app.qichi.shared.model.ProblemCode
+import app.qichi.shared.model.wireName
 import app.qichi.shared.rules.Limits
 import app.qichi.shared.rules.MessageRules
 import app.qichi.shared.util.UuidV7
@@ -42,6 +47,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -52,6 +58,15 @@ import java.util.UUID
 data class ChatState(
     val people: People = People.Empty,
     val online: Boolean = true,
+    /** 服务端配置了 AI（否则「问 AI」显示为不可用） */
+    val aiEnabled: Boolean = false,
+)
+
+/** 等 AI 回答的提问：显示在聊天最下面，回答同步下来后消失。[jobId] 也是回答消息的 id。 */
+data class PendingAi(
+    val jobId: UUID,
+    val prompt: String,
+    val failed: Boolean = false,
 )
 
 /** 正在上传的附件（还没成为消息），显示在列表最下面。[id] 就是文件 id，重试时沿用。 */
@@ -95,15 +110,19 @@ class ChatViewModel @AssistedInject constructor(
     val urls: FileUrls,
     rooms: RoomRepository,
     private val network: NetworkMonitor,
+    private val syncEngine: SyncEngine,
+    realtime: RealtimeClient,
     @ApplicationContext private val context: Context,
     session: SessionManager,
 ) : ViewModel() {
 
     val messages: Flow<PagingData<Local<Message>>> = chat.messages(roomId).cachedIn(viewModelScope)
 
-    val state: StateFlow<ChatState> = combine(rooms.observeRoom(roomId), rooms.observeMembers(roomId), network.isOnline) { room, members, online ->
-        ChatState(People(room, members, session.currentUserId), online)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ChatState())
+    val state: StateFlow<ChatState> = combine(
+        rooms.observeRoom(roomId), rooms.observeMembers(roomId), network.isOnline, rooms.me,
+    ) { room, members, online, me ->
+        ChatState(People(room, members, session.currentUserId), online, aiEnabled = me?.aiEnabled == true)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, ChatState())
 
     /** 最新一条消息的 id 与作者：界面据此决定跟到底部还是提示「新消息」 */
     val newest: StateFlow<Message?> = chat.observeNewest(roomId).map { it?.value }
@@ -126,6 +145,10 @@ class ChatViewModel @AssistedInject constructor(
     private val _events = MutableSharedFlow<ChatEvent>(extraBufferCapacity = 4)
     val events: SharedFlow<ChatEvent> = _events
 
+    private val _pendingAi = MutableStateFlow<List<PendingAi>>(emptyList())
+    val pendingAi: StateFlow<List<PendingAi>> = _pendingAi.asStateFlow()
+    private val aiWatchers = mutableMapOf<UUID, Job>()
+
     private val _uploads = MutableStateFlow<List<Upload>>(emptyList())
     val uploads: StateFlow<List<Upload>> = _uploads.asStateFlow()
 
@@ -144,6 +167,12 @@ class ChatViewModel @AssistedInject constructor(
     private var draftSave: Job? = null
 
     init {
+        // AI 任务结束的实时通知：失败就在原位置显示「没有得到回答」
+        viewModelScope.launch {
+            realtime.aiDone.collect { event ->
+                if (event.roomId == roomId && event.status == AiJobStatus.Failed.wireName) markAiFailed(event.jobId)
+            }
+        }
         // 恢复上次没发出去的草稿（用户已经开始输入就不覆盖）
         viewModelScope.launch {
             val saved = drafts.load(roomId, DraftStore.CHAT)
@@ -327,6 +356,84 @@ class ChatViewModel @AssistedInject constructor(
 
     fun markRead(createdSeq: Long) = viewModelScope.launch { chat.markRead(roomId, createdSeq) }
 
+    /** 「问 AI」：把输入框里的话作为问题；只在用户点的时候调用，需要联网。 */
+    fun askAi() {
+        val prompt = _draft.value.trim()
+        if (prompt.isEmpty()) return
+        when {
+            !state.value.aiEnabled -> _events.tryEmit(ChatEvent.Toast("AI 还没有开启"))
+            !network.isOnline.value -> _events.tryEmit(ChatEvent.Toast("离线时不能问 AI"))
+            else -> {
+                _draft.value = ""
+                draftSave?.cancel()
+                viewModelScope.launch { drafts.delete(roomId, DraftStore.CHAT) }
+                val pending = PendingAi(UuidV7.generate(), prompt.take(AI_PROMPT_MAX))
+                _pendingAi.update { it + pending }
+                submitAi(pending)
+            }
+        }
+    }
+
+    /** 「没有得到回答 · 重试」：同一个 jobId 重新提交，服务端会重新排队。 */
+    fun retryAi(jobId: UUID) {
+        val pending = _pendingAi.value.firstOrNull { it.jobId == jobId } ?: return
+        if (!network.isOnline.value) {
+            _events.tryEmit(ChatEvent.Toast("离线时不能问 AI"))
+            return
+        }
+        _pendingAi.update { list -> list.map { if (it.jobId == jobId) it.copy(failed = false) else it } }
+        submitAi(pending)
+    }
+
+    fun dismissAi(jobId: UUID) {
+        aiWatchers.remove(jobId)?.cancel()
+        _pendingAi.update { list -> list.filterNot { it.jobId == jobId } }
+    }
+
+    private fun submitAi(pending: PendingAi) {
+        aiWatchers.remove(pending.jobId)?.cancel()
+        aiWatchers[pending.jobId] = viewModelScope.launch {
+            try {
+                chat.askAi(roomId, pending.jobId, pending.prompt)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ApiException) {
+                if (e.problem?.code in setOf(ProblemCode.AiUnavailable, ProblemCode.AiQuotaExceeded)) {
+                    dismissAi(pending.jobId)
+                    _events.emit(ChatEvent.Toast(e.userMessage))
+                } else {
+                    markAiFailed(pending.jobId)
+                }
+                return@launch
+            } catch (_: Exception) {
+                markAiFailed(pending.jobId)
+                return@launch
+            }
+            // 回答同步下来就收起；实时通道断了也不怕：每隔几秒问一次任务状态
+            launch {
+                chat.observeHasMessage(pending.jobId).first { it }
+                dismissAi(pending.jobId)
+            }
+            while (true) {
+                delay(AI_POLL_MS)
+                val job = runCatching { chat.aiJob(roomId, pending.jobId) }.getOrNull() ?: continue
+                when (job.status) {
+                    AiJobStatus.Failed -> {
+                        markAiFailed(pending.jobId)
+                        break
+                    }
+                    AiJobStatus.Done -> runCatching { syncEngine.pull(roomId) }
+                    else -> Unit
+                }
+            }
+        }
+    }
+
+    private fun markAiFailed(jobId: UUID) {
+        aiWatchers.remove(jobId)?.cancel()
+        _pendingAi.update { list -> list.map { if (it.jobId == jobId) it.copy(failed = true) else it } }
+    }
+
     fun startReply(message: Message) {
         _replyTo.value = message
     }
@@ -367,5 +474,7 @@ class ChatViewModel @AssistedInject constructor(
 
     private companion object {
         const val OFFLINE_ATTACH = "离线时不能发图片和文件"
+        const val AI_PROMPT_MAX = 2000
+        const val AI_POLL_MS = 3_000L
     }
 }

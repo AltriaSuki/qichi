@@ -15,8 +15,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -36,6 +39,10 @@ class RealtimeClient(
     private var job: Job? = null
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
+
+    /** AI 任务结束（成功或失败）：聊天里据此收起「正在想」或显示「没有得到回答」 */
+    private val _aiDone = MutableSharedFlow<WsEvent.AiDone>(extraBufferCapacity = 8)
+    val aiDone: SharedFlow<WsEvent.AiDone> = _aiDone.asSharedFlow()
 
     fun start() {
         if (job?.isActive == true) return
@@ -79,7 +86,10 @@ class RealtimeClient(
             when (event) {
                 is WsEvent.Hello -> event.rooms.forEach { syncEngine.pullIfBehind(it.roomId, it.lastSeq) }
                 is WsEvent.Changed -> syncEngine.pullIfBehind(event.roomId, event.seq)
-                is WsEvent.AiDone -> syncEngine.pull(event.roomId)
+                is WsEvent.AiDone -> {
+                    _aiDone.tryEmit(event)
+                    syncEngine.pull(event.roomId)
+                }
             }
         } catch (e: CancellationException) {
             throw e

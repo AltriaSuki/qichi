@@ -14,14 +14,19 @@ import app.qichi.core.sync.SyncFixtures.me
 import app.qichi.core.sync.SyncFixtures.partner
 import app.qichi.core.sync.SyncFixtures.roomId
 import app.qichi.core.sync.SyncScheduler
+import app.qichi.core.sync.bodyText
 import app.qichi.core.ui.chatDay
+import app.qichi.shared.api.AiChatRequest
+import app.qichi.shared.api.AiJobAccepted
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.MessagePage
 import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.ReadMarker
 import app.qichi.shared.api.SendMessageRequest
 import app.qichi.shared.api.UpdateReadMarkerRequest
+import app.qichi.shared.model.AiJobStatus
 import app.qichi.shared.model.EntityType
+import app.qichi.shared.model.MessageKind
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -188,6 +193,24 @@ class ChatRepositoryTest {
         assertEquals(listOf(server.id.toString()), rows.map { it.id })
         assertTrue(rows.single().id != placeholder.id)
         assertEquals(9L, chat.observeLastRead(roomId).first())
+    }
+
+    @Test
+    fun `问 AI：直接请求（不进发件箱），回答同步下来后能察觉`() = runTest {
+        val jobId = UUID(0, 1)
+        var seen: Pair<String, String>? = null
+        server.custom = { request ->
+            seen = request.url.encodedPath to request.bodyText()
+            respond(QichiJson.encodeToString(AiJobAccepted.serializer(), AiJobAccepted(jobId, AiJobStatus.Queued)), HttpStatusCode.Accepted, json)
+        }
+        assertEquals(AiJobStatus.Queued, chat.askAi(roomId, jobId, "周六去哪片海？").status)
+        assertEquals("/api/v1/rooms/$roomId/ai/chat", seen!!.first)
+        assertEquals(AiChatRequest(jobId, "周六去哪片海？"), QichiJson.decodeFromString(AiChatRequest.serializer(), seen!!.second))
+        assertTrue(db.outbox().all().isEmpty(), "AI 请求不进离线发件箱")
+
+        assertEquals(false, chat.observeHasMessage(jobId).first())
+        store.applyServer(serverMessage(3).copy(id = jobId, kind = MessageKind.Ai, authorId = null, aiPrompt = "周六去哪片海？"))
+        assertEquals(true, chat.observeHasMessage(jobId).first())
     }
 
     @Test

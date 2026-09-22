@@ -13,6 +13,7 @@ import app.qichi.core.sync.SyncScheduler
 import app.qichi.shared.api.AcceptInviteRequest
 import app.qichi.shared.api.CreateRoomRequest
 import app.qichi.shared.api.Invite
+import app.qichi.shared.api.AiUsage
 import app.qichi.shared.api.Me
 import app.qichi.shared.api.Member
 import app.qichi.shared.api.Patch
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import java.util.UUID
 
@@ -43,6 +45,9 @@ class RoomRepository(
 ) {
     val me: Flow<Me?> get() = profile.me
     val currentRoomId: Flow<UUID?> get() = profile.currentRoomId
+
+    /** 「我发起的 AI 使用」（服务端统计，需要联网）。 */
+    suspend fun aiUsage(month: YearMonth): AiUsage = api.get("me/ai-usage?month=$month")
 
     /** 从服务端刷新 /me 并保存；当前房间不在列表里时改选第一个。 */
     suspend fun refreshMe(): Me {

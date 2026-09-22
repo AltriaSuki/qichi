@@ -38,6 +38,7 @@ import app.qichi.core.designsystem.component.TabItem
 import app.qichi.feature.calendar.EventListScreen
 import app.qichi.feature.chat.ChatScreen
 import app.qichi.feature.chat.UnreadViewModel
+import app.qichi.feature.me.AiUsageScreen
 import app.qichi.feature.me.DisplayScreen
 import app.qichi.feature.me.MeScreen
 import app.qichi.feature.me.ProfileScreen
@@ -139,6 +140,7 @@ fun QichiApp(
                             Page.Profile -> ProfileScreen(onBack = navigator::back)
                             Page.Display -> DisplayScreen(onBack = navigator::back)
                             Page.Trash -> TrashScreen(roomId = LocalRoomId.current, onBack = navigator::back)
+                            Page.AiUsage -> AiUsageScreen(onBack = navigator::back)
                             Page.RoomSettings -> RoomSettingsScreen(roomId = LocalRoomId.current, onBack = navigator::back)
                             else -> PagePlaceholder(route.page.title, onBack = navigator::back)
                         }

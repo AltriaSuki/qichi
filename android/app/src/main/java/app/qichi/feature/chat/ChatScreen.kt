@@ -123,6 +123,7 @@ fun ChatScreen(
     val replyTo by viewModel.replyTo.collectAsStateWithLifecycle()
     val jumping by viewModel.jumping.collectAsStateWithLifecycle()
     val uploads by viewModel.uploads.collectAsStateWithLifecycle()
+    val pendingAi by viewModel.pendingAi.collectAsStateWithLifecycle()
     val search by viewModel.search.collectAsStateWithLifecycle()
     val lastRead by viewModel.lastRead.collectAsStateWithLifecycle()
     val newestSeq by viewModel.newestSeq.collectAsStateWithLifecycle()
@@ -166,8 +167,8 @@ fun ChatScreen(
                         .take(80)
                         .firstOrNull { items.peek(it)?.value?.id == event.id }
                     // 先滚到大致位置；那一段从数据库读出来、占位换成真实高度后，再按 id 校准一次
-                    // 列表最下面可能还有正在上传的附件，排在消息前面
-                    val extra = uploads.size
+                    // 列表最下面可能还有等 AI 的提问、正在上传的附件，排在消息前面
+                    val extra = pendingAi.size + uploads.size
                     listState.scrollToItem((event.index - 2).coerceIn(0, (items.itemCount - 1).coerceAtLeast(0)) + extra)
                     val exact = withTimeoutOrNull(3_000) { snapshotFlow { locate() }.first { it != null } }
                     // 让原消息停在靠下的位置，而不是贴着输入框
@@ -203,6 +204,13 @@ fun ChatScreen(
         }
     }
     LaunchedEffect(atBottom) { if (atBottom) unseen = false }
+    // 刚问了 AI、刚选了附件：滚到最下面看着它
+    var lastLocalItems by remember { mutableStateOf(0) }
+    LaunchedEffect(pendingAi.size + uploads.size) {
+        val count = pendingAi.size + uploads.size
+        if (count > lastLocalItems) listState.animateScrollToItem(0)
+        lastLocalItems = count
+    }
     // 正在看（页面在前台、列表在底部）就推进未读位置
     LaunchedEffect(visible, atBottom, newestSeq, dividerAfter != null) {
         // 分隔线的位置记下之后再推进
@@ -230,7 +238,11 @@ fun ChatScreen(
                 contentPadding = PaddingValues(start = 22.dp, end = 22.dp, top = 16.dp, bottom = 16.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                // 正在上传的附件在最下面（倒序列表的最前面），最新的最靠下
+                // 等 AI 回答的提问在最下面（倒序列表的最前面）
+                items(pendingAi.asReversed(), key = { "ai-${it.jobId}" }) { pending ->
+                    PendingAiItem(pending, onRetry = { viewModel.retryAi(pending.jobId) }, onDismiss = { viewModel.dismissAi(pending.jobId) })
+                }
+                // 正在上传的附件，最新的最靠下
                 items(uploads.asReversed(), key = { "upload-${it.id}" }) { upload ->
                     UploadItem(
                         upload, maxWidth = maxBubble,
@@ -294,8 +306,10 @@ fun ChatScreen(
         InputBar(
             draft = draft,
             online = state.online,
+            aiEnabled = state.aiEnabled,
             onDraftChange = viewModel::onDraftChange,
             onSend = viewModel::send,
+            onAskAi = viewModel::askAi,
             onAttach = { if (state.online) attaching = true else viewModel.offlineAttachHint() },
         )
     }
@@ -436,6 +450,9 @@ private fun MessageBody(
     when {
         m.retractedAt != null -> Notice(if (m.retractedBy == people.myUserId) "你撤回了一条消息" else "${people.name(m.retractedBy)}撤回了一条消息")
         m.kind == MessageKind.System -> Notice(m.body)
+        m.kind == MessageKind.Ai -> AiBlock(prompt = m.aiPrompt, modifier = Modifier.combinedClickable(onClick = {}, onLongClickLabel = "更多操作", onLongClick = onLongPress)) {
+            Text(m.body, style = aiAnswerStyle(), modifier = Modifier.fillMaxWidth())
+        }
         else -> {
             val file = m.file
             when {
@@ -611,6 +628,54 @@ private fun Notice(text: String) {
     )
 }
 
+/** AI 的回答：居中的「AI」、提问、回答正文（设计稿 Chat.dc.html）。 */
+@Composable
+private fun AiBlock(prompt: String?, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    Column(
+        modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("AI", style = type.numeral.copy(fontSize = 18.tsp, color = colors.personB))
+        if (!prompt.isNullOrBlank()) {
+            Text(
+                prompt,
+                style = type.caption.copy(fontSize = 12.tsp, letterSpacing = 0.06.em, color = colors.muted),
+                textAlign = TextAlign.Center,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
+            )
+        }
+        content()
+    }
+}
+
+@Composable
+private fun aiAnswerStyle() = QichiTheme.typography.body.copy(fontSize = 14.5.tsp, lineHeight = 28.tsp, color = QichiTheme.colors.ink)
+
+/** 还在等的 AI 提问：「正在想…」；失败时「没有得到回答 · 重试」。 */
+@Composable
+private fun PendingAiItem(pending: PendingAi, onRetry: () -> Unit, onDismiss: () -> Unit) {
+    val colors = QichiTheme.colors
+    Box(Modifier.padding(top = 16.dp)) {
+        AiBlock(prompt = pending.prompt) {
+            if (pending.failed) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("没有得到回答", style = QichiTheme.typography.caption.copy(color = colors.accent))
+                    TextAction("重试", onClick = onRetry)
+                    TextAction("算了", onClick = onDismiss, color = colors.muted)
+                }
+            } else {
+                Text("正在想…", style = aiAnswerStyle().copy(color = colors.muted))
+            }
+        }
+    }
+}
+
 /** 设计稿里的「新消息」：两侧 accent 细线。 */
 @Composable
 private fun NewMessagesDivider() {
@@ -702,7 +767,7 @@ private fun MessageActions(
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.paper) {
         Column(Modifier.padding(start = 28.dp, end = 28.dp, bottom = 28.dp)) {
             Text(
-                "${people.name(m.authorId)}：${m.body}",
+                "${if (m.kind == MessageKind.Ai) "AI" else people.name(m.authorId)}：${m.body}",
                 style = type.caption.copy(color = colors.muted),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -730,7 +795,15 @@ private fun ActionRow(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun InputBar(draft: String, online: Boolean, onDraftChange: (String) -> Unit, onSend: () -> Unit, onAttach: () -> Unit) {
+private fun InputBar(
+    draft: String,
+    online: Boolean,
+    aiEnabled: Boolean,
+    onDraftChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onAskAi: () -> Unit,
+    onAttach: () -> Unit,
+) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     Row(
@@ -751,23 +824,35 @@ private fun InputBar(draft: String, online: Boolean, onDraftChange: (String) -> 
                 .heightIn(min = 46.dp)
                 .clip(RoundedCornerShape(23.dp))
                 .background(colors.surface)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(start = 16.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
             contentAlignment = Alignment.CenterStart,
         ) {
-            BasicTextField(
-                value = draft,
-                onValueChange = onDraftChange,
-                textStyle = type.body.copy(color = colors.ink),
-                cursorBrush = SolidColor(colors.ink),
-                maxLines = 5,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics { contentDescription = "消息" },
-                decorationBox = { inner ->
-                    if (draft.isEmpty()) Text("说点什么", style = type.body.copy(color = colors.faint))
-                    inner()
-                },
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BasicTextField(
+                    value = draft,
+                    onValueChange = onDraftChange,
+                    textStyle = type.body.copy(color = colors.ink),
+                    cursorBrush = SolidColor(colors.ink),
+                    maxLines = 5,
+                    modifier = Modifier
+                        .weight(1f)
+                        .semantics { contentDescription = "消息" },
+                    decorationBox = { inner ->
+                        if (draft.isEmpty()) Text("说点什么", style = type.body.copy(color = colors.faint))
+                        inner()
+                    },
+                )
+                // 设计稿里输入框右端的「问 AI」：只有点它才会调用 AI；没开启、离线、没写问题时置灰
+                val canAsk = aiEnabled && online && draft.isNotBlank()
+                Text(
+                    "问 AI",
+                    style = type.body.copy(fontSize = 14.tsp, letterSpacing = 0.1.em, color = if (canAsk) colors.personB else colors.faint),
+                    modifier = Modifier
+                        .heightIn(min = 24.dp)
+                        .clickable(role = Role.Button, onClick = onAskAi)
+                        .padding(horizontal = 8.dp),
+                )
+            }
         }
         val canSend = draft.isNotBlank()
         Box(
