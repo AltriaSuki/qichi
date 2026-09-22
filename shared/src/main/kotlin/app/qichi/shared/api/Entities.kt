@@ -129,7 +129,7 @@ data class Todo(
     val doneAt: Timestamp?,
     val doneBy: Id?,
     /** 属于哪个计划 */
-    val planId: Id?,
+    val planId: Id? = null,
 ) : SyncEntity
 
 /**
