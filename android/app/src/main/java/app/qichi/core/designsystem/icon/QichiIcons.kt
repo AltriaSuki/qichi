@@ -29,6 +29,8 @@ object QichiIcons {
     val More: ImageVector by lazy {
         stroke("more", "M5 12h.01M12 12h.01M19 12h.01", width = 2.2f)
     }
+    val ChevronLeft: ImageVector by lazy { stroke("chevron-left", "M15 5l-7 7 7 7") }
+    val ChevronRight: ImageVector by lazy { stroke("chevron-right", "M9 5l7 7-7 7") }
 
     private fun stroke(name: String, pathData: String, width: Float = 1.2f): ImageVector =
         ImageVector.Builder(

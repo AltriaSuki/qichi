@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.map
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.UUID
 
 /** 待办的本机读写：先写本机（界面立即变化）再经发件箱发出，离线也能新建和完成。 */
@@ -36,6 +37,16 @@ class TodoRepository(
         db.entities().observeByType(roomId.toString(), EntityType.Todo.wireName)
             .map { rows -> rows.map { LocalStore.toLocal<Todo>(it) } }
 
+    /** 某天截止的待办；定时截止按房间时区折算，计划下的待办也显示。 */
+    fun observeTodosForDate(roomId: UUID, date: LocalDate, zone: ZoneId): Flow<List<Local<Todo>>> =
+        observeTodos(roomId).map { todos ->
+            todos.filter { local ->
+                val todo = local.value
+                todo.deletedAt == null &&
+                    (todo.dueDate == date || todo.dueAt?.atZone(zone)?.toLocalDate() == date)
+            }
+        }
+
     suspend fun create(
         roomId: UUID,
         title: String,
@@ -51,7 +62,7 @@ class TodoRepository(
             id = UuidV7.generate(), roomId = roomId, seq = 0, createdAt = now, updatedAt = now, deletedAt = null, deletedBy = null,
             title = title.trim(), note = note?.trim()?.takeIf { it.isNotEmpty() }, createdBy = me, assigneeId = assigneeId,
             parentId = parentId, dueDate = dueDate, dueAt = dueAt, recurrence = recurrence, recurrencePrevId = null,
-            doneAt = null, doneBy = null,
+            doneAt = null, doneBy = null, planId = null,
         )
         store.writeLocal(
             roomId, todo,

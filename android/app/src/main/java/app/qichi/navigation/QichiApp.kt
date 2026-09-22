@@ -35,7 +35,8 @@ import androidx.navigation.toRoute
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.component.QichiTabBar
 import app.qichi.core.designsystem.component.TabItem
-import app.qichi.feature.calendar.EventListScreen
+import app.qichi.feature.calendar.CalendarDayScreen
+import app.qichi.feature.calendar.CalendarMonthScreen
 import app.qichi.feature.chat.ChatScreen
 import app.qichi.feature.chat.UnreadViewModel
 import app.qichi.feature.me.AiUsageScreen
@@ -128,9 +129,20 @@ fun QichiApp(
                             Page.Mood -> MoodScreen(roomId = roomId, onBack = navigator::back)
                             Page.Qna -> QnaScreen(roomId = roomId, onBack = navigator::back)
                             Page.Todo -> TodoScreen(roomId = roomId, onBack = navigator::back)
-                            Page.Calendar -> EventListScreen(roomId = roomId, onBack = navigator::back)
+                            Page.Calendar -> CalendarMonthScreen(
+                                roomId = roomId,
+                                onBack = navigator::back,
+                                onDayClick = { date -> navigator.navController.navigate(CalendarDay(date.toString())) },
+                            )
                             else -> PagePlaceholder(route.page.title, onBack = navigator::back)
                         }
+                    }
+
+                    composable<CalendarDay> { entry ->
+                        val route = entry.toRoute<CalendarDay>()
+                        val roomId = LocalRoomId.current
+                        val date = java.time.LocalDate.parse(route.date)
+                        CalendarDayScreen(roomId = roomId, date = date, onBack = navigator::back)
                     }
                 }
                 navigation<MeGraph>(startDestination = MeHome) {

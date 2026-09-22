@@ -78,6 +78,9 @@ enum class Page(val slug: String, val title: String, val tab: TopTab, val group:
 /** 「我的」下的二级页面。 */
 @Serializable data class MePage(val page: Page, val id: String? = null)
 
+/** 日历某一天的详情。 */
+@Serializable data class CalendarDay(val date: String)
+
 fun TopTab.graph(): Any = when (this) {
     TopTab.Today -> TodayGraph
     TopTab.Chat -> ChatGraph

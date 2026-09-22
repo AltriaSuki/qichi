@@ -49,7 +49,7 @@ object SyncFixtures {
     fun todo(title: String, id: UUID = UUID.randomUUID(), seq: Long = 0) = Todo(
         id = id, roomId = roomId, seq = seq, createdAt = t0, updatedAt = t0, deletedAt = null, deletedBy = null,
         title = title, note = null, createdBy = me, assigneeId = null, parentId = null, dueDate = null, dueAt = null,
-        recurrence = null, recurrencePrevId = null, doneAt = null, doneBy = null,
+        recurrence = null, recurrencePrevId = null, doneAt = null, doneBy = null, planId = null,
     )
 }
 

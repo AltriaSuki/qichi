@@ -12,6 +12,7 @@ import app.qichi.core.data.DraftStore
 import app.qichi.core.data.EventRepository
 import app.qichi.core.data.FileRepository
 import app.qichi.core.data.MoodRepository
+import app.qichi.core.data.PlanRepository
 import app.qichi.core.data.ProfileStore
 import app.qichi.core.data.QnaRepository
 import app.qichi.core.data.RoomRepository
@@ -132,6 +133,10 @@ object SyncModule {
         db: QichiDatabase, store: LocalStore, api: ApiClient, sync: SyncEngine,
         scheduler: SyncScheduler, session: SessionManager,
     ): QnaRepository = QnaRepository(db, store, api, sync, scheduler, session)
+
+    @Provides
+    @Singleton
+    fun planRepository(db: QichiDatabase): PlanRepository = PlanRepository(db)
 
     /** 登出时清掉本机保存的「我」与当前房间。 */
     @Provides

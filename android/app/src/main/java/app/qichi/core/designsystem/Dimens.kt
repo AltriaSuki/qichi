@@ -39,4 +39,8 @@ object Sizes {
     val backBarHeight = 70.dp
     val envelopeHeight = 100.dp
     val waxSeal = 46.dp
+    val calendarCellHeight = 58.dp
+    val calendarDate = 36.dp
+    val calendarDot = 5.dp
+    val calendarLabelWidth = 58.dp
 }

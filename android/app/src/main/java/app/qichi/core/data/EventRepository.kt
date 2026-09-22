@@ -35,6 +35,12 @@ class EventRepository(
         db.entities().observeByType(roomId.toString(), EntityType.Event.wireName)
             .map { rows -> rows.map { LocalStore.toLocal<Event>(it) } }
 
+    /** 某天的日程；跨日安排在覆盖的每一天都出现。 */
+    fun observeEventsForDate(roomId: UUID, date: LocalDate, zone: ZoneId): Flow<List<Local<Event>>> =
+        observeEvents(roomId).map { events ->
+            events.filter { date in it.value.days(zone) }
+        }
+
     suspend fun create(roomId: UUID, draft: EventDraft): Event {
         val now = clock.instant()
         val event = Event(
