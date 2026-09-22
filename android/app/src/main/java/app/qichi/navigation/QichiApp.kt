@@ -45,6 +45,7 @@ import app.qichi.feature.me.ProfileScreen
 import app.qichi.feature.me.RoomSettingsScreen
 import app.qichi.feature.me.TrashScreen
 import app.qichi.feature.mood.MoodScreen
+import app.qichi.feature.qna.QnaScreen
 import app.qichi.feature.room.MembersScreen
 import app.qichi.feature.today.TodayScreen
 import app.qichi.feature.todo.TodoScreen
@@ -125,6 +126,7 @@ fun QichiApp(
                         val roomId = LocalRoomId.current
                         when (route.page) {
                             Page.Mood -> MoodScreen(roomId = roomId, onBack = navigator::back)
+                            Page.Qna -> QnaScreen(roomId = roomId, onBack = navigator::back)
                             Page.Todo -> TodoScreen(roomId = roomId, onBack = navigator::back)
                             Page.Calendar -> EventListScreen(roomId = roomId, onBack = navigator::back)
                             else -> PagePlaceholder(route.page.title, onBack = navigator::back)

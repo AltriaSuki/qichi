@@ -3,19 +3,20 @@ package app.qichi.di
 import android.content.Context
 import app.qichi.BuildConfig
 import app.qichi.core.auth.LocalDataCleaner
-import app.qichi.core.auth.TokenStore
 import app.qichi.core.auth.SessionManager
-import app.qichi.core.data.DataStoreProfileStore
+import app.qichi.core.auth.TokenStore
 import app.qichi.core.data.AttachmentPreparer
 import app.qichi.core.data.ChatRepository
+import app.qichi.core.data.DataStoreProfileStore
 import app.qichi.core.data.DraftStore
 import app.qichi.core.data.EventRepository
 import app.qichi.core.data.FileRepository
 import app.qichi.core.data.MoodRepository
+import app.qichi.core.data.ProfileStore
+import app.qichi.core.data.QnaRepository
+import app.qichi.core.data.RoomRepository
 import app.qichi.core.data.TodoRepository
 import app.qichi.core.data.TrashRepository
-import app.qichi.core.data.ProfileStore
-import app.qichi.core.data.RoomRepository
 import app.qichi.core.database.QichiDatabase
 import app.qichi.core.network.ApiClient
 import app.qichi.core.network.FileUrls
@@ -124,6 +125,13 @@ object SyncModule {
     @Singleton
     fun eventRepository(db: QichiDatabase, store: LocalStore, scheduler: SyncScheduler, session: SessionManager): EventRepository =
         EventRepository(db, store, scheduler, session)
+
+    @Provides
+    @Singleton
+    fun qnaRepository(
+        db: QichiDatabase, store: LocalStore, api: ApiClient, sync: SyncEngine,
+        scheduler: SyncScheduler, session: SessionManager,
+    ): QnaRepository = QnaRepository(db, store, api, sync, scheduler, session)
 
     /** 登出时清掉本机保存的「我」与当前房间。 */
     @Provides
