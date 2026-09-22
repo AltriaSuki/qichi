@@ -7,12 +7,15 @@ import app.qichi.core.sync.SyncFixtures.partner
 import app.qichi.core.sync.SyncFixtures.roomId
 import app.qichi.core.sync.SyncFixtures.t0
 import app.qichi.core.sync.SyncFixtures.todo
+import app.qichi.shared.api.Answer
 import app.qichi.shared.api.Bootstrap
 import app.qichi.shared.api.Change
 import app.qichi.shared.api.EntityCodec
 import app.qichi.shared.api.Member
 import app.qichi.shared.api.Patch
 import app.qichi.shared.api.QichiJson
+import app.qichi.shared.api.QnaRound
+import app.qichi.shared.api.Question
 import app.qichi.shared.api.Room
 import app.qichi.shared.api.SyncResponse
 import app.qichi.shared.api.Todo
@@ -20,6 +23,7 @@ import app.qichi.shared.api.UpdateTodoRequest
 import app.qichi.shared.model.ChangeOp
 import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.MemberRole
+import app.qichi.shared.model.QuestionSource
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -31,6 +35,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.time.LocalDate
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -89,6 +94,21 @@ class SyncEngineTest {
         room = room, members = listOf(member(me, 2), member(partner, 3)), lastSeq = lastSeq, readMarker = null,
         moods = emptyList(), moodReplies = emptyList(), todos = todos, events = emptyList(), messages = emptyList(), hasMoreMessages = false,
     )
+
+    @Test
+    fun `首次快照保存问答实体`() = runTest {
+        val question = Question(UUID.randomUUID(), roomId, 4, t0, t0, null, null,
+            "想一起做什么？", QuestionSource.User, me, null, me, t0)
+        val round = QnaRound(UUID.randomUUID(), roomId, 5, t0, t0, null, null,
+            question.id, LocalDate.of(2026, 9, 22), null, emptyList())
+        val answer = Answer(UUID.randomUUID(), roomId, 6, t0, t0, null, null,
+            round.id, me, "去散步", null)
+        bootstrap = boot(6).copy(questions = listOf(question), qnaRounds = listOf(round), answers = listOf(answer))
+        engine.pull(roomId)
+        assertEquals(question, store.get<Question>(EntityType.Question, question.id)?.value)
+        assertEquals(round, store.get<QnaRound>(EntityType.QnaRound, round.id)?.value)
+        assertEquals(answer, store.get<Answer>(EntityType.Answer, answer.id)?.value)
+    }
 
     @Test
     fun `第一次拉取走 bootstrap，之后按 lastSeq 增量，分页拉到没有为止`() = runTest {

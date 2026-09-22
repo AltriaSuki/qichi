@@ -53,8 +53,8 @@
 
 | 表 | 关键字段 |
 |---|---|
-| `questions` | 题库：`text`、`source`（ai / user）、`suggested_by_job_id`、`adopted_by`、`adopted_at`（未采纳的 AI 建议 `adopted_at` 为空） |
-| `question_rounds` | 某天的一问：`question_id`、`round_date`（房间时区）、`revealed_at` |
+| `questions` | 题库：`text`、`source`（ai / user / preset）、`suggested_by_job_id`、`adopted_by`、`adopted_at`（未采纳的 AI 建议 `adopted_at` 为空） |
+| `qna_rounds` | 某天的一问：`question_id`、`round_date`（房间时区）、`revealed_at`；同房间同日期唯一 |
 | `answers` | `round_id`、`author_id`、`body`、`confirmed_at`；**揭晓前接口只返回对方「是否已确认」，不返回 `body`** |
 | `plans` | `title`、`owner_id`、`status`（active / done / archived）、`target_date`（可空）、`next_step`、`next_step_owner_id`、`next_step_due`、`completed_at`、`completion_note` |
 | `plan_stages` | `plan_id`、`title`、`sort_order`、`done_at` |

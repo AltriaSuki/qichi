@@ -162,6 +162,7 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | POST | `/rooms/{roomId}/questions` | 自己出题 |
 | POST | `/rooms/{roomId}/ai/question-suggest` | 让 AI 根据共同历史出题 → 202 |
 | POST | `/rooms/{roomId}/questions/{id}/adopt` | 采纳进题库 |
+| DELETE | `/rooms/{roomId}/questions/{id}` | 软删除题目，进入回收站 |
 | POST · PATCH · DELETE | `/rooms/{roomId}/plans[/{id}]` | 计划 |
 | POST · PATCH · DELETE | `/rooms/{roomId}/plans/{planId}/stages[/{id}]`、`…/milestones[/{id}]` | 阶段、里程碑 |
 | POST | `/rooms/{roomId}/plans/{planId}/logs` | 过程记录 |
