@@ -14,6 +14,8 @@ import io.ktor.server.auth.authenticate
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import app.qichi.server.plugins.uuidParam
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
@@ -49,6 +51,11 @@ fun Route.authRoutes(ctx: AppContext) {
             }
             post("/password") {
                 call.respond(ctx.auth.changePassword(call.user, call.receive<ChangePasswordRequest>()))
+            }
+            get("/sessions") { call.respond(ctx.auth.sessions(call.user)) }
+            delete("/sessions/{id}") {
+                ctx.auth.revokeSession(call.user, call.uuidParam("id"))
+                call.respond(HttpStatusCode.NoContent)
             }
         }
     }

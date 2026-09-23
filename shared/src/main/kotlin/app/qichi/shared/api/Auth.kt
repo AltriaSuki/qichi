@@ -27,6 +27,16 @@ data class LoginRequest(
 @Serializable
 data class RefreshRequest(val refreshToken: String)
 
+/** 一次登录（= 一台设备）。[current] 表示就是发出这次请求的设备。 */
+@Serializable
+data class LoginSession(
+    val id: Id,
+    val deviceName: String?,
+    val createdAt: Timestamp,
+    val lastUsedAt: Timestamp,
+    val current: Boolean,
+)
+
 @Serializable
 data class ChangePasswordRequest(
     val currentPassword: String,

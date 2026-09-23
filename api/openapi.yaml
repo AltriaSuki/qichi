@@ -209,6 +209,31 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /me/sessions:
+    get:
+      tags: [me]
+      operationId: listSessions
+      summary: 我的有效登录（每次登录 = 一台设备），最近用过的在前
+      responses:
+        '200':
+          description: 登录
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/LoginSession' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me/sessions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [me]
+      operationId: revokeSession
+      summary: 让这台设备退出登录（可以是当前设备，等于登出）
+      responses:
+        '204': { description: 已退出 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /me/password:
     post:
       tags: [me]
@@ -2432,6 +2457,15 @@ components:
       required: [refreshToken]
       properties:
         refreshToken: { type: string }
+    LoginSession:
+      type: object
+      required: [id, deviceName, createdAt, lastUsedAt, current]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        deviceName: { type: [string, 'null'] }
+        createdAt: { $ref: '#/components/schemas/Instant' }
+        lastUsedAt: { $ref: '#/components/schemas/Instant' }
+        current: { type: boolean, description: 就是发出这次请求的设备 }
     ChangePasswordRequest:
       type: object
       required: [currentPassword, newPassword]

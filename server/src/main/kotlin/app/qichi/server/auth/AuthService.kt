@@ -11,6 +11,7 @@ import app.qichi.server.plugins.validate
 import app.qichi.server.rooms.RoomService
 import app.qichi.shared.api.AuthTokens
 import app.qichi.shared.api.ChangePasswordRequest
+import app.qichi.shared.api.LoginSession
 import app.qichi.shared.api.LoginRequest
 import app.qichi.shared.api.RegisterRequest
 import app.qichi.shared.model.ProblemCode
@@ -30,6 +31,7 @@ import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
 import java.time.Clock
+import app.qichi.server.plugins.notFound
 import java.util.UUID
 
 /** 已登录的调用者：用户 + 这次登录（family）。 */
@@ -207,6 +209,33 @@ class AuthService(
             }
             newSession(principal.userId, principal.familyId, deviceName)
         }
+    }
+
+    /** 「安全」页：我的有效登录（每次登录一行），最近用过的在前。 */
+    suspend fun sessions(principal: UserPrincipal): List<LoginSession> = db.tx(readOnly = true) {
+        val now = clock.instant()
+        val rows = RefreshTokens.selectAll().where { RefreshTokens.userId eq principal.userId }.toList()
+        rows.groupBy { it[RefreshTokens.familyId] }
+            .filterValues { tokens -> tokens.any { it[RefreshTokens.revokedAt] == null && it[RefreshTokens.expiresAt] > now } }
+            .map { (family, tokens) ->
+                LoginSession(
+                    id = family,
+                    deviceName = tokens.firstNotNullOfOrNull { it[RefreshTokens.deviceName] },
+                    createdAt = tokens.minOf { it[RefreshTokens.createdAt] },
+                    lastUsedAt = tokens.maxOf { it[RefreshTokens.lastUsedAt] ?: it[RefreshTokens.createdAt] },
+                    current = family == principal.familyId,
+                )
+            }
+            .sortedByDescending { it.lastUsedAt }
+    }
+
+    /** 让某台设备退出登录（可以是自己这台，等于登出）；不是自己的登录一律 404。 */
+    suspend fun revokeSession(principal: UserPrincipal, familyId: UUID) = db.tx {
+        val mine = RefreshTokens.select(RefreshTokens.id).where {
+            (RefreshTokens.familyId eq familyId) and (RefreshTokens.userId eq principal.userId) and RefreshTokens.revokedAt.isNull()
+        }.limit(1).any()
+        if (!mine) notFound()
+        revokeFamily(familyId)
     }
 
     /** 访问令牌所属的登录是否仍然有效（登出、改密码、重复使用检测后立即失效）。 */
