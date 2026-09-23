@@ -47,6 +47,8 @@ import app.qichi.feature.me.ProfileScreen
 import app.qichi.feature.me.RoomSettingsScreen
 import app.qichi.feature.me.TrashScreen
 import app.qichi.feature.mood.MoodScreen
+import app.qichi.feature.plan.PlanDetailScreen
+import app.qichi.feature.plan.PlanListScreen
 import app.qichi.feature.qna.QnaScreen
 import app.qichi.feature.room.MembersScreen
 import app.qichi.feature.today.TodayScreen
@@ -136,6 +138,14 @@ fun QichiApp(
                                 onDayClick = { date -> navigator.navController.navigate(CalendarDay(date.toString())) },
                                 onEventsClick = { navigator.navController.navigate(EventList) },
                             )
+                            Page.Plan -> {
+                                val planId = route.id?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
+                                if (planId == null) {
+                                    PlanListScreen(roomId = roomId, onBack = navigator::back, onOpen = { navigator.open(Page.Plan, it.toString()) })
+                                } else {
+                                    PlanDetailScreen(roomId = roomId, planId = planId, onBack = navigator::back)
+                                }
+                            }
                             else -> PagePlaceholder(route.page.title, onBack = navigator::back)
                         }
                     }

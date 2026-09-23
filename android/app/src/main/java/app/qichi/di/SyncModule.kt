@@ -137,7 +137,8 @@ object SyncModule {
 
     @Provides
     @Singleton
-    fun planRepository(db: QichiDatabase): PlanRepository = PlanRepository(db)
+    fun planRepository(db: QichiDatabase, store: LocalStore, scheduler: SyncScheduler, session: SessionManager): PlanRepository =
+        PlanRepository(db, store, scheduler, session)
 
     @Provides
     @Singleton

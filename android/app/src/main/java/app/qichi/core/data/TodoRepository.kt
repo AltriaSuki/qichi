@@ -56,19 +56,20 @@ class TodoRepository(
         dueAt: Instant? = null,
         recurrence: String? = null,
         note: String? = null,
+        planId: UUID? = null,
     ): Todo {
         val now = clock.instant()
         val todo = Todo(
             id = UuidV7.generate(), roomId = roomId, seq = 0, createdAt = now, updatedAt = now, deletedAt = null, deletedBy = null,
             title = title.trim(), note = note?.trim()?.takeIf { it.isNotEmpty() }, createdBy = me, assigneeId = assigneeId,
             parentId = parentId, dueDate = dueDate, dueAt = dueAt, recurrence = recurrence, recurrencePrevId = null,
-            doneAt = null, doneBy = null, planId = null,
+            doneAt = null, doneBy = null, planId = planId,
         )
         store.writeLocal(
             roomId, todo,
             OutboxOp.post(
                 "rooms/$roomId/todos",
-                CreateTodoRequest(todo.id, todo.title, todo.note, assigneeId, parentId, dueDate, dueAt, recurrence),
+                CreateTodoRequest(todo.id, todo.title, todo.note, assigneeId, parentId, dueDate, dueAt, recurrence, planId),
             ),
         )
         scheduler.kickOutbox()
@@ -84,6 +85,7 @@ class TodoRepository(
         (change.dueDate as? Patch.Value)?.let { updated = updated.copy(dueDate = it.value) }
         (change.dueAt as? Patch.Value)?.let { updated = updated.copy(dueAt = it.value) }
         (change.recurrence as? Patch.Value)?.let { updated = updated.copy(recurrence = it.value) }
+        (change.planId as? Patch.Value)?.let { updated = updated.copy(planId = it.value) }
         store.writeLocal(todo.roomId, updated, OutboxOp.patch("rooms/${todo.roomId}/todos/${todo.id}", change))
         scheduler.kickOutbox()
     }

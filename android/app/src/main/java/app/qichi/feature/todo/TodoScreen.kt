@@ -125,6 +125,7 @@ fun TodoScreen(
             group = group,
             people = state.people,
             today = state.today,
+            plans = state.plans,
             initial = group?.let { TodoForm.of(it.todo.value, state.people, state.zone) } ?: TodoForm(),
             onDismiss = { editing = null },
             onSave = { form ->
@@ -144,6 +145,7 @@ private fun TodoEditor(
     group: TodoGroup?,
     people: People,
     today: LocalDate,
+    plans: List<app.qichi.shared.api.Plan>,
     initial: TodoForm,
     onDismiss: () -> Unit,
     onSave: (TodoForm) -> Unit,
@@ -206,6 +208,18 @@ private fun TodoEditor(
                             ChoicePill(r.label, form.repeat == r, {
                                 form = form.copy(repeat = r, dueDate = if (r != Repeat.None && form.dueDate == null) today else form.dueDate)
                             }, Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+            // 子任务跟着父待办，不单独挂计划；没有计划时不显示
+            if (group?.todo?.value?.parentId == null && (plans.isNotEmpty() || form.planId != null)) {
+                Column {
+                    SectionLabel("计划")
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        ChoicePill("不属于", form.planId == null, { form = form.copy(planId = null) })
+                        plans.forEach { plan ->
+                            ChoicePill(plan.title, form.planId == plan.id, { form = form.copy(planId = plan.id) })
                         }
                     }
                 }

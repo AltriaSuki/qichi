@@ -4,14 +4,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.data.People
+import app.qichi.core.data.PlanRepository
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.data.TodoRepository
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.todayIn
 import app.qichi.core.ui.zoneOf
 import app.qichi.shared.api.Patch
+import app.qichi.shared.api.Plan
 import app.qichi.shared.api.Todo
 import app.qichi.shared.api.UpdateTodoRequest
+import app.qichi.shared.model.PlanStatus
 import app.qichi.shared.rules.Recurrence
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
@@ -36,6 +39,8 @@ data class TodoForm(
     val assignee: Assignee = Assignee.Both,
     val dueDate: LocalDate? = null,
     val repeat: Repeat = Repeat.None,
+    /** 属于哪个计划；空 = 不属于 */
+    val planId: UUID? = null,
 ) {
     val canSave: Boolean get() = title.trim().isNotEmpty()
 
@@ -65,6 +70,7 @@ data class TodoForm(
                 Recurrence.Freq.MONTHLY -> Repeat.Monthly
                 null -> Repeat.None
             },
+            planId = todo.planId,
         )
     }
 }
@@ -78,6 +84,8 @@ data class TodoUiState(
     val today: LocalDate = LocalDate.now(),
     val open: List<TodoGroup> = emptyList(),
     val done: List<TodoGroup> = emptyList(),
+    /** 可以挂靠的计划（进行中的） */
+    val plans: List<Plan> = emptyList(),
 ) {
     fun find(id: UUID): TodoGroup? = (open + done).firstOrNull { it.todo.value.id == id }
 }
@@ -87,6 +95,7 @@ class TodoViewModel @AssistedInject constructor(
     @Assisted private val roomId: UUID,
     private val todos: TodoRepository,
     rooms: RoomRepository,
+    plans: PlanRepository,
     session: SessionManager,
 ) : ViewModel() {
 
@@ -94,7 +103,8 @@ class TodoViewModel @AssistedInject constructor(
         rooms.observeRoom(roomId),
         rooms.observeMembers(roomId),
         todos.observeTodos(roomId),
-    ) { room, members, all ->
+        plans.observePlans(roomId),
+    ) { room, members, all, allPlans ->
         val people = People(room, members, session.currentUserId)
         val zone = zoneOf(room?.timezone)
         val today = todayIn(zone)
@@ -113,6 +123,7 @@ class TodoViewModel @AssistedInject constructor(
             done = groups.filter { it.todo.value.doneAt != null }
                 .sortedByDescending { it.todo.value.doneAt }
                 .take(30),
+            plans = allPlans.map { it.value }.filter { it.status != PlanStatus.Done }.sortedBy { it.createdAt },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TodoUiState())
 
@@ -131,6 +142,7 @@ class TodoViewModel @AssistedInject constructor(
             dueDate = due,
             recurrence = fixed.recurrence(),
             note = fixed.note,
+            planId = fixed.planId,
         )
     }
 
@@ -147,6 +159,7 @@ class TodoViewModel @AssistedInject constructor(
             dueDate = if (due != before.dueDate || todo.dueAt != null) Patch.of(due) else Patch.Absent,
             dueAt = if (todo.dueAt != null && due != before.dueDate) Patch.of(null) else Patch.Absent,
             recurrence = if (fixed.recurrence() != todo.recurrence) Patch.of(fixed.recurrence()) else Patch.Absent,
+            planId = if (fixed.planId != todo.planId) Patch.of(fixed.planId) else Patch.Absent,
         )
         if (change != UpdateTodoRequest()) todos.update(todo, change)
     }
