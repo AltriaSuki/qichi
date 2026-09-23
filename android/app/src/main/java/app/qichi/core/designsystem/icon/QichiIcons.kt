@@ -41,6 +41,8 @@ object QichiIcons {
     val Focus: ImageVector by lazy { stroke("focus", "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5") }
     /** 字号与行距 */
     val TextSize: ImageVector by lazy { stroke("text-size", "M3 19l5-13 5 13M5 14.5h6M14 19l3.5-8 3.5 8M15.2 16.5h4.6") }
+    /** 书签 */
+    val Bookmark: ImageVector by lazy { stroke("bookmark", "M7 4h10v16l-5-4-5 4z") }
     /** 大纲 */
     val Outline: ImageVector by lazy { stroke("outline", "M4 6h16M8 12h12M8 18h12M4 12h.01M4 18h.01") }
 
