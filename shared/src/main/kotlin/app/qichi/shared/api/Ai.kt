@@ -2,6 +2,7 @@ package app.qichi.shared.api
 
 import app.qichi.shared.model.AiJobKind
 import app.qichi.shared.model.AiJobStatus
+import app.qichi.shared.model.ReadExplainMode
 import kotlinx.serialization.Serializable
 
 /** 问 AI（聊天里）：[jobId] 由客户端生成；回答会成为一条 id 等于 jobId 的 AI 消息。 */
@@ -9,6 +10,21 @@ import kotlinx.serialization.Serializable
 data class AiChatRequest(
     val jobId: Id,
     val prompt: String,
+)
+
+/**
+ * 阅读里选中一段请 AI 解释或对比。[before]、[after] 是选中文字前后的一点上下文。
+ * 结果写成一条 kind = ai 的标记（id = jobId，只有自己看得到，可以再设为共同可见）。
+ */
+@Serializable
+data class AiReadExplainRequest(
+    val jobId: Id,
+    val bookId: Id,
+    val mode: ReadExplainMode,
+    val text: String,
+    val locator: String,
+    val before: String = "",
+    val after: String = "",
 )
 
 /** AI 请求被接受（202）：结果稍后写进对应实体，并通过 WebSocket 发 ai.done。 */

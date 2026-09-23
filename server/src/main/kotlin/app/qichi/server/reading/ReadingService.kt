@@ -193,6 +193,7 @@ class ReadingService(
             check(req.locator.length in 1..Limits.LOCATOR_MAX, "locator", "定位信息不对")
             check(req.text.length <= Limits.HIGHLIGHT_TEXT_MAX, "text", "选中的文字太长了")
             check(req.kind == HighlightKind.Bookmark || req.text.isNotBlank(), "text", "标注和摘录要有选中的文字")
+            check(req.kind != HighlightKind.Ai, "kind", "AI 的解释由服务端写入")
         }
         return db.tx {
             rooms.requireMember(roomId, userId)

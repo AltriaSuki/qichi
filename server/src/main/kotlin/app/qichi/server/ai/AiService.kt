@@ -1,5 +1,12 @@
 package app.qichi.server.ai
 
+import app.qichi.server.db.Books
+import app.qichi.server.db.Highlights
+import app.qichi.server.reading.toHighlight
+import app.qichi.server.reading.visibleTo
+import app.qichi.shared.api.AiReadExplainRequest
+import app.qichi.shared.model.HighlightKind
+import app.qichi.shared.model.ReadExplainMode
 import app.qichi.server.config.AiConfig
 import app.qichi.server.db.AiJobs
 import app.qichi.server.db.Messages
@@ -81,6 +88,7 @@ class AiService(
     init {
         queue.register(JOB_CHAT) { job -> answerInChat(job) }
         queue.register(JOB_QUESTION) { job -> suggestQuestion(job) }
+        queue.register(JOB_READ) { job -> explainReading(job) }
     }
 
     /** 问 AI（聊天里）。同一 jobId 再次请求：失败的重新排队，其余返回当前状态。 */
@@ -165,6 +173,136 @@ class AiService(
             queue.enqueue(this, JOB_QUESTION, buildJsonObject { put("aiJobId", req.jobId.toString()) }, maxAttempts = CHAT_ATTEMPTS)
             AiJobAccepted(req.jobId, AiJobStatus.Queued)
         }
+    }
+
+    /** 阅读里选中一段请 AI 解释或对比（P6-05）。同一 jobId 再次请求：失败的重新排队，其余返回当前状态。 */
+    suspend fun readExplain(userId: UUID, roomId: UUID, req: AiReadExplainRequest): AiJobAccepted {
+        val text = req.text.trim()
+        validate {
+            check(text.length in 1..READ_TEXT_MAX, "text", "选中的文字 1–$READ_TEXT_MAX 字")
+            check(req.locator.length in 1..Limits.LOCATOR_MAX, "locator", "定位信息不对")
+            check(req.before.length <= READ_CONTEXT_MAX && req.after.length <= READ_CONTEXT_MAX, "before", "上下文太长")
+        }
+        return db.tx {
+            rooms.requireMember(roomId, userId)
+            if (gateway == null) throw unavailable()
+            RoomRepository.lockRoom(roomId)
+            val bookOk = Books.select(Books.id).where { (Books.id eq req.bookId) and (Books.roomId eq roomId) and Books.deletedAt.isNull() }.any()
+            if (!bookOk) notFound()
+            val existing = AiJobs.selectAll().where { AiJobs.id eq req.jobId }.singleOrNull()
+            if (existing != null) {
+                if (existing[AiJobs.roomId] != roomId || existing[AiJobs.requestedBy] != userId || existing[AiJobs.kind] != AiJobKind.ReadExplain.wireName) {
+                    throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
+                }
+                val status = fromWire<AiJobStatus>(existing[AiJobs.status])
+                if (status != AiJobStatus.Failed) return@tx AiJobAccepted(req.jobId, status)
+                checkQuota()
+                AiJobs.update({ AiJobs.id eq req.jobId }) {
+                    it[AiJobs.status] = AiJobStatus.Queued.wireName
+                    it[error] = null
+                    it[finishedAt] = null
+                    it[updatedAt] = clock.instant()
+                }
+            } else {
+                checkQuota()
+                val now = clock.instant()
+                AiJobs.insert {
+                    it[id] = req.jobId
+                    it[AiJobs.roomId] = roomId
+                    it[requestedBy] = userId
+                    it[kind] = AiJobKind.ReadExplain.wireName
+                    it[status] = AiJobStatus.Queued.wireName
+                    it[request] = buildJsonObject {
+                        put("bookId", req.bookId.toString())
+                        put("mode", req.mode.wireName)
+                        put("text", text)
+                        put("locator", req.locator)
+                        put("before", req.before)
+                        put("after", req.after)
+                    }
+                    it[inputTokens] = 0
+                    it[outputTokens] = 0
+                    it[createdAt] = now
+                    it[updatedAt] = now
+                }
+            }
+            queue.enqueue(this, JOB_READ, buildJsonObject { put("aiJobId", req.jobId.toString()) }, maxAttempts = CHAT_ATTEMPTS)
+            AiJobAccepted(req.jobId, AiJobStatus.Queued)
+        }
+    }
+
+    private suspend fun explainReading(job: QueuedJob) {
+        val jobId = UUID.fromString(job.payload["aiJobId"]!!.jsonPrimitive.content)
+        val row = db.tx { AiJobs.selectAll().where { AiJobs.id eq jobId }.singleOrNull() } ?: return
+        if (row[AiJobs.status] == AiJobStatus.Done.wireName) return
+        val roomId = row[AiJobs.roomId]
+        val askerId = row[AiJobs.requestedBy] ?: return
+        val req = row[AiJobs.request]
+        fun field(name: String) = req[name]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val bookId = UUID.fromString(field("bookId"))
+        val mode = fromWire<ReadExplainMode>(field("mode"))
+        markRunning(jobId)
+        val gateway = gateway ?: return fail(jobId, roomId, "AI 服务没有开启")
+
+        val (book, notes) = db.tx(readOnly = true) {
+            val b = Books.select(Books.title, Books.author).where { Books.id eq bookId }.singleOrNull()
+            val names = RoomRepository.activeMembers(roomId).associate { it.userId to it.displayName }
+            // 对比时只用提问的人看得到的：自己的全部，加上对方共享的
+            val list = Highlights.selectAll().where { (Highlights.bookId eq bookId) and Highlights.deletedAt.isNull() }
+                .map { it.toHighlight() }
+                .filter { it.visibleTo(askerId) && (it.kind == HighlightKind.Highlight || it.kind == HighlightKind.Excerpt) }
+                .sortedBy { it.createdAt }.takeLast(COMPARE_NOTES)
+                .joinToString("\n") { h -> "${names[h.userId] ?: "其中一人"}：${h.text.take(CONTEXT_LINE_MAX)}" + (h.note?.let { " —— ${it.take(CONTEXT_LINE_MAX)}" } ?: "") }
+            b to list
+        }
+        if (book == null) return fail(jobId, roomId, "书已经不在书架上了")
+        val rendered = prompts.render(
+            if (mode == ReadExplainMode.Compare) "read_compare" else "read_explain",
+            mapOf(
+                "title" to book[Books.title],
+                "author" to (book[Books.author]?.let { "（$it）" } ?: ""),
+                "text" to field("text"),
+                "before" to field("before").ifEmpty { "（无）" },
+                "after" to field("after").ifEmpty { "（无）" },
+                "notes" to notes.ifEmpty { "（还没有标注和摘录）" },
+            ),
+        )
+        val result = try {
+            gateway.complete(AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)), maxTokens = CHAT_MAX_TOKENS))
+        } catch (e: AiProviderException) {
+            log.warn("阅读 AI 失败（第 {} 次）：{}", job.attempts, e.message)
+            if (e.retryable && !job.isLastAttempt) throw e
+            return fail(jobId, roomId, "没有得到回答")
+        }
+        db.tx {
+            val now = clock.instant()
+            val seq = writer.change(this, roomId, EntityType.Highlight, jobId, askerId, now)
+            Highlights.insert {
+                it[id] = jobId
+                it[Highlights.roomId] = roomId
+                it[Highlights.seq] = seq
+                it[createdAt] = now
+                it[updatedAt] = now
+                it[Highlights.bookId] = bookId
+                it[userId] = askerId
+                it[kind] = HighlightKind.Ai.wireName
+                it[locator] = field("locator")
+                it[text] = field("text").take(Limits.HIGHLIGHT_TEXT_MAX)
+                it[note] = result.text.trim().take(Limits.HIGHLIGHT_NOTE_MAX)
+                it[shared] = false
+            }
+            AiJobs.update({ AiJobs.id eq jobId }) {
+                it[status] = AiJobStatus.Done.wireName
+                it[model] = result.model
+                it[inputTokens] = result.inputTokens
+                it[outputTokens] = result.outputTokens
+                it[resultRef] = "highlight:$jobId"
+                it[error] = null
+                it[finishedAt] = now
+                it[updatedAt] = now
+            }
+        }
+        realtime.aiDone(roomId, jobId, AiJobStatus.Done.wireName)
     }
 
     private suspend fun suggestQuestion(job: QueuedJob) {
@@ -374,6 +512,10 @@ class AiService(
     companion object {
         const val JOB_CHAT = "ai.chat"
         const val JOB_QUESTION = "ai.question_suggest"
+        const val JOB_READ = "ai.read_explain"
+        private const val READ_TEXT_MAX = 2000
+        private const val READ_CONTEXT_MAX = 500
+        private const val COMPARE_NOTES = 20
         const val PROMPT_MAX = 2000
         private const val CHAT_ATTEMPTS = 2
         private const val CHAT_MAX_TOKENS = 800

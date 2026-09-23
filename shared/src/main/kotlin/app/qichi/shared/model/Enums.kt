@@ -63,12 +63,20 @@ enum class MoodLabel {
     @SerialName("hurt") Hurt,
 }
 
-/** 书里的标记：标注（划线）、书签、摘录。 */
+/** 书里的标记：标注（划线）、书签、摘录，以及 AI 对一段文字的解释或对比（由服务端写入，note 是 AI 的回答）。 */
 @Serializable
 enum class HighlightKind {
     @SerialName("highlight") Highlight,
     @SerialName("bookmark") Bookmark,
     @SerialName("excerpt") Excerpt,
+    @SerialName("ai") Ai,
+}
+
+/** 阅读里请 AI 做什么：解释这段，或和两个人在这本书里的标注、摘录对照着看。 */
+@Serializable
+enum class ReadExplainMode {
+    @SerialName("explain") Explain,
+    @SerialName("compare") Compare,
 }
 
 /** 时间线上的事：决定、灵感、计划完成、照片。 */

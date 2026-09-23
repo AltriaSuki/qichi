@@ -206,7 +206,7 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | PATCH · DELETE | `/rooms/{roomId}/books/{id}` | 改书名、作者、共读计划 / 拿下书架（进回收站） |
 | PUT | `/rooms/{roomId}/books/{bookId}/progress` | 我的进度（每人每本一条） |
 | POST · PATCH · DELETE | `/rooms/{roomId}/books/{bookId}/highlights[/{id}]` | 书签、摘录、标注、感想（只能改删自己的；对方没共享的不会同步给你） |
-| POST | `/rooms/{roomId}/ai/read-explain` | 选中段落请 AI 解释或对比 → 202 |
+| POST | `/rooms/{roomId}/ai/read-explain` | 选中段落请 AI 解释（`mode = explain`）或和两人在这本书里的标注、摘录对照（`compare`）→ 202；结果是一条 `kind = ai` 的标记，只有自己看得到 |
 | GET · POST | `/rooms/{roomId}/summaries` | 总结列表 / 生成（→ 202）；年度回顾由服务端定时生成 |
 
 ### 审稿（P7）

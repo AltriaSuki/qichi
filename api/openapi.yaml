@@ -1303,6 +1303,29 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /rooms/{roomId}/ai/read-explain:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [ai, reading]
+      operationId: aiReadExplain
+      summary: 选中一段请 AI 解释或对比 → 202
+      description: 结果写成一条 kind = ai 的标记（id = jobId，只有自己看得到），完成后发 ai.done。
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AiReadExplainRequest' } } }
+      responses:
+        '202':
+          description: 已接受
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiJobAccepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/AiQuotaExceeded' }
+        '503': { $ref: '#/components/responses/AiUnavailable' }
+
   /rooms/{roomId}/books:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -2898,7 +2921,22 @@ components:
         body: { type: string, minLength: 1, maxLength: 2000 }
     HighlightKind:
       type: string
-      enum: [highlight, bookmark, excerpt]
+      description: ai 由服务端写入（阅读里的 AI 解释 / 对比），客户端不能直接创建
+      enum: [highlight, bookmark, excerpt, ai]
+    ReadExplainMode:
+      type: string
+      enum: [explain, compare]
+    AiReadExplainRequest:
+      type: object
+      required: [jobId, bookId, mode, text, locator]
+      properties:
+        jobId: { $ref: '#/components/schemas/Uuid' }
+        bookId: { $ref: '#/components/schemas/Uuid' }
+        mode: { $ref: '#/components/schemas/ReadExplainMode' }
+        text: { type: string, minLength: 1, maxLength: 2000 }
+        locator: { type: string, maxLength: 8000 }
+        before: { type: string, maxLength: 500 }
+        after: { type: string, maxLength: 500 }
     Book:
       description: 同步实体类型 `book`（P6）；正文不进同步，按需下载
       allOf:
