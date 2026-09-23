@@ -6,7 +6,7 @@
 
 | 项 | 要求 |
 |---|---|
-| VPS | 1 核 2GB 内存、20GB 硬盘即可起步；第 7 阶段的审稿要跑文档转换，届时建议 4GB |
+| VPS | 建议 2 核 4GB 内存、20GB 硬盘（审稿的文档转换容器最多占 1GB）；只有 2GB 内存也能跑，转换大文件时会慢 |
 | 系统 | Ubuntu 22.04 / 24.04 或 Debian 12 |
 | 域名 | 一个你能改解析的域名，例如 `qichi.你的域名.com` |
 | SSH | 能用密钥登录 VPS |
@@ -139,10 +139,18 @@ docker compose start server
 
 检查：`curl -d hi https://push.qichi1.duckdns.org/test` 后，在 ntfy App 里订阅 `test` 能收到。
 
-## 10. 日常检查
+## 10. 审稿的文档转换
+
+`docker-compose.yml` 里的 `converter`（Gotenberg，内含 LibreOffice）负责把 Word、Excel、PowerPoint、OpenDocument、RTF、纯文本、CSV 转成 PDF，服务端再按页生成预览图和文字层。PDF 不经过它。
+
+- 它只在内部网络里，不对外开放端口，也没有配置项要填
+- 转换失败时，审稿页上会显示原因（例如「文件设了密码」「超过 300 页」）；可以让对方另存为 PDF 再传
+- 查看：`docker compose logs --since 1h converter`
+
+## 11. 日常检查
 
 ```bash
-docker compose ps                    # 四个服务（caddy、server、db、ntfy）都应是 running
+docker compose ps                    # 五个服务（caddy、server、db、ntfy、converter）都应是 running
 docker compose logs --since 1h server
 df -h                                # 磁盘空间
 ls -lh /var/backups/qichi | tail     # 最近的备份

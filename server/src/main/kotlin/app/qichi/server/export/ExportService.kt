@@ -27,6 +27,15 @@ import app.qichi.server.db.Questions
 import app.qichi.server.db.ReadingProgressTable
 import app.qichi.server.db.Rooms
 import app.qichi.server.db.Summaries
+import app.qichi.server.db.AnnotationReplies
+import app.qichi.server.db.Annotations
+import app.qichi.server.db.ReviewDocuments
+import app.qichi.server.db.ReviewVersions
+import app.qichi.server.review.reviewVersionQuery
+import app.qichi.server.review.toAnnotation
+import app.qichi.server.review.toAnnotationReply
+import app.qichi.server.review.toReviewDocument
+import app.qichi.server.review.toReviewVersion
 import app.qichi.server.db.Todos
 import app.qichi.server.db.tx
 import app.qichi.server.decisions.toDecision
@@ -117,6 +126,12 @@ class ExportService(
             }
 
             fun <T> enc(list: List<T>, serializer: kotlinx.serialization.KSerializer<T>) = QichiJson.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(serializer), list)
+            // 审稿：不含回收站里的审稿文件和它下面的一切
+            val reviewDocs = ReviewDocuments.selectAll().where { (ReviewDocuments.roomId eq roomId) and ReviewDocuments.deletedAt.isNull() }.map { it.toReviewDocument() }
+            val liveDocs = reviewDocs.map { it.id }.toSet()
+            val reviewVersions = reviewVersionQuery().where { ReviewVersions.roomId eq roomId }.map { it.toReviewVersion() }.filter { it.documentId in liveDocs }
+            val annotations = Annotations.selectAll().where { (Annotations.roomId eq roomId) and Annotations.deletedAt.isNull() }
+                .map { it.toAnnotation() }.filter { it.documentId in liveDocs }
             val json = buildJsonObject {
                 put("format", "qichi-export-1")
                 put("exportedAt", clock.instant().toString())
@@ -146,6 +161,11 @@ class ExportService(
                 put("highlights", QichiJson.encodeToJsonElement(Highlights.selectAll().where { (Highlights.roomId eq roomId) and Highlights.deletedAt.isNull() }
                     .map { it.toHighlight() }.filter { it.visibleTo(userId) }))
                 put("summaries", QichiJson.encodeToJsonElement(Summaries.selectAll().where { (Summaries.roomId eq roomId) and Summaries.deletedAt.isNull() }.map { it.toSummary() }))
+                put("reviewDocuments", QichiJson.encodeToJsonElement(reviewDocs))
+                put("reviewVersions", QichiJson.encodeToJsonElement(reviewVersions))
+                put("annotations", QichiJson.encodeToJsonElement(annotations))
+                put("annotationReplies", QichiJson.encodeToJsonElement(AnnotationReplies.selectAll().where { (AnnotationReplies.roomId eq roomId) and AnnotationReplies.deletedAt.isNull() }
+                    .map { it.toAnnotationReply() }.filter { it.annotationId in annotations.map { a -> a.id }.toSet() }))
             }
 
             val chat = buildString {
@@ -177,7 +197,8 @@ class ExportService(
             val docs = documents.filter { it.id in latestBodies }.map { unique(it.title, ".md") to latestBodies[it.id]!! }
 
             val files = if (!includeFiles) emptyList() else {
-                val ids = messages.mapNotNull { it.file?.id }.distinct()
+                // 聊天里的附件，加上审稿各版本的原文件
+                val ids = (messages.mapNotNull { it.file?.id } + reviewVersions.map { it.fileId }).distinct()
                 if (ids.isEmpty()) emptyList() else Files.select(Files.id, Files.fileName, Files.storagePath).where { Files.id inList ids }
                     .map { unique(it[Files.id].toString().take(8) + "-" + it[Files.fileName].substringBeforeLast('.'), "." + it[Files.fileName].substringAfterLast('.', "bin")) to it[Files.storagePath] }
             }
@@ -210,10 +231,10 @@ class ExportService(
         const val README = """
             栖迟 · 房间数据导出
 
-            data.json      全部内容（聊天、心情、待办、日程、问答、计划、灵感、文稿、留言、档案、决定、阅读、总结），机器可读
+            data.json      全部内容（聊天、心情、待办、日程、问答、计划、灵感、文稿、留言、档案、决定、阅读、总结、审稿批注），机器可读
             聊天记录.md    按时间排好的聊天记录
             文稿/          每篇文稿的最新版本（Markdown）
-            附件/          聊天里的照片和文件（导出时选了才有）
+            附件/          聊天里的照片和文件、审稿各版本的原文件（导出时选了才有）
 
             不包含：撤回的内容、回收站里的内容、对方没有共享的书中标注、对方还没揭晓的问答回答。
         """

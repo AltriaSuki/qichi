@@ -22,6 +22,15 @@ import app.qichi.server.db.ArchiveItems
 import app.qichi.server.db.Decisions
 import app.qichi.server.db.Books
 import app.qichi.server.db.Summaries
+import app.qichi.server.db.AnnotationReplies
+import app.qichi.server.db.Annotations
+import app.qichi.server.db.ReviewDocuments
+import app.qichi.server.db.ReviewVersions
+import app.qichi.server.review.reviewVersionQuery
+import app.qichi.server.review.toAnnotation
+import app.qichi.server.review.toAnnotationReply
+import app.qichi.server.review.toReviewDocument
+import app.qichi.server.review.toReviewVersion
 import app.qichi.server.db.Highlights
 import app.qichi.server.db.ReadingProgressTable
 import app.qichi.server.db.Plans
@@ -126,6 +135,10 @@ class SyncService(private val db: QichiDatabase) {
                 readingProgress = ReadingProgressTable.selectAll().where { ReadingProgressTable.roomId eq roomId }.map { it.toReadingProgress() },
                 highlights = Highlights.selectAll().where { Highlights.roomId eq roomId }.map { it.toHighlight() }.filter { it.visibleTo(userId) },
                 summaries = Summaries.selectAll().where { Summaries.roomId eq roomId }.map { it.toSummary() },
+                reviewDocuments = ReviewDocuments.selectAll().where { ReviewDocuments.roomId eq roomId }.map { it.toReviewDocument() },
+                reviewVersions = reviewVersionQuery().where { ReviewVersions.roomId eq roomId }.map { it.toReviewVersion() },
+                annotations = Annotations.selectAll().where { Annotations.roomId eq roomId }.map { it.toAnnotation() },
+                annotationReplies = AnnotationReplies.selectAll().where { AnnotationReplies.roomId eq roomId }.map { it.toAnnotationReply() },
             )
         }
 
@@ -204,6 +217,10 @@ class SyncService(private val db: QichiDatabase) {
                 EntityType.PlanStage -> PlanStages.selectAll().where { PlanStages.id inList ids }.map { it.toPlanStage() }
                 EntityType.Milestone -> Milestones.selectAll().where { Milestones.id inList ids }.map { it.toMilestone() }
                 EntityType.PlanLog -> PlanLogs.selectAll().where { PlanLogs.id inList ids }.map { it.toPlanLog() }
+                EntityType.ReviewDocument -> ReviewDocuments.selectAll().where { ReviewDocuments.id inList ids }.map { it.toReviewDocument() }
+                EntityType.ReviewVersion -> reviewVersionQuery().where { ReviewVersions.id inList ids }.map { it.toReviewVersion() }
+                EntityType.Annotation -> Annotations.selectAll().where { Annotations.id inList ids }.map { it.toAnnotation() }
+                EntityType.AnnotationReply -> AnnotationReplies.selectAll().where { AnnotationReplies.id inList ids }.map { it.toAnnotationReply() }
             }
             loaded.forEach { result[type to it.id] = it }
         }

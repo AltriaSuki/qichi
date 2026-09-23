@@ -51,6 +51,12 @@ class EnumContractTest {
     @Test fun highlightKind() = assertMatches<HighlightKind>("HighlightKind")
     @Test fun readExplainMode() = assertMatches<ReadExplainMode>("ReadExplainMode")
     @Test fun summaryKind() = assertMatches<SummaryKind>("SummaryKind")
+    @Test fun reviewFormat() = assertMatches<ReviewFormat>("ReviewFormat")
+    @Test fun previewStatus() = assertMatches<PreviewStatus>("PreviewStatus")
+    @Test fun anchorKind() = assertMatches<AnchorKind>("AnchorKind")
+    @Test fun annotationKind() = assertMatches<AnnotationKind>("AnnotationKind")
+    @Test fun annotationStatus() = assertMatches<AnnotationStatus>("AnnotationStatus")
+    @Test fun diffKind() = assertMatches<app.qichi.shared.api.DiffKind>("DiffKind")
 
     @Test
     fun `JSON 序列化使用小写字符串`() {

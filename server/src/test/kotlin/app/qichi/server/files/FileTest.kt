@@ -133,7 +133,8 @@ class FileTest {
     fun `参数不对：缺文件、未知种类、非法 id；别人用过的 id 返回 409`() = serverTest { client ->
         val (aqi, xiaochi, roomId) = Api(client).pair()
         val bytes = png(20, 20)
-        aqi.upload(roomId, bytes, kind = "review").assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
+        // review 已经开放，但要是 PDF、Office 等文档
+        aqi.upload(roomId, bytes, kind = "review").assertProblem(HttpStatusCode.UnsupportedMediaType, ProblemCode.UnsupportedMediaType)
         // epub 已经开放，但内容必须真的是 EPUB
         aqi.upload(roomId, bytes, kind = "epub").assertProblem(HttpStatusCode.UnsupportedMediaType, ProblemCode.UnsupportedMediaType)
         aqi.upload(roomId, bytes, kind = "banana").assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)

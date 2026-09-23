@@ -61,7 +61,7 @@
 | 密码 | Argon2id | 当前推荐的密码哈希 |
 | 中文搜索 | `pg_trgm` 三元组索引 + `ILIKE` | 两个人的数据量很小，不需要分词插件 |
 | ICS | iCal4j | 日历导入、导出、订阅链接 |
-| 文档预览（审稿） | LibreOffice 无界面模式转 PDF，再按页渲染成图片 | 「安全预览」= 只给手机看渲染后的图片（第 6 阶段） |
+| 文档预览（审稿） | LibreOffice 无界面模式（Gotenberg 容器）转 PDF，再用 Apache PDFBox 按页渲染成图片、取文字坐标 | 「安全预览」= 只给手机看渲染后的图片和文字层，不在手机上打开原文件 |
 | 测试 | Ktor testApplication + Testcontainers（PostgreSQL） | 集成测试跑真实数据库 |
 
 ### 共用（`shared/`）
@@ -227,3 +227,4 @@ App 在前台时靠 WebSocket 实时收到变更，不需要推送。App 在后�
 | D8 | 推送 FCM / UnifiedPush 双实现 | 手机是否有谷歌服务尚未确定 |
 | D9 | 版本清单放在仓库根目录 `gradle/libs.versions.toml`，shared / server / android 共用（2026-09-21，人类同意） | 以源码方式互相引用的构建必须使用同一个 Kotlin 版本，否则容易编译失败 |
 | D10 | 推送只实现 UnifiedPush + 自建 ntfy，暂不实现 FCM（2026-09-23，人类确认两台手机要代理才能用 Google Play） | FCM 依赖谷歌服务，国内网络下不可靠；以后需要时再按 D8 补上 |
+| D11 | 审稿的文档转换用单独的 converter 容器（Gotenberg 镜像，内含 LibreOffice），服务端用 PDFBox 渲染（2026-09-23，人类同意单独容器） | LibreOffice 很大、解析不可信文件有风险，放在不对外的单独容器里；Gotenberg 提供现成的 HTTP 接口，不用自己包装 |

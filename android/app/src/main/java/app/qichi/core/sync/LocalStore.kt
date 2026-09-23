@@ -15,6 +15,10 @@ import app.qichi.shared.api.BoardPost
 import app.qichi.shared.api.Book
 import app.qichi.shared.api.Decision
 import app.qichi.shared.api.Summary
+import app.qichi.shared.api.Annotation
+import app.qichi.shared.api.AnnotationReply
+import app.qichi.shared.api.ReviewDocument
+import app.qichi.shared.api.ReviewVersion
 import app.qichi.shared.api.Highlight
 import app.qichi.shared.api.ReadingProgress
 import app.qichi.shared.api.BoardReaction
@@ -311,6 +315,10 @@ class LocalStore(
             is ReadingProgress -> EntityType.ReadingProgress
             is Highlight -> EntityType.Highlight
             is Summary -> EntityType.Summary
+            is ReviewDocument -> EntityType.ReviewDocument
+            is ReviewVersion -> EntityType.ReviewVersion
+            is Annotation -> EntityType.Annotation
+            is AnnotationReply -> EntityType.AnnotationReply
         }
 
         fun encode(type: EntityType, entity: SyncEntity): String =
@@ -379,6 +387,11 @@ class LocalStore(
                 is ReadingProgress -> base(entity.roomId, entity.deletedAt != null, entity.userId, entity.bookId, null, entity.updatedAt.toEpochMilli())
                 is Highlight -> base(entity.roomId, entity.deletedAt != null, entity.userId, entity.bookId, null, entity.createdAt.toEpochMilli())
                 is Summary -> base(entity.roomId, entity.deletedAt != null, entity.requestedBy, null, null, entity.createdAt.toEpochMilli())
+                // 审稿列表按最近更新排序；版本、批注挂在审稿文件下，讨论挂在批注下
+                is ReviewDocument -> base(entity.roomId, entity.deletedAt != null, entity.createdBy, null, null, entity.updatedAt.toEpochMilli())
+                is ReviewVersion -> base(entity.roomId, entity.deletedAt != null, entity.uploadedBy, entity.documentId, entity.version.toLong(), entity.createdAt.toEpochMilli())
+                is Annotation -> base(entity.roomId, entity.deletedAt != null, entity.authorId, entity.documentId, null, entity.createdAt.toEpochMilli())
+                is AnnotationReply -> base(entity.roomId, entity.deletedAt != null, entity.authorId, entity.annotationId, null, entity.createdAt.toEpochMilli())
             }
         }
     }

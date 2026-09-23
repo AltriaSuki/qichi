@@ -86,6 +86,10 @@ class SyncEngine(
                 addAll(snapshot.readingProgress)
                 addAll(snapshot.highlights)
                 addAll(snapshot.summaries)
+                addAll(snapshot.reviewDocuments)
+                addAll(snapshot.reviewVersions)
+                addAll(snapshot.annotations)
+                addAll(snapshot.annotationReplies)
                 addAll(snapshot.messages)
             }
             all.forEach { store.applyServer(it) }

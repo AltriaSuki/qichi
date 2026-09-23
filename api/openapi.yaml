@@ -60,6 +60,8 @@ tags:
     description: 共同写作：文稿与不可变版本（P5）
   - name: summaries
     description: 总结与年度回顾（AI 派生，带来源回链）（P6）
+  - name: reviews
+    description: 审稿：不可变版本、安全预览（按页图片 + 文字层）、批注与提议、讨论、版本差异（P7）
   - name: reading
     description: 阅读：书架、各自进度、书签 / 标注 / 摘录、共同可见的感想、共读计划（P6）
   - name: timeline
@@ -1548,6 +1550,177 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /rooms/{roomId}/reviews:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [reviews]
+      operationId: listReviews
+      summary: 审稿文件（最近更新的在前，不含已删除的）
+      responses:
+        '200': { description: 审稿文件, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ReviewDocument' } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [reviews]
+      operationId: createReview
+      summary: 新建审稿文件并带上第一个版本（文件先传到 /files，kind = review）；预览在后台生成
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateReviewRequest' } } }
+      responses:
+        '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/ReviewDocument' } } } }
+        '201': { description: 已新建, content: { application/json: { schema: { $ref: '#/components/schemas/ReviewDocument' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+
+  /rooms/{roomId}/reviews/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [reviews]
+      operationId: updateReview
+      summary: 改标题
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateReviewRequest' } } }
+      responses:
+        '200': { description: 修改后的审稿文件, content: { application/json: { schema: { $ref: '#/components/schemas/ReviewDocument' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [reviews]
+      operationId: deleteReview
+      summary: 删除（进回收站；彻底删除时版本、预览、批注和文件一起删）
+      responses:
+        '200': { description: 删除后的审稿文件, content: { application/json: { schema: { $ref: '#/components/schemas/ReviewDocument' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/reviews/{id}/versions:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [reviews]
+      operationId: createReviewVersion
+      summary: 上传新版本（文件先传到 /files，kind = review）；预览生成后，上一版没处理完的批注带到新版本
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateReviewVersionRequest' } } }
+      responses:
+        '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/ReviewVersion' } } } }
+        '201': { description: 已新建, content: { application/json: { schema: { $ref: '#/components/schemas/ReviewVersion' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+
+  /rooms/{roomId}/reviews/{id}/versions/{version}/pages:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+      - name: version
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      tags: [reviews]
+      operationId: listReviewPages
+      summary: 预览页（图片 + 文字层坐标）；预览还没生成好时是空数组
+      responses:
+        '200': { description: 各页, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ReviewPage' } } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/reviews/{id}/diff:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+      - { name: from, in: query, required: true, schema: { type: integer, minimum: 1 } }
+      - { name: to, in: query, required: true, schema: { type: integer, minimum: 1 } }
+    get:
+      tags: [reviews]
+      operationId: diffReviewVersions
+      summary: 两个版本间的文字差异（按文字块对比；两个版本的预览都要已生成）
+      responses:
+        '200': { description: 差异, content: { application/json: { schema: { $ref: '#/components/schemas/ReviewDiff' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/reviews/{id}/annotations:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [reviews]
+      operationId: createAnnotation
+      summary: 批注或修改提议（可离线创建，经发件箱补发）
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateAnnotationRequest' } } }
+      responses:
+        '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/Annotation' } } } }
+        '201': { description: 已新建, content: { application/json: { schema: { $ref: '#/components/schemas/Annotation' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/reviews/{id}/annotations/{annId}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+      - { name: annId, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }
+    patch:
+      tags: [reviews]
+      operationId: updateAnnotation
+      summary: 改正文（只有作者）或状态（两人都可以：接受、归档、重新打开）
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateAnnotationRequest' } } }
+      responses:
+        '200': { description: 修改后的批注, content: { application/json: { schema: { $ref: '#/components/schemas/Annotation' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [reviews]
+      operationId: deleteAnnotation
+      summary: 删掉自己的批注（进回收站）
+      responses:
+        '200': { description: 删除后的批注, content: { application/json: { schema: { $ref: '#/components/schemas/Annotation' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/annotations/{annId}/replies:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - { name: annId, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }
+    post:
+      tags: [reviews]
+      operationId: createAnnotationReply
+      summary: 在批注下面讨论（可离线创建）
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateAnnotationReplyRequest' } } }
+      responses:
+        '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/AnnotationReply' } } } }
+        '201': { description: 已新建, content: { application/json: { schema: { $ref: '#/components/schemas/AnnotationReply' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /rooms/{roomId}/timeline:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -2639,7 +2812,7 @@ components:
     EntityType:
       type: string
       description: 与 `shared/model/EntityType` 一致，后续阶段追加
-      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document, board_topic, board_post, board_reaction, archive_item, decision, book, reading_progress, highlight, summary]
+      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document, board_topic, board_post, board_reaction, archive_item, decision, book, reading_progress, highlight, summary, review_document, review_version, annotation, annotation_reply]
     ChangeOp:
       type: string
       description: '`upsert` 包括软删除与恢复；只有彻底删除是 `delete`'
@@ -2687,6 +2860,10 @@ components:
             - $ref: '#/components/schemas/ReadingProgress'
             - $ref: '#/components/schemas/Highlight'
             - $ref: '#/components/schemas/Summary'
+            - $ref: '#/components/schemas/ReviewDocument'
+            - $ref: '#/components/schemas/ReviewVersion'
+            - $ref: '#/components/schemas/Annotation'
+            - $ref: '#/components/schemas/AnnotationReply'
             - type: 'null'
     SyncResponse:
       type: object
@@ -2700,7 +2877,7 @@ components:
           items: { $ref: '#/components/schemas/Change' }
     Bootstrap:
       type: object
-      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents, boardTopics, boardPosts, boardReactions, archiveItems, decisions, books, readingProgress, highlights, summaries]
+      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents, boardTopics, boardPosts, boardReactions, archiveItems, decisions, books, readingProgress, highlights, summaries, reviewDocuments, reviewVersions, annotations, annotationReplies]
       properties:
         room: { $ref: '#/components/schemas/Room' }
         members:
@@ -2754,6 +2931,10 @@ components:
         readingProgress: { type: array, items: { $ref: '#/components/schemas/ReadingProgress' } }
         highlights: { type: array, items: { $ref: '#/components/schemas/Highlight' }, description: 自己的全部，加上对方共享的 }
         summaries: { type: array, items: { $ref: '#/components/schemas/Summary' } }
+        reviewDocuments: { type: array, items: { $ref: '#/components/schemas/ReviewDocument' } }
+        reviewVersions: { type: array, items: { $ref: '#/components/schemas/ReviewVersion' } }
+        annotations: { type: array, items: { $ref: '#/components/schemas/Annotation' } }
+        annotationReplies: { type: array, items: { $ref: '#/components/schemas/AnnotationReply' } }
     WsHello:
       type: object
       required: [type, userId, rooms]
@@ -3678,17 +3859,183 @@ components:
           description: 文件内容；文件名取自 multipart 的 filename
         kind:
           type: string
-          enum: [image, file, avatar, hero]
-          description: epub、review 在后续阶段开放
+          enum: [image, file, avatar, hero, epub, review]
+          description: review = 审稿原文件（PDF、Word、Excel、PowerPoint、OpenDocument、RTF、纯文本），≤ 100MB
         id:
           $ref: '#/components/schemas/Uuid'
           description: 客户端生成的文件 id，用于重试时去重；不传则由服务端生成
+
+    # ── 审稿（P7）──
+    ReviewFormat:
+      type: string
+      description: 原文件类别：pdf；text（Word、ODT、RTF、纯文本）；sheet（Excel、ODS、CSV）；slides（PowerPoint、ODP）
+      enum: [pdf, text, sheet, slides]
+    PreviewStatus:
+      type: string
+      enum: [pending, ready, failed]
+    AnchorKind:
+      type: string
+      enum: [region, paragraph, cell, slide, image]
+    AnnotationKind:
+      type: string
+      description: comment = 意见；proposal = 修改提议
+      enum: [comment, proposal]
+    AnnotationStatus:
+      type: string
+      enum: [open, accepted, archived]
+    DiffKind:
+      type: string
+      enum: [same, removed, added]
+    NormRect:
+      type: object
+      description: 页面上的矩形，按页面宽高的比例（0–1），左上角为原点
+      required: [x, y, w, h]
+      properties:
+        x: { type: number, minimum: 0, maximum: 1 }
+        y: { type: number, minimum: 0, maximum: 1 }
+        w: { type: number, minimum: 0, maximum: 1 }
+        h: { type: number, minimum: 0, maximum: 1 }
+    AnnotationAnchor:
+      type: object
+      required: [page, kind]
+      properties:
+        page: { type: integer, minimum: 1 }
+        kind: { $ref: '#/components/schemas/AnchorKind' }
+        rect:
+          oneOf: [{ $ref: '#/components/schemas/NormRect' }, { type: 'null' }]
+          description: region、image 必填
+        ref: { type: [string, 'null'], maxLength: 32, description: 文字层里的块 id，paragraph、cell 必填 }
+        quote: { type: [string, 'null'], maxLength: 500, description: 原文摘录，用于在新版本里重新找到位置 }
+    ReviewDocument:
+      description: 同步实体类型 `review_document`（P7）
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [title, createdBy, latestVersion]
+          properties:
+            title: { type: string, minLength: 1, maxLength: 100 }
+            createdBy: { $ref: '#/components/schemas/Uuid' }
+            latestVersion: { type: integer, minimum: 1 }
+    ReviewVersion:
+      description: 同步实体类型 `review_version`（P7）：原文件不可变；预览在后台生成
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [documentId, version, fileId, fileName, format, uploadedBy, previewStatus, pageCount, previewError]
+          properties:
+            documentId: { $ref: '#/components/schemas/Uuid' }
+            version: { type: integer, minimum: 1 }
+            fileId: { $ref: '#/components/schemas/Uuid' }
+            fileName: { type: string }
+            format: { $ref: '#/components/schemas/ReviewFormat' }
+            uploadedBy: { $ref: '#/components/schemas/Uuid' }
+            previewStatus: { $ref: '#/components/schemas/PreviewStatus' }
+            pageCount: { type: [integer, 'null'] }
+            previewError: { type: [string, 'null'] }
+    Annotation:
+      description: 同步实体类型 `annotation`（P7）：批注或修改提议；带到新版本的是新的一条，carriedFromId 指向旧的
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [documentId, versionId, anchor, authorId, kind, status, body, carriedFromId, anchorLost, resolvedBy, resolvedAt]
+          properties:
+            documentId: { $ref: '#/components/schemas/Uuid' }
+            versionId: { $ref: '#/components/schemas/Uuid' }
+            anchor: { $ref: '#/components/schemas/AnnotationAnchor' }
+            authorId: { $ref: '#/components/schemas/Uuid' }
+            kind: { $ref: '#/components/schemas/AnnotationKind' }
+            status: { $ref: '#/components/schemas/AnnotationStatus' }
+            body: { type: string, minLength: 1, maxLength: 2000 }
+            carriedFromId: { $ref: '#/components/schemas/NullableUuid' }
+            anchorLost: { type: boolean, description: 带到新版本时没找到原来的位置 }
+            resolvedBy: { $ref: '#/components/schemas/NullableUuid' }
+            resolvedAt: { oneOf: [{ $ref: '#/components/schemas/Instant' }, { type: 'null' }] }
+    AnnotationReply:
+      description: 同步实体类型 `annotation_reply`（P7）：批注下面的讨论
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [annotationId, authorId, body]
+          properties:
+            annotationId: { $ref: '#/components/schemas/Uuid' }
+            authorId: { $ref: '#/components/schemas/Uuid' }
+            body: { type: string, minLength: 1, maxLength: 2000 }
+    TextBlock:
+      type: object
+      required: [id, kind, rect, text]
+      properties:
+        id: { type: string, description: 在这个版本里唯一，如 p2-b5 }
+        kind: { $ref: '#/components/schemas/AnchorKind' }
+        rect: { $ref: '#/components/schemas/NormRect' }
+        text: { type: string }
+    ReviewPage:
+      type: object
+      required: [page, width, height, imageFileId, blocks, images]
+      properties:
+        page: { type: integer, minimum: 1 }
+        width: { type: number, description: 页面宽（pt） }
+        height: { type: number, description: 页面高（pt） }
+        imageFileId: { $ref: '#/components/schemas/Uuid' }
+        blocks: { type: array, items: { $ref: '#/components/schemas/TextBlock' } }
+        images: { type: array, items: { $ref: '#/components/schemas/NormRect' } }
+    ReviewDiffLine:
+      type: object
+      required: [kind, text, oldPage, newPage]
+      properties:
+        kind: { $ref: '#/components/schemas/DiffKind' }
+        text: { type: string }
+        oldPage: { type: [integer, 'null'] }
+        newPage: { type: [integer, 'null'] }
+    ReviewDiff:
+      type: object
+      required: [from, to, lines]
+      properties:
+        from: { type: integer }
+        to: { type: integer }
+        lines: { type: array, items: { $ref: '#/components/schemas/ReviewDiffLine' } }
+    CreateReviewVersionRequest:
+      type: object
+      required: [id, fileId]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        fileId: { $ref: '#/components/schemas/Uuid' }
+    CreateReviewRequest:
+      type: object
+      required: [id, title, firstVersion]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        title: { type: string, minLength: 1, maxLength: 100 }
+        firstVersion: { $ref: '#/components/schemas/CreateReviewVersionRequest' }
+    UpdateReviewRequest:
+      type: object
+      properties:
+        title: { type: string, minLength: 1, maxLength: 100 }
+    CreateAnnotationRequest:
+      type: object
+      required: [id, versionId, anchor, kind, body]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        versionId: { $ref: '#/components/schemas/Uuid' }
+        anchor: { $ref: '#/components/schemas/AnnotationAnchor' }
+        kind: { $ref: '#/components/schemas/AnnotationKind' }
+        body: { type: string, minLength: 1, maxLength: 2000 }
+    UpdateAnnotationRequest:
+      type: object
+      properties:
+        body: { type: string, minLength: 1, maxLength: 2000 }
+        status: { $ref: '#/components/schemas/AnnotationStatus' }
+    CreateAnnotationReplyRequest:
+      type: object
+      required: [id, body]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        body: { type: string, minLength: 1, maxLength: 2000 }
 
     # ── 回收站 ──
     TrashType:
       type: string
       description: 第 3 阶段可恢复的类型，后续阶段追加
-      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post, archive_item, decision, book, summary, plan_stage, milestone]
+      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post, archive_item, decision, book, summary, plan_stage, milestone, review_document, annotation]
     TrashItem:
       type: object
       required: [type, id, deletedAt, deletedBy, data]
@@ -3715,6 +4062,8 @@ components:
             - $ref: '#/components/schemas/Summary'
             - $ref: '#/components/schemas/PlanStage'
             - $ref: '#/components/schemas/Milestone'
+            - $ref: '#/components/schemas/ReviewDocument'
+            - $ref: '#/components/schemas/Annotation'
     TrashPage:
       type: object
       required: [items, nextCursor]

@@ -34,6 +34,10 @@ import app.qichi.server.db.CompositeNotifier
 import app.qichi.shared.model.PushProvider
 import app.qichi.server.export.exportRoutes
 import app.qichi.server.summaries.SummaryService
+import app.qichi.server.review.DocumentConverter
+import app.qichi.server.review.GotenbergConverter
+import app.qichi.server.review.ReviewService
+import app.qichi.server.review.reviewRoutes
 import app.qichi.server.summaries.summaryRoutes
 import app.qichi.server.reading.ReadingService
 import app.qichi.server.reading.readingRoutes
@@ -153,6 +157,7 @@ fun Application.module(ctx: AppContext) {
             exportRoutes(ctx)
             deviceRoutes(ctx)
             calendarRoutes(ctx)
+            reviewRoutes(ctx)
         }
     }
 }
@@ -168,6 +173,8 @@ class AppContext(
     aiGateway: AiGateway? = AiGateway.fromConfig(config.ai),
     /** 默认按 PUSH_PROVIDERS 创建；测试里换成假的 */
     pushSender: PushSender? = if (PushProvider.UnifiedPush in config.pushProviders) UnifiedPushSender(config.unifiedPushAllowedHosts) else null,
+    /** 默认按 CONVERTER_URL 创建；测试里换成假的 */
+    converter: DocumentConverter? = config.converterUrl?.let(::GotenbergConverter),
 ) {
     /** 截到微秒：PostgreSQL 只存到微秒，这样写入与读回的时间完全相等。 */
     val clock: Clock = MicrosClock(baseClock)
@@ -187,7 +194,6 @@ class AppContext(
     val todos = TodoService(database, rooms, writes)
     val events = EventService(database, rooms, writes)
     val messages = MessageService(database, rooms, writer, writes, files, clock)
-    val trash = TrashService(database, rooms, writer, writes, todos, files, clock)
     val jobs = JobQueue(database, clock)
     val ai = AiService(database, rooms, writer, jobs, aiGateway, config.ai, realtime, clock)
     val qna = QnaService(database, rooms, writes, writer, clock)
@@ -201,6 +207,8 @@ class AppContext(
     val reading = ReadingService(database, rooms, writes)
     val summaries = SummaryService(database, rooms, writes)
     val export = ExportService(database, rooms, fileStorage, clock)
+    val reviews = ReviewService(database, rooms, writes, writer, files, jobs, converter, clock)
+    val trash = TrashService(database, rooms, writer, writes, todos, files, clock, reviews)
     val calendar = CalendarService(database, rooms, writes, writer, clock, config.publicBaseUrl)
 }
 

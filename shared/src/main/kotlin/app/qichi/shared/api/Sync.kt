@@ -65,6 +65,10 @@ data class Bootstrap(
     /** 自己的全部，加上对方共享的 */
     val highlights: List<Highlight> = emptyList(),
     val summaries: List<Summary> = emptyList(),
+    val reviewDocuments: List<ReviewDocument> = emptyList(),
+    val reviewVersions: List<ReviewVersion> = emptyList(),
+    val annotations: List<Annotation> = emptyList(),
+    val annotationReplies: List<AnnotationReply> = emptyList(),
 )
 
 /** 实体类型 ⇄ 数据类的对应关系，两端共用。 */
@@ -97,6 +101,10 @@ object EntityCodec {
         EntityType.ReadingProgress -> ReadingProgress.serializer()
         EntityType.Highlight -> Highlight.serializer()
         EntityType.Summary -> Summary.serializer()
+        EntityType.ReviewDocument -> ReviewDocument.serializer()
+        EntityType.ReviewVersion -> ReviewVersion.serializer()
+        EntityType.Annotation -> Annotation.serializer()
+        EntityType.AnnotationReply -> AnnotationReply.serializer()
     } as KSerializer<Any>
 
     fun decode(type: EntityType, data: JsonElement): Any = QichiJson.decodeFromJsonElement(serializer(type), data)

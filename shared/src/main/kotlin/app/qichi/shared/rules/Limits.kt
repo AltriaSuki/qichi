@@ -83,6 +83,13 @@ object Limits {
     /** 书籍离线缓存默认上限（docs/05-sync-offline.md） */
     const val BOOK_CACHE_DEFAULT_BYTES: Long = 500L * 1024 * 1024
 
+    /** 审稿：标题、批注与讨论、原文摘录、最多多少页 */
+    val REVIEW_TITLE_LENGTH: IntRange = 1..100
+    val ANNOTATION_BODY_LENGTH: IntRange = 1..2_000
+    val ANNOTATION_REPLY_LENGTH: IntRange = 1..2_000
+    const val ANCHOR_QUOTE_MAX: Int = 500
+    const val REVIEW_MAX_PAGES: Int = 300
+
     const val IMAGE_MAX_BYTES: Long = 20L * 1024 * 1024
     const val FILE_MAX_BYTES: Long = 100L * 1024 * 1024
     val THUMBNAIL_WIDTHS: Set<Int> = setOf(200, 400, 800)

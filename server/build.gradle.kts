@@ -41,6 +41,7 @@ dependencies {
     implementation(libs.imageio.webp)
     implementation(libs.bouncycastle)
     implementation(libs.ical4j)
+    implementation(libs.pdfbox)
     implementation(libs.kotlinx.coroutines.core)
 
     implementation(libs.exposed.core)

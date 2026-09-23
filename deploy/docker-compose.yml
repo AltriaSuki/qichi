@@ -1,4 +1,4 @@
-# 栖迟线上部署：Caddy（HTTPS）+ Ktor 服务端 + PostgreSQL + ntfy（UnifiedPush 推送）。
+# 栖迟线上部署：Caddy（HTTPS）+ Ktor 服务端 + PostgreSQL + ntfy（UnifiedPush 推送）+ converter（审稿文档转换）。
 # 用法见 docs/07-deploy.md：
 #   cp .env.example .env && 填写 → docker compose up -d --build
 # 数据卷名固定为 qichi_*（备份与恢复脚本依赖这些名字）。
@@ -38,6 +38,18 @@ services:
     volumes:
       - ntfy:/var/cache/ntfy
 
+  # 审稿用的文档转换（Gotenberg，内含 LibreOffice 无界面模式）。只在内部网络，不对外；只开 LibreOffice，关掉浏览器转换。
+  converter:
+    image: gotenberg/gotenberg:8
+    restart: unless-stopped
+    command:
+      - gotenberg
+      - --chromium-disable-routes=true
+      - --api-timeout=300s
+    expose:
+      - "3000"
+    mem_limit: 1g
+
   server:
     build:
       context: ..
@@ -64,6 +76,8 @@ services:
       PUSH_PROVIDERS: ${PUSH_PROVIDERS:-unifiedpush}
       # 只往自建的 ntfy 发推送
       UNIFIEDPUSH_ALLOWED_HOSTS: ${PUSH_DOMAIN:?请在 .env 里填写 PUSH_DOMAIN}
+      # 审稿：Word、Excel、PowerPoint 先转成 PDF 再生成预览
+      CONVERTER_URL: http://converter:3000
     volumes:
       - files:/data/files
     depends_on:

@@ -36,6 +36,10 @@ enum class EntityType {
     @SerialName("reading_progress") ReadingProgress,
     @SerialName("highlight") Highlight,
     @SerialName("summary") Summary,
+    @SerialName("review_document") ReviewDocument,
+    @SerialName("review_version") ReviewVersion,
+    @SerialName("annotation") Annotation,
+    @SerialName("annotation_reply") AnnotationReply,
 }
 
 /** 变化类型：软删除与恢复都是 upsert，只有彻底删除是 delete。 */
@@ -163,6 +167,8 @@ enum class TrashType {
     @SerialName("summary") Summary,
     @SerialName("plan_stage") PlanStage,
     @SerialName("milestone") Milestone,
+    @SerialName("review_document") ReviewDocument,
+    @SerialName("annotation") Annotation,
 }
 
 @Serializable
@@ -224,4 +230,49 @@ enum class QuestionSource {
     @SerialName("ai") Ai,
     @SerialName("user") User,
     @SerialName("preset") Preset,
+}
+
+/** 审稿：原文件是哪一类（决定能按什么批注：段落、单元格、幻灯片）。 */
+@Serializable
+enum class ReviewFormat {
+    @SerialName("pdf") Pdf,
+    /** Word、ODT、RTF、纯文本 */
+    @SerialName("text") Text,
+    /** Excel、ODS、CSV */
+    @SerialName("sheet") Sheet,
+    /** PowerPoint、ODP */
+    @SerialName("slides") Slides,
+}
+
+/** 审稿：预览生成到哪一步了。 */
+@Serializable
+enum class PreviewStatus {
+    @SerialName("pending") Pending,
+    @SerialName("ready") Ready,
+    @SerialName("failed") Failed,
+}
+
+/** 批注钉在哪儿：圈出的区域、一段文字、一个单元格、一整张幻灯片、一张图片。 */
+@Serializable
+enum class AnchorKind {
+    @SerialName("region") Region,
+    @SerialName("paragraph") Paragraph,
+    @SerialName("cell") Cell,
+    @SerialName("slide") Slide,
+    @SerialName("image") Image,
+}
+
+@Serializable
+enum class AnnotationKind {
+    /** 意见 */
+    @SerialName("comment") Comment,
+    /** 修改提议（body 里写建议改成什么） */
+    @SerialName("proposal") Proposal,
+}
+
+@Serializable
+enum class AnnotationStatus {
+    @SerialName("open") Open,
+    @SerialName("accepted") Accepted,
+    @SerialName("archived") Archived,
 }

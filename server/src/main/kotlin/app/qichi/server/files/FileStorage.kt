@@ -24,6 +24,9 @@ interface FileStorage {
     /** 把 [source] 写到临时文件，边写边算 sha256；超过 [maxBytes] 抛 413。 */
     suspend fun stage(source: ByteReadChannel, maxBytes: Long): StagedFile
 
+    /** 把一段内存里的内容写成临时文件（服务端自己生成的文件用）。 */
+    fun stageBytes(bytes: ByteArray): StagedFile
+
     /** 把临时文件移到 [relativePath]（已存在则覆盖）。 */
     fun commit(staged: StagedFile, relativePath: String)
 
@@ -73,6 +76,12 @@ class LocalFileStorage(root: Path) : FileStorage {
             throw e
         }
         return StagedFile(temp, total, HexFormat.of().formatHex(digest.digest()))
+    }
+
+    override fun stageBytes(bytes: ByteArray): StagedFile {
+        val temp = Files.createTempFile(tmpDir, "generated-", ".part")
+        Files.write(temp, bytes)
+        return StagedFile(temp, bytes.size.toLong(), HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes)))
     }
 
     override fun commit(staged: StagedFile, relativePath: String) {

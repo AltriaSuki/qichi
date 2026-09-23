@@ -96,9 +96,9 @@
 
 | 表 | 关键字段 |
 |---|---|
-| `review_documents` | `title`、`created_by`、`latest_version` |
-| `review_versions` | **不可变**：`document_id`、`version`、`file_id`（原文件）、`preview_status`、`page_count` |
-| `review_pages` | 预览页：`version_id`、`page_no`、`image_file_id`、`text_layer` jsonb（段落/单元格坐标，用于定位） |
-| `annotations` | `version_id`、`anchor` jsonb（`{page, kind, rect?, ref?}`，kind 取 region / paragraph / cell / slide / image）、`author_id`、`kind`（comment / proposal）、`status`（open / accepted / archived）、`body`、`carried_from_id`（跨版本追踪） |
-| `annotation_replies` | 讨论：`annotation_id`、`author_id`、`body` |
+| `review_documents` | 同步实体（`review_document`）：`title`、`created_by`、`latest_version` |
+| `review_versions` | 同步实体（`review_version`），原文件**不可变**：`document_id`、`version`、`file_id`（原文件，files.kind = review）、`format`（pdf / text / sheet / slides）、`uploaded_by`、`preview_status`（pending / ready / failed）、`page_count`、`preview_error`；只有预览相关的列在后台生成完后更新 |
+| `review_pages` | 预览页，不走同步、按需取：`version_id`、`page_no`、`width`、`height`（pt）、`image_file_id`（144 dpi 的 JPEG，files.kind = review）、`text_layer` jsonb（`[{id, kind, rect, text}]`，段落或单元格，坐标按页面比例 0–1）、`images` jsonb（图片区域） |
+| `annotations` | 同步实体（`annotation`）：`document_id`、`version_id`、`anchor` jsonb（`{page, kind, rect?, ref?, quote?}`，kind 取 region / paragraph / cell / slide / image；ref 是文字层的块 id；quote 是原文摘录，用于在新版本里重新找位置）、`author_id`、`kind`（comment / proposal）、`status`（open / accepted / archived）、`body`、`carried_from_id`（跨版本追踪：新版本预览生成后，上一版 open 的批注复制一条过去）、`anchor_lost`（带过去时没找到原位置）、`resolved_by`、`resolved_at` |
+| `annotation_replies` | 同步实体（`annotation_reply`），讨论：`annotation_id`、`author_id`、`body`（不能删改） |
 | `ai_findings` | `version_id`、`anchor`、`evidence`（原文摘录）、`body`、`status`（new / dismissed / converted）、`converted_annotation_id`、`job_id` |

@@ -2,7 +2,10 @@ package app.qichi.server.db
 
 import app.qichi.shared.api.DecisionConcern
 import app.qichi.shared.api.QichiJson
+import app.qichi.shared.api.AnnotationAnchor
+import app.qichi.shared.api.NormRect
 import app.qichi.shared.api.SummarySource
+import app.qichi.shared.api.TextBlock
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonObject
@@ -370,6 +373,55 @@ object Summaries : SyncedTable("summaries") {
     val aiDerived = bool("ai_derived")
     val locked = bool("locked")
     val requestedBy = javaUUID("requested_by").nullable()
+}
+
+object ReviewDocuments : SyncedTable("review_documents") {
+    val title = text("title")
+    val createdBy = javaUUID("created_by")
+    val latestVersion = integer("latest_version")
+}
+
+object ReviewVersions : SyncedTable("review_versions") {
+    val documentId = javaUUID("document_id")
+    val version = integer("version")
+    val fileId = javaUUID("file_id")
+    val format = text("format")
+    val uploadedBy = javaUUID("uploaded_by")
+    val previewStatus = text("preview_status")
+    val pageCount = integer("page_count").nullable()
+    val previewError = text("preview_error").nullable()
+}
+
+/** 预览页：不走同步（没有 seq），生成一次就不再变。 */
+object ReviewPages : Table("review_pages") {
+    val versionId = javaUUID("version_id")
+    val pageNo = integer("page_no")
+    val width = double("width")
+    val height = double("height")
+    val imageFileId = javaUUID("image_file_id")
+    val textLayer = jsonb("text_layer", QichiJson, ListSerializer(TextBlock.serializer()))
+    val images = jsonb("images", QichiJson, ListSerializer(NormRect.serializer()))
+    override val primaryKey = PrimaryKey(versionId, pageNo)
+}
+
+object Annotations : SyncedTable("annotations") {
+    val documentId = javaUUID("document_id")
+    val versionId = javaUUID("version_id")
+    val anchor = jsonb("anchor", QichiJson, AnnotationAnchor.serializer())
+    val authorId = javaUUID("author_id")
+    val kind = text("kind")
+    val status = text("status")
+    val body = text("body")
+    val carriedFromId = javaUUID("carried_from_id").nullable()
+    val anchorLost = bool("anchor_lost")
+    val resolvedBy = javaUUID("resolved_by").nullable()
+    val resolvedAt = timestamp("resolved_at").nullable()
+}
+
+object AnnotationReplies : SyncedTable("annotation_replies") {
+    val annotationId = javaUUID("annotation_id")
+    val authorId = javaUUID("author_id")
+    val body = text("body")
 }
 
 object Devices : Table("devices") {

@@ -17,6 +17,13 @@ import app.qichi.server.db.ArchiveItems
 import app.qichi.server.db.Decisions
 import app.qichi.server.db.Books
 import app.qichi.server.db.Summaries
+import app.qichi.server.db.AnnotationReplies
+import app.qichi.server.db.Annotations
+import app.qichi.server.db.ReviewDocuments
+import app.qichi.server.db.ReviewVersions
+import app.qichi.server.review.ReviewService
+import app.qichi.server.review.toAnnotation
+import app.qichi.server.review.toReviewDocument
 import app.qichi.server.db.Highlights
 import app.qichi.server.db.ReadingProgressTable
 import app.qichi.server.db.Plans
@@ -67,6 +74,7 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.alias
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
@@ -93,6 +101,7 @@ class TrashService(
     private val todos: TodoService,
     private val files: FileService,
     private val clock: Clock,
+    private val reviews: ReviewService,
 ) {
     /** 游标 = 上一页最后一条的 (deletedAt, id)。顺序：deletedAt 降序，同一时刻按 id 降序。 */
     private data class Cursor(val deletedAt: Instant, val id: UUID) {
@@ -195,6 +204,16 @@ class TrashService(
                     val s = row.toSummary()
                     add(Candidate(TrashType.Summary, s, s.deletedAt!!, s.deletedBy!!))
                 }
+                ReviewDocuments.selectAll().deleted(ReviewDocuments, roomId, cursor, take).forEach { row ->
+                    val d = row.toReviewDocument()
+                    add(Candidate(TrashType.ReviewDocument, d, d.deletedAt!!, d.deletedBy!!))
+                }
+                // 审稿文件本身也在回收站里时，它的批注随它一起，不单独列出
+                Annotations.join(ReviewDocuments, JoinType.INNER, Annotations.documentId, ReviewDocuments.id).select(Annotations.columns)
+                    .where { ReviewDocuments.deletedAt.isNull() }.deleted(Annotations, roomId, cursor, take).forEach { row ->
+                        val a = row.toAnnotation()
+                        add(Candidate(TrashType.Annotation, a, a.deletedAt!!, a.deletedBy!!))
+                    }
             }.sortedWith(compareByDescending<Candidate> { it.deletedAt }.thenByDescending { it.sortKey })
 
             val page = candidates.take(limit)
@@ -301,6 +320,27 @@ class TrashService(
                 TrashType.Summary -> hardDelete(this, roomId, userId, EntityType.Summary, id, Summaries, now)
                 TrashType.PlanStage -> hardDelete(this, roomId, userId, EntityType.PlanStage, id, PlanStages, now)
                 TrashType.Milestone -> hardDelete(this, roomId, userId, EntityType.Milestone, id, Milestones, now)
+                TrashType.ReviewDocument -> {
+                        val fileIds = reviews.detachFiles(id)
+                        val annotationIds = Annotations.select(Annotations.id).where { Annotations.documentId eq id }.map { it[Annotations.id] }
+                        AnnotationReplies.select(AnnotationReplies.id).where { AnnotationReplies.annotationId inList annotationIds }.map { it[AnnotationReplies.id] }
+                            .forEach { hardDelete(this, roomId, userId, EntityType.AnnotationReply, it, AnnotationReplies, now) }
+                        // 带到新版本的批注指向旧的：先删新的（按创建先后倒着删）
+                        annotationIds.sortedDescending().forEach { hardDelete(this, roomId, userId, EntityType.Annotation, it, Annotations, now) }
+                        ReviewVersions.select(ReviewVersions.id).where { ReviewVersions.documentId eq id }.map { it[ReviewVersions.id] }
+                            .forEach { hardDelete(this, roomId, userId, EntityType.ReviewVersion, it, ReviewVersions, now) }
+                        hardDelete(this, roomId, userId, EntityType.ReviewDocument, id, ReviewDocuments, now)
+                        orphanFiles += files.releaseAll(fileIds)
+                    }
+                TrashType.Annotation -> {
+                    // 从它带过去的批注：来源断开
+                    Annotations.select(Annotations.id).where { Annotations.carriedFromId eq id }.map { it[Annotations.id] }.forEach { child ->
+                        writes.update(this, roomId, userId, EntityType.Annotation, child, Annotations) { it[Annotations.carriedFromId] = null }
+                    }
+                    AnnotationReplies.select(AnnotationReplies.id).where { AnnotationReplies.annotationId eq id }.map { it[AnnotationReplies.id] }
+                        .forEach { hardDelete(this, roomId, userId, EntityType.AnnotationReply, it, AnnotationReplies, now) }
+                    hardDelete(this, roomId, userId, EntityType.Annotation, id, Annotations, now)
+                }
                 TrashType.Book -> {
                     Highlights.select(Highlights.id).where { Highlights.bookId eq id }.map { it[Highlights.id] }
                         .forEach { hardDelete(this, roomId, userId, EntityType.Highlight, it, Highlights, now) }
@@ -328,15 +368,25 @@ class TrashService(
             } == true
             PlanStages -> planDeleted(row[PlanStages.planId])
             Milestones -> planDeleted(row[Milestones.planId])
+            Annotations -> ReviewDocuments.select(ReviewDocuments.deletedAt).where { ReviewDocuments.id eq row[Annotations.documentId] }
+                .singleOrNull()?.get(ReviewDocuments.deletedAt) != null
             else -> false
         }
         return TrashedRow(parentDeleted)
     }
 
     private fun checkOwner(type: TrashType, id: UUID, userId: UUID) {
-        if (type != TrashType.Mood) return
-        val author = Moods.select(Moods.authorId).where { Moods.id eq id }.single()[Moods.authorId]
-        if (author != userId) forbidden("只能处理自己的心情")
+        when (type) {
+            TrashType.Mood -> {
+                val author = Moods.select(Moods.authorId).where { Moods.id eq id }.single()[Moods.authorId]
+                if (author != userId) forbidden("只能处理自己的心情")
+            }
+            TrashType.Annotation -> {
+                val author = Annotations.select(Annotations.authorId).where { Annotations.id eq id }.single()[Annotations.authorId]
+                if (author != userId) forbidden("只能处理自己的批注")
+            }
+            else -> Unit
+        }
     }
 
     /** 彻底删除一条留言：它的回应一起删；引用了它的留言保留摘录，只断开链接。 */
@@ -371,6 +421,8 @@ class TrashService(
         TrashType.Summary -> Summaries.selectAll().where { Summaries.id eq id }.singleOrNull()?.toSummary()
         TrashType.PlanStage -> PlanStages.selectAll().where { PlanStages.id eq id }.singleOrNull()?.toPlanStage()
         TrashType.Milestone -> Milestones.selectAll().where { Milestones.id eq id }.singleOrNull()?.toMilestone()
+        TrashType.ReviewDocument -> ReviewDocuments.selectAll().where { ReviewDocuments.id eq id }.singleOrNull()?.toReviewDocument()
+        TrashType.Annotation -> Annotations.selectAll().where { Annotations.id eq id }.singleOrNull()?.toAnnotation()
     }
 
     /** 在查询上加「这个房间、已删除、在游标之后」，按 (deletedAt, id) 降序取 [take] 条。 */
@@ -403,6 +455,8 @@ val TrashType.entityType: EntityType
         TrashType.Summary -> EntityType.Summary
         TrashType.PlanStage -> EntityType.PlanStage
         TrashType.Milestone -> EntityType.Milestone
+        TrashType.ReviewDocument -> EntityType.ReviewDocument
+        TrashType.Annotation -> EntityType.Annotation
     }
 
 private val TrashType.table: SyncedTable
@@ -423,4 +477,6 @@ private val TrashType.table: SyncedTable
         TrashType.Summary -> Summaries
         TrashType.PlanStage -> PlanStages
         TrashType.Milestone -> Milestones
+        TrashType.ReviewDocument -> ReviewDocuments
+        TrashType.Annotation -> Annotations
     }

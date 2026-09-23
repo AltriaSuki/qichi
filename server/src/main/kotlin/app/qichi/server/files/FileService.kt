@@ -22,6 +22,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.select
@@ -55,8 +56,8 @@ class FileService(
     /** 缩略图同时最多生成两张：大图解码很占内存 */
     private val thumbnailPermits = Semaphore(2)
 
-    /** 目前开放上传的种类；review 在第 7 阶段开放 */
-    private val uploadable = setOf(FileKind.Image, FileKind.File, FileKind.Avatar, FileKind.Hero, FileKind.Epub)
+    /** 开放上传的种类（全部） */
+    private val uploadable = setOf(FileKind.Image, FileKind.File, FileKind.Avatar, FileKind.Hero, FileKind.Epub, FileKind.Review)
 
     /**
      * 上传大小上限：知道种类时按种类，还不知道（kind 字段排在文件后面）时先按最大的，
@@ -80,7 +81,7 @@ class FileService(
             val fileName = form.fileName?.let(::cleanFileName).orEmpty()
             validate {
                 check(staged != null, "file", "缺少文件")
-                check(kind != null && kind in uploadable, "kind", "只能是 image、file、avatar、hero、epub")
+                check(kind != null && kind in uploadable, "kind", "只能是 image、file、avatar、hero、epub、review")
                 check(form.id == null || requestedId != null, "id", "不是合法的 UUID")
                 check(fileName.length in 1..255, "file", "文件名 1–255 个字")
             }
@@ -103,6 +104,13 @@ class FileService(
                     throw ApiException(ProblemCode.UnsupportedMediaType, "不是 EPUB 电子书", detail = "只支持 .epub 文件")
                 }
                 mimeType = Epub.MIME_TYPE
+            } else if (kind == FileKind.Review) {
+                val review = withContext(Dispatchers.IO) { ReviewFiles.sniff(staged.temp, fileName) }
+                    ?: throw ApiException(
+                        ProblemCode.UnsupportedMediaType, "不支持这种文件",
+                        detail = "审稿支持 PDF、Word、Excel、PowerPoint、OpenDocument、RTF、纯文本、CSV",
+                    )
+                mimeType = review.mimeType
             } else {
                 mimeType = format?.mimeType ?: cleanMimeType(form.declaredType) ?: "application/octet-stream"
             }
@@ -143,6 +151,48 @@ class FileService(
             staged?.let(storage::discard)
         }
     }
+
+    /**
+     * 服务端自己生成的文件（审稿预览页）：写盘并建记录，在调用方的事务里执行。返回提交前已写好的相对路径，
+     * 事务失败时调用方负责删掉。
+     */
+    fun insertGenerated(roomId: UUID, uploadedBy: UUID, kind: FileKind, fileName: String, mimeType: String, bytes: ByteArray, width: Int?, height: Int?): Pair<UUID, String> {
+        val id = UuidV7.generate()
+        val now = clock.instant()
+        val date = now.atOffset(ZoneOffset.UTC)
+        val path = "%s/%04d/%02d/%s".format(roomId, date.year, date.monthValue, id)
+        val staged = storage.stageBytes(bytes)
+        try {
+            storage.commit(staged, path)
+        } finally {
+            storage.discard(staged)
+        }
+        Files.insert {
+            it[Files.id] = id
+            it[Files.roomId] = roomId
+            it[Files.uploadedBy] = uploadedBy
+            it[Files.kind] = kind.wireName
+            it[Files.fileName] = fileName
+            it[Files.mimeType] = mimeType
+            it[sizeBytes] = staged.size
+            it[sha256] = staged.sha256
+            it[storagePath] = path
+            it[Files.width] = width
+            it[Files.height] = height
+            it[createdAt] = now
+        }
+        return id to path
+    }
+
+    /** 事务内调用：删掉文件记录，返回提交后要从磁盘删除的路径（审稿彻底删除时用）。 */
+    fun releaseAll(fileIds: Collection<UUID>): List<String> {
+        if (fileIds.isEmpty()) return emptyList()
+        val paths = Files.select(Files.storagePath).where { Files.id inList fileIds }.map { it[Files.storagePath] }
+        Files.deleteWhere { Files.id inList fileIds }
+        return paths
+    }
+
+    fun resolve(relativePath: String): Path = storage.resolve(relativePath)
 
     /** 下载：必须是文件所属房间的成员，否则 404（不暴露文件是否存在）。 */
     suspend fun open(userId: UUID, fileId: UUID): StoredFile {

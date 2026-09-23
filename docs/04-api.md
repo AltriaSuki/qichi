@@ -222,9 +222,10 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 |---|---|---|
 | GET · POST | `/rooms/{roomId}/reviews` | 审稿文件列表 / 新建 |
 | POST | `/rooms/{roomId}/reviews/{id}/versions` | 上传新版本（先传 `/files`），触发预览生成任务 |
-| GET | `/rooms/{roomId}/reviews/{id}/versions/{v}/pages` | 预览页（图片 + 文字层坐标） |
+| PATCH · DELETE | `/rooms/{roomId}/reviews/{id}` | 改标题 / 删除（进回收站，彻底删除时版本、预览、批注和文件一起删） |
+| GET | `/rooms/{roomId}/reviews/{id}/versions/{v}/pages` | 预览页（图片 + 文字层坐标）；还没生成好时是空数组 |
 | GET | `/rooms/{roomId}/reviews/{id}/diff?from=&to=` | 版本间文字差异 |
-| POST · PATCH | `/rooms/{roomId}/reviews/{id}/annotations[/{annId}]` | 批注、提议；状态：open → accepted / archived |
+| POST · PATCH · DELETE | `/rooms/{roomId}/reviews/{id}/annotations[/{annId}]` | 批注、提议；状态：open → accepted / archived（两人都能改）；正文只有作者能改、只能删自己的 |
 | POST | `/rooms/{roomId}/annotations/{annId}/replies` | 讨论 |
 | POST | `/rooms/{roomId}/ai/review-findings` | 本次授权 AI 出审稿发现 → 202 |
 | POST | `/rooms/{roomId}/ai-findings/{id}/convert` | 转为人工批注 |

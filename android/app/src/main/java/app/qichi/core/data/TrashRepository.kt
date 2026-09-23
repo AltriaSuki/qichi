@@ -189,4 +189,6 @@ val TrashType.entityType: EntityType
         TrashType.Summary -> EntityType.Summary
         TrashType.PlanStage -> EntityType.PlanStage
         TrashType.Milestone -> EntityType.Milestone
+        TrashType.ReviewDocument -> EntityType.ReviewDocument
+        TrashType.Annotation -> EntityType.Annotation
     }

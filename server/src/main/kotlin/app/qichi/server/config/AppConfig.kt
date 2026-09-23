@@ -21,6 +21,8 @@ data class AppConfig(
     val pushProviders: Set<PushProvider>,
     /** UnifiedPush 只往这些主机发（例如自建的 push.qichi1.duckdns.org）；为空时任何 https 地址都可以 */
     val unifiedPushAllowedHosts: Set<String> = emptySet(),
+    /** 审稿文档转换服务（Gotenberg，内含 LibreOffice）；没配时只能预览 PDF */
+    val converterUrl: String? = null,
 ) {
     enum class Env { Development, Production }
 
@@ -100,6 +102,7 @@ data class AppConfig(
                 ai = ai,
                 pushProviders = pushProviders,
                 unifiedPushAllowedHosts = get("UNIFIEDPUSH_ALLOWED_HOSTS").orEmpty().split(',').map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet(),
+                converterUrl = get("CONVERTER_URL")?.trim()?.trimEnd('/')?.ifEmpty { null },
             )
         }
     }

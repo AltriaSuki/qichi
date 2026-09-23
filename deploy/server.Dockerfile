@@ -12,6 +12,10 @@ RUN --mount=type=cache,target=/root/.gradle \
     ./gradlew --no-daemon installDist
 
 FROM eclipse-temurin:21-jre
+# 审稿预览：PDF 里没嵌入字体时用系统字体渲染，中文要有中文字体
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends fonts-noto-cjk \
+ && rm -rf /var/lib/apt/lists/*
 RUN groupadd --system --gid 10001 qichi \
  && useradd --system --uid 10001 --gid qichi --home-dir /opt/qichi qichi \
  && mkdir -p /data/files \
