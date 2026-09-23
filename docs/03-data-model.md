@@ -83,7 +83,7 @@
 |---|---|
 | `archive_items` | 同步实体（`archive_item`）：`kind`（preference / consensus / decision / boundary / concern / milestone）、当前的 `title` 与 `body`、`created_by`、`current_revision`、`revised_by`、`source_message_id` |
 | `archive_revisions` | **不可变**、不进同步：`item_id`、`revision`、`author_id`、`title`、`body`、`source_message_id` |
-| `decisions` | `question`、`options` jsonb、`concerns` jsonb（按成员）、`final_choice`、`decided_at`、`review_date` |
+| `decisions` | 同步实体（`decision`）：`question`、`options` jsonb（字符串数组）、`concerns` jsonb（`[{userId, text}]`，每人一条）、`final_choice`、`decided_at`、`decided_by`、`review_date`、`created_by` |
 | `timeline_picks` | 共同时间线里「双方都选中的照片」：`file_id`、`user_id`，两人都选才显示 |
 | `books` | `title`、`author`、`file_id`（EPUB）、`added_by` |
 | `reading_progress` | `book_id`、`user_id`、`locator` jsonb（Readium 定位）、`progress` 0–1；各自独立 |

@@ -189,6 +189,7 @@ private fun typeLabel(type: TrashType): String = when (type) {
     TrashType.BoardTopic -> "留言主题"
     TrashType.BoardPost -> "留言"
     TrashType.ArchiveItem -> "档案"
+    TrashType.Decision -> "决定"
 }
 
 private fun summary(entry: TrashEntry, people: People): String = when (val e = entry.entity) {
@@ -206,5 +207,6 @@ private fun summary(entry: TrashEntry, people: People): String = when (val e = e
     is app.qichi.shared.api.BoardTopic -> e.title
     is app.qichi.shared.api.BoardPost -> e.body
     is app.qichi.shared.api.ArchiveItem -> e.title
+    is app.qichi.shared.api.Decision -> e.question
     else -> ""
 }

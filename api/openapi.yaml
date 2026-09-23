@@ -58,6 +58,8 @@ tags:
     description: 灵感（P4）
   - name: documents
     description: 共同写作：文稿与不可变版本（P5）
+  - name: decisions
+    description: 决定记录：问题、备选、各自关注点、最终决定、复查日期（P6）
   - name: archive
     description: 档案：长期共同事实与不可变的修订历史（P6）
   - name: board
@@ -1297,6 +1299,61 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /rooms/{roomId}/decisions:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [decisions]
+      operationId: listDecisions
+      summary: 决定列表（没定的在前，其余按定下的时间；不含已删除的）
+      responses:
+        '200':
+          description: 决定
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Decision' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [decisions]
+      operationId: createDecision
+      summary: 新的决定
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateDecisionRequest' } } }
+      responses:
+        '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/Decision' } } } }
+        '201': { description: 已创建, content: { application/json: { schema: { $ref: '#/components/schemas/Decision' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/decisions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [decisions]
+      operationId: updateDecision
+      summary: 修改（只发改动的字段；关注点只能改自己的）
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateDecisionRequest' } } }
+      responses:
+        '200': { description: 修改后的决定, content: { application/json: { schema: { $ref: '#/components/schemas/Decision' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [decisions]
+      operationId: deleteDecision
+      summary: 删除进回收站（两位成员都可以）
+      responses:
+        '200': { description: 删除后的决定, content: { application/json: { schema: { $ref: '#/components/schemas/Decision' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /rooms/{roomId}/archive:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -2253,7 +2310,7 @@ components:
     EntityType:
       type: string
       description: 与 `shared/model/EntityType` 一致，后续阶段追加
-      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document, board_topic, board_post, board_reaction, archive_item]
+      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document, board_topic, board_post, board_reaction, archive_item, decision]
     ChangeOp:
       type: string
       description: '`upsert` 包括软删除与恢复；只有彻底删除是 `delete`'
@@ -2296,6 +2353,7 @@ components:
             - $ref: '#/components/schemas/BoardPost'
             - $ref: '#/components/schemas/BoardReaction'
             - $ref: '#/components/schemas/ArchiveItem'
+            - $ref: '#/components/schemas/Decision'
             - type: 'null'
     SyncResponse:
       type: object
@@ -2309,7 +2367,7 @@ components:
           items: { $ref: '#/components/schemas/Change' }
     Bootstrap:
       type: object
-      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents, boardTopics, boardPosts, boardReactions, archiveItems]
+      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents, boardTopics, boardPosts, boardReactions, archiveItems, decisions]
       properties:
         room: { $ref: '#/components/schemas/Room' }
         members:
@@ -2358,6 +2416,7 @@ components:
         boardPosts: { type: array, items: { $ref: '#/components/schemas/BoardPost' } }
         boardReactions: { type: array, items: { $ref: '#/components/schemas/BoardReaction' } }
         archiveItems: { type: array, items: { $ref: '#/components/schemas/ArchiveItem' } }
+        decisions: { type: array, items: { $ref: '#/components/schemas/Decision' } }
     WsHello:
       type: object
       required: [type, userId, rooms]
@@ -2643,6 +2702,44 @@ components:
       required: [body]
       properties:
         body: { type: string, minLength: 1, maxLength: 2000 }
+    DecisionConcern:
+      type: object
+      required: [userId, text]
+      properties:
+        userId: { $ref: '#/components/schemas/Uuid' }
+        text: { type: string, minLength: 1, maxLength: 1000 }
+    Decision:
+      description: 同步实体类型 `decision`（P6）
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [question, options, concerns, finalChoice, decidedAt, decidedBy, reviewDate, createdBy]
+          properties:
+            question: { type: string, minLength: 1, maxLength: 200 }
+            options: { type: array, maxItems: 10, items: { type: string, minLength: 1, maxLength: 100 } }
+            concerns: { type: array, items: { $ref: '#/components/schemas/DecisionConcern' } }
+            finalChoice: { type: [string, 'null'], maxLength: 200 }
+            decidedAt: { $ref: '#/components/schemas/NullableInstant' }
+            decidedBy: { $ref: '#/components/schemas/NullableUuid' }
+            reviewDate: { $ref: '#/components/schemas/NullableLocalDate' }
+            createdBy: { $ref: '#/components/schemas/Uuid' }
+    CreateDecisionRequest:
+      type: object
+      required: [id, question]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        question: { type: string, minLength: 1, maxLength: 200 }
+        options: { type: array, maxItems: 10, items: { type: string, minLength: 1, maxLength: 100 } }
+        reviewDate: { $ref: '#/components/schemas/NullableLocalDate' }
+    UpdateDecisionRequest:
+      type: object
+      description: 只发要改的字段
+      properties:
+        question: { type: string, minLength: 1, maxLength: 200 }
+        options: { type: array, maxItems: 10, items: { type: string, minLength: 1, maxLength: 100 } }
+        myConcern: { type: [string, 'null'], maxLength: 1000, description: 只改自己的关注点；空或 null 表示删掉 }
+        finalChoice: { type: [string, 'null'], maxLength: 200, description: 非空 = 定下来；null = 重新考虑 }
+        reviewDate: { $ref: '#/components/schemas/NullableLocalDate' }
     ArchiveKind:
       type: string
       enum: [preference, consensus, decision, boundary, concern, milestone]
@@ -3072,7 +3169,7 @@ components:
     TrashType:
       type: string
       description: 第 3 阶段可恢复的类型，后续阶段追加
-      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post, archive_item]
+      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post, archive_item, decision]
     TrashItem:
       type: object
       required: [type, id, deletedAt, deletedBy, data]
@@ -3094,6 +3191,7 @@ components:
             - $ref: '#/components/schemas/BoardTopic'
             - $ref: '#/components/schemas/BoardPost'
             - $ref: '#/components/schemas/ArchiveItem'
+            - $ref: '#/components/schemas/Decision'
     TrashPage:
       type: object
       required: [items, nextCursor]

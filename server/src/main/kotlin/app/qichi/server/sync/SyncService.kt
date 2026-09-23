@@ -19,6 +19,7 @@ import app.qichi.server.db.BoardPosts
 import app.qichi.server.db.BoardReactions
 import app.qichi.server.db.BoardTopics
 import app.qichi.server.db.ArchiveItems
+import app.qichi.server.db.Decisions
 import app.qichi.server.db.Plans
 import app.qichi.server.db.RoomMembers
 import app.qichi.server.db.Todos
@@ -37,6 +38,7 @@ import app.qichi.server.board.toBoardPost
 import app.qichi.server.board.toBoardReaction
 import app.qichi.server.board.toBoardTopic
 import app.qichi.server.archive.toArchiveItem
+import app.qichi.server.decisions.toDecision
 import app.qichi.server.plans.toMilestone
 import app.qichi.server.plans.toPlan
 import app.qichi.server.plans.toPlanLog
@@ -109,6 +111,7 @@ class SyncService(private val db: QichiDatabase) {
                 boardPosts = BoardPosts.selectAll().where { BoardPosts.roomId eq roomId }.map { it.toBoardPost() },
                 boardReactions = BoardReactions.selectAll().where { BoardReactions.roomId eq roomId }.map { it.toBoardReaction() },
                 archiveItems = ArchiveItems.selectAll().where { ArchiveItems.roomId eq roomId }.map { it.toArchiveItem() },
+                decisions = Decisions.selectAll().where { Decisions.roomId eq roomId }.map { it.toDecision() },
             )
         }
 
@@ -177,6 +180,7 @@ class SyncService(private val db: QichiDatabase) {
                 EntityType.BoardPost -> BoardPosts.selectAll().where { BoardPosts.id inList ids }.map { it.toBoardPost() }
                 EntityType.BoardReaction -> BoardReactions.selectAll().where { BoardReactions.id inList ids }.map { it.toBoardReaction() }
                 EntityType.ArchiveItem -> ArchiveItems.selectAll().where { ArchiveItems.id inList ids }.map { it.toArchiveItem() }
+                EntityType.Decision -> Decisions.selectAll().where { Decisions.id inList ids }.map { it.toDecision() }
                 EntityType.PlanStage -> PlanStages.selectAll().where { PlanStages.id inList ids }.map { it.toPlanStage() }
                 EntityType.Milestone -> Milestones.selectAll().where { Milestones.id inList ids }.map { it.toMilestone() }
                 EntityType.PlanLog -> PlanLogs.selectAll().where { PlanLogs.id inList ids }.map { it.toPlanLog() }

@@ -1,6 +1,9 @@
 package app.qichi.server.db
 
+import app.qichi.shared.api.DecisionConcern
 import app.qichi.shared.api.QichiJson
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonObject
 import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.Table
@@ -310,6 +313,17 @@ object ArchiveRevisions : Table("archive_revisions") {
     val sourceMessageId = javaUUID("source_message_id").nullable()
     val createdAt = timestamp("created_at")
     override val primaryKey = PrimaryKey(id)
+}
+
+object Decisions : SyncedTable("decisions") {
+    val question = text("question")
+    val optionList = jsonb("options", QichiJson, ListSerializer(String.serializer()))
+    val concerns = jsonb("concerns", QichiJson, ListSerializer(DecisionConcern.serializer()))
+    val finalChoice = text("final_choice").nullable()
+    val decidedAt = timestamp("decided_at").nullable()
+    val decidedBy = javaUUID("decided_by").nullable()
+    val reviewDate = date("review_date").nullable()
+    val createdBy = javaUUID("created_by")
 }
 
 object Devices : Table("devices") {

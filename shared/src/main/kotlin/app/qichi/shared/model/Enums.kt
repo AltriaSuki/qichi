@@ -31,6 +31,7 @@ enum class EntityType {
     @SerialName("board_post") BoardPost,
     @SerialName("board_reaction") BoardReaction,
     @SerialName("archive_item") ArchiveItem,
+    @SerialName("decision") Decision,
 }
 
 /** 变化类型：软删除与恢复都是 upsert，只有彻底删除是 delete。 */
@@ -119,6 +120,7 @@ enum class TrashType {
     @SerialName("board_topic") BoardTopic,
     @SerialName("board_post") BoardPost,
     @SerialName("archive_item") ArchiveItem,
+    @SerialName("decision") Decision,
 }
 
 @Serializable

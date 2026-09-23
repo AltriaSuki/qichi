@@ -198,7 +198,7 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | GET · POST | `/rooms/{roomId}/archive` | 档案条目（新建时产生第 1 次修订，可带来源消息） |
 | DELETE | `/rooms/{roomId}/archive/{id}` | 删除进回收站 |
 | GET · POST | `/rooms/{roomId}/archive/{id}/revisions` | 历次修订 / 新修订（带修订 `id` 与 `baseRevision`，落后 409） |
-| GET · POST · PATCH | `/rooms/{roomId}/decisions[/{id}]` | 决定记录 |
+| GET · POST · PATCH · DELETE | `/rooms/{roomId}/decisions[/{id}]` | 决定记录（PATCH 只发改动的字段；`myConcern` 只改自己的关注点；`finalChoice` 非空为定下、null 为重新考虑） |
 | GET | `/rooms/{roomId}/timeline?year=&month=` | 共同时间线（服务端拼装） |
 | PUT · DELETE | `/rooms/{roomId}/timeline/picks/{fileId}` | 选中 / 取消选中照片 |
 | GET · POST | `/rooms/{roomId}/books` | 书架；上传 EPUB 先走 `/files` |

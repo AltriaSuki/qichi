@@ -12,6 +12,7 @@ import app.qichi.core.data.DraftStore
 import app.qichi.core.database.DocumentVersionRow
 import app.qichi.shared.api.ArchiveItem
 import app.qichi.shared.api.BoardPost
+import app.qichi.shared.api.Decision
 import app.qichi.shared.api.BoardReaction
 import app.qichi.shared.api.BoardTopic
 import app.qichi.shared.api.Document
@@ -290,6 +291,7 @@ class LocalStore(
             is BoardPost -> EntityType.BoardPost
             is BoardReaction -> EntityType.BoardReaction
             is ArchiveItem -> EntityType.ArchiveItem
+            is Decision -> EntityType.Decision
         }
 
         fun encode(type: EntityType, entity: SyncEntity): String =
@@ -353,6 +355,7 @@ class LocalStore(
                 is BoardPost -> base(entity.roomId, entity.deletedAt != null, entity.authorId, entity.topicId, null, entity.createdAt.toEpochMilli())
                 is BoardReaction -> base(entity.roomId, entity.deletedAt != null, entity.authorId, entity.postId, null, entity.createdAt.toEpochMilli())
                 is ArchiveItem -> base(entity.roomId, entity.deletedAt != null, entity.createdBy, entity.sourceMessageId, null, entity.updatedAt.toEpochMilli())
+                is Decision -> base(entity.roomId, entity.deletedAt != null, entity.createdBy, null, null, entity.createdAt.toEpochMilli())
             }
         }
     }

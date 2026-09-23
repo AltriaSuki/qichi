@@ -59,6 +59,17 @@ object Limits {
     /** 档案：条目正文（可以为空，只写标题） */
     const val ARCHIVE_BODY_MAX: Int = 5_000
 
+    /** 决定：问题 */
+    val DECISION_QUESTION_LENGTH: IntRange = 1..200
+
+    /** 决定：最多几个备选、每个备选多长 */
+    const val DECISION_OPTIONS_MAX: Int = 10
+    val DECISION_OPTION_LENGTH: IntRange = 1..100
+
+    /** 决定：关注点、最终决定 */
+    const val DECISION_CONCERN_MAX: Int = 1_000
+    val DECISION_CHOICE_LENGTH: IntRange = 1..200
+
     const val IMAGE_MAX_BYTES: Long = 20L * 1024 * 1024
     const val FILE_MAX_BYTES: Long = 100L * 1024 * 1024
     val THUMBNAIL_WIDTHS: Set<Int> = setOf(200, 400, 800)
