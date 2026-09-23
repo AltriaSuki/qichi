@@ -3,6 +3,17 @@ package app.qichi.server.ai
 import app.qichi.server.db.Jobs
 import app.qichi.server.db.Rooms
 import app.qichi.server.db.Summaries
+import app.qichi.server.db.AiFindings
+import app.qichi.server.db.ReviewDocuments
+import app.qichi.server.db.ReviewPages
+import app.qichi.server.db.ReviewVersions
+import app.qichi.server.review.FindingParser
+import app.qichi.server.review.toAiFinding
+import app.qichi.shared.api.AiFinding
+import app.qichi.shared.api.AiReviewFindingsRequest
+import app.qichi.shared.api.ReviewPage
+import app.qichi.shared.model.FindingStatus
+import app.qichi.shared.model.PreviewStatus
 import app.qichi.server.summaries.SummaryData
 import app.qichi.shared.api.CreateSummaryRequest
 import app.qichi.shared.model.SummaryKind
@@ -102,6 +113,7 @@ class AiService(
         queue.register(JOB_READ) { job -> explainReading(job) }
         queue.register(JOB_SUMMARY) { job -> summarize(job) }
         queue.register(JOB_YEARLY_CHECK) { _ -> yearlyCheck() }
+        queue.register(JOB_REVIEW) { job -> reviewFindings(job) }
     }
 
     /** 问 AI（聊天里）。同一 jobId 再次请求：失败的重新排队，其余返回当前状态。 */
@@ -310,6 +322,145 @@ class AiService(
                 it[inputTokens] = result.inputTokens
                 it[outputTokens] = result.outputTokens
                 it[resultRef] = "highlight:$jobId"
+                it[error] = null
+                it[finishedAt] = now
+                it[updatedAt] = now
+            }
+        }
+        realtime.aiDone(roomId, jobId, AiJobStatus.Done.wireName)
+    }
+
+    // ── 审稿 AI（P7-03） ──
+
+    /** 本次授权 AI 审一个版本。版本的预览要已生成（AI 只看文字层）。 */
+    suspend fun requestReviewFindings(userId: UUID, roomId: UUID, req: AiReviewFindingsRequest): AiJobAccepted = db.tx {
+        rooms.requireMember(roomId, userId)
+        if (gateway == null) throw unavailable()
+        RoomRepository.lockRoom(roomId)
+        val docOk = ReviewDocuments.select(ReviewDocuments.id)
+            .where { (ReviewDocuments.id eq req.documentId) and (ReviewDocuments.roomId eq roomId) and ReviewDocuments.deletedAt.isNull() }.any()
+        val status = ReviewVersions.select(ReviewVersions.previewStatus)
+            .where { (ReviewVersions.id eq req.versionId) and (ReviewVersions.documentId eq req.documentId) }.singleOrNull()?.get(ReviewVersions.previewStatus)
+        if (!docOk || status == null) notFound()
+        validate { check(status == PreviewStatus.Ready.wireName, "versionId", "预览还没生成好") }
+        val existing = AiJobs.selectAll().where { AiJobs.id eq req.jobId }.singleOrNull()
+        if (existing != null) {
+            if (existing[AiJobs.roomId] != roomId || existing[AiJobs.requestedBy] != userId || existing[AiJobs.kind] != AiJobKind.ReviewFindings.wireName) {
+                throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
+            }
+            val current = fromWire<AiJobStatus>(existing[AiJobs.status])
+            if (current != AiJobStatus.Failed) return@tx AiJobAccepted(req.jobId, current)
+            checkQuota()
+            AiJobs.update({ AiJobs.id eq req.jobId }) {
+                it[AiJobs.status] = AiJobStatus.Queued.wireName
+                it[error] = null
+                it[finishedAt] = null
+                it[updatedAt] = clock.instant()
+            }
+        } else {
+            checkQuota()
+            val now = clock.instant()
+            AiJobs.insert {
+                it[id] = req.jobId
+                it[AiJobs.roomId] = roomId
+                it[requestedBy] = userId
+                it[kind] = AiJobKind.ReviewFindings.wireName
+                it[AiJobs.status] = AiJobStatus.Queued.wireName
+                it[request] = buildJsonObject {
+                    put("documentId", req.documentId.toString())
+                    put("versionId", req.versionId.toString())
+                }
+                it[inputTokens] = 0
+                it[outputTokens] = 0
+                it[createdAt] = now
+                it[updatedAt] = now
+            }
+        }
+        queue.enqueue(this, JOB_REVIEW, buildJsonObject { put("aiJobId", req.jobId.toString()) }, maxAttempts = CHAT_ATTEMPTS)
+        AiJobAccepted(req.jobId, AiJobStatus.Queued)
+    }
+
+    private suspend fun reviewFindings(job: QueuedJob) {
+        val jobId = UUID.fromString(job.payload["aiJobId"]!!.jsonPrimitive.content)
+        val row = db.tx { AiJobs.selectAll().where { AiJobs.id eq jobId }.singleOrNull() } ?: return
+        if (row[AiJobs.status] == AiJobStatus.Done.wireName) return
+        val roomId = row[AiJobs.roomId]
+        val askerId = row[AiJobs.requestedBy] ?: return
+        val req = row[AiJobs.request]
+        val documentId = UUID.fromString(req["documentId"]!!.jsonPrimitive.content)
+        val versionId = UUID.fromString(req["versionId"]!!.jsonPrimitive.content)
+        markRunning(jobId)
+        val gateway = gateway ?: return fail(jobId, roomId, "AI 服务没有开启")
+
+        data class Input(val title: String, val version: Int, val pages: List<ReviewPage>, val known: List<AiFinding>)
+        val input = db.tx(readOnly = true) {
+            val title = ReviewDocuments.select(ReviewDocuments.title).where { (ReviewDocuments.id eq documentId) and ReviewDocuments.deletedAt.isNull() }
+                .singleOrNull()?.get(ReviewDocuments.title) ?: return@tx null
+            val version = ReviewVersions.select(ReviewVersions.version).where { ReviewVersions.id eq versionId }.singleOrNull()?.get(ReviewVersions.version) ?: return@tx null
+            val pages = ReviewPages.selectAll().where { ReviewPages.versionId eq versionId }.orderBy(ReviewPages.pageNo).map {
+                ReviewPage(it[ReviewPages.pageNo], it[ReviewPages.width], it[ReviewPages.height], it[ReviewPages.imageFileId], it[ReviewPages.textLayer], it[ReviewPages.images])
+            }
+            val known = AiFindings.selectAll().where { (AiFindings.versionId eq versionId) and AiFindings.deletedAt.isNull() }.map { it.toAiFinding() }
+            Input(title, version, pages, known)
+        } ?: return fail(jobId, roomId, "审稿文件已经删除了")
+
+        // 原文：每块前面带编号；太长时只发前面一部分
+        val lines = input.pages.flatMap { p -> p.blocks.filter { it.text.isNotBlank() }.map { "[${it.id}] ${it.text.replace(Regex("\\s+"), " ").trim()}" } }
+        if (lines.isEmpty()) return fail(jobId, roomId, "这一版里没有能读的文字（可能是扫描件）")
+        val text = StringBuilder()
+        var truncated = false
+        for (line in lines) {
+            if (text.length + line.length > Limits.REVIEW_AI_TEXT_MAX) { truncated = true; break }
+            text.appendLine(line)
+        }
+        val rendered = prompts.render(
+            "review_findings",
+            mapOf(
+                "title" to input.title,
+                "version" to input.version.toString(),
+                "max" to Limits.FINDINGS_MAX.toString(),
+                "truncated" to if (truncated) "（文件太长，下面只有前面一部分）\n" else "",
+                "known" to input.known.filter { it.status != FindingStatus.Dismissed }.joinToString("\n") { "- ${it.title}" }.ifEmpty { "（无）" },
+                "text" to text.toString().trim(),
+            ),
+        )
+        val result = try {
+            gateway.complete(AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)), maxTokens = REVIEW_MAX_TOKENS))
+        } catch (e: AiProviderException) {
+            log.warn("审稿 AI 失败（第 {} 次）：{}", job.attempts, e.message)
+            if (e.retryable && !job.isLastAttempt) throw e
+            return fail(jobId, roomId, "AI 没有给出结果")
+        }
+        // 已经记下过的（证据原文一样）不再重复
+        val knownQuotes = input.known.map { f -> f.evidence.map { FindingParser.compact(it.quote) }.toSet() }
+        val parsed = FindingParser.parse(result.text, input.pages).filter { f -> f.evidence.map { FindingParser.compact(it.quote) }.toSet() !in knownQuotes }
+        db.tx {
+            val now = clock.instant()
+            for (f in parsed) {
+                val id = UuidV7.generate()
+                val seq = writer.change(this, roomId, EntityType.AiFinding, id, askerId, now)
+                AiFindings.insert {
+                    it[AiFindings.id] = id
+                    it[AiFindings.roomId] = roomId
+                    it[AiFindings.seq] = seq
+                    it[createdAt] = now
+                    it[updatedAt] = now
+                    it[AiFindings.documentId] = documentId
+                    it[AiFindings.versionId] = versionId
+                    it[AiFindings.jobId] = jobId
+                    it[requestedBy] = askerId
+                    it[title] = f.title
+                    it[body] = f.body
+                    it[evidence] = f.evidence
+                    it[status] = FindingStatus.New.wireName
+                }
+            }
+            AiJobs.update({ AiJobs.id eq jobId }) {
+                it[status] = AiJobStatus.Done.wireName
+                it[model] = result.model
+                it[inputTokens] = result.inputTokens
+                it[outputTokens] = result.outputTokens
+                it[resultRef] = "ai_finding:${parsed.size}"
                 it[error] = null
                 it[finishedAt] = now
                 it[updatedAt] = now
@@ -706,6 +857,8 @@ class AiService(
         const val JOB_READ = "ai.read_explain"
         const val JOB_SUMMARY = "ai.summary"
         const val JOB_YEARLY_CHECK = "ai.yearly_check"
+        const val JOB_REVIEW = "ai.review_findings"
+        private const val REVIEW_MAX_TOKENS = 3000
         private val YEARLY_CHECK_EVERY: java.time.Duration = java.time.Duration.ofHours(6)
         private const val READ_TEXT_MAX = 2000
         private const val READ_CONTEXT_MAX = 500

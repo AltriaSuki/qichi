@@ -90,6 +90,13 @@ object Limits {
     const val ANCHOR_QUOTE_MAX: Int = 500
     const val REVIEW_MAX_PAGES: Int = 300
 
+    /** 审稿 AI：一次最多几条发现、每条最多几条证据、标题和说明多长；发给 AI 的原文最多多少字 */
+    const val FINDINGS_MAX: Int = 12
+    const val FINDING_EVIDENCE_MAX: Int = 3
+    const val FINDING_TITLE_MAX: Int = 60
+    const val FINDING_BODY_MAX: Int = 600
+    const val REVIEW_AI_TEXT_MAX: Int = 40_000
+
     const val IMAGE_MAX_BYTES: Long = 20L * 1024 * 1024
     const val FILE_MAX_BYTES: Long = 100L * 1024 * 1024
     val THUMBNAIL_WIDTHS: Set<Int> = setOf(200, 400, 800)

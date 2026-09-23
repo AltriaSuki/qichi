@@ -10,8 +10,11 @@ import app.qichi.core.data.ReviewUploadException
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.network.ApiException
 import app.qichi.core.network.FileUrls
+import app.qichi.core.network.NetworkMonitor
+import app.qichi.core.sync.RealtimeClient
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.zoneOf
+import app.qichi.shared.api.AiFinding
 import app.qichi.shared.api.Annotation
 import app.qichi.shared.api.AnnotationAnchor
 import app.qichi.shared.api.AnnotationReply
@@ -19,7 +22,11 @@ import app.qichi.shared.api.ReviewDiff
 import app.qichi.shared.api.ReviewDocument
 import app.qichi.shared.api.ReviewPage
 import app.qichi.shared.api.ReviewVersion
+import app.qichi.shared.model.AiJobStatus
 import app.qichi.shared.model.AnnotationKind
+import app.qichi.shared.model.FindingStatus
+import app.qichi.shared.model.wireName
+import app.qichi.shared.util.UuidV7
 import app.qichi.shared.model.AnnotationStatus
 import app.qichi.shared.model.PreviewStatus
 import app.qichi.shared.model.ProblemCode
@@ -33,7 +40,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -155,6 +165,14 @@ sealed interface PagesState {
     data class Error(val message: String) : PagesState
 }
 
+/** 一条 AI 发现：[carriedFrom] 是从 v 几带过来的。 */
+data class FindingItem(val local: Local<AiFinding>, val carriedFrom: Int?) {
+    val value: AiFinding get() = local.value
+}
+
+/** 审稿 AI 的状态：在不在等结果、上次有没有失败、AI 开没开、有没有网。 */
+data class AiState(val pending: UUID? = null, val failed: String? = null, val enabled: Boolean = false, val online: Boolean = true, val lastCount: Int? = null)
+
 data class ReviewState(
     val people: People = People.Empty,
     val zone: ZoneId = ZoneId.systemDefault(),
@@ -162,8 +180,11 @@ data class ReviewState(
     val versions: List<ReviewVersion> = emptyList(),
     val version: ReviewVersion? = null,
     val annotations: List<AnnotationItem> = emptyList(),
+    val findings: List<FindingItem> = emptyList(),
+    val ai: AiState = AiState(),
     val loaded: Boolean = false,
 ) {
+    val newFindings: List<FindingItem> get() = findings.filter { it.value.status == FindingStatus.New }
     val open: List<AnnotationItem> get() = annotations.filter { it.value.status == AnnotationStatus.Open }
     val resolved: List<AnnotationItem> get() = annotations.filter { it.value.status != AnnotationStatus.Open }
 }
@@ -176,8 +197,11 @@ class ReviewViewModel @AssistedInject constructor(
     val urls: FileUrls,
     rooms: RoomRepository,
     session: SessionManager,
+    network: NetworkMonitor,
+    realtime: RealtimeClient,
 ) : ViewModel() {
     val me: UUID? = session.currentUserId
+    private val ai = MutableStateFlow(AiState())
     private val people = combine(rooms.observeRoom(roomId), rooms.observeMembers(roomId)) { room, members -> People(room, members, session.currentUserId) }
 
     /** 选中的版本号；为空 = 最新的 */
@@ -185,14 +209,26 @@ class ReviewViewModel @AssistedInject constructor(
 
     val state: StateFlow<ReviewState> = combine(
         people, reviews.observeDocuments(roomId), reviews.observeVersions(roomId),
-        combine(reviews.observeAnnotations(roomId), reviews.observeReplies(roomId), selected) { a, r, s -> Triple(a, r, s) },
-    ) { p, docs, allVersions, (anns, replies, sel) ->
+        combine(reviews.observeAnnotations(roomId), reviews.observeReplies(roomId), selected, reviews.observeFindings(roomId),
+            combine(ai, network.isOnline, rooms.me) { a, online, me -> a.copy(online = online, enabled = me?.aiEnabled == true) }) { a, r, s, f, aiState ->
+            Env(a, r, s, f, aiState)
+        },
+    ) { p, docs, allVersions, env ->
+        val (anns, replies, sel) = Triple(env.anns, env.replies, env.selected)
         val doc = docs.firstOrNull { it.id == docId }
         val versions = allVersions.filter { it.documentId == docId }.sortedBy { it.version }
         val version = versions.firstOrNull { it.version == sel } ?: versions.lastOrNull()
         ReviewState(
             people = p, zone = zoneOf(p.room?.timezone), doc = doc, versions = versions, version = version,
             annotations = if (version == null) emptyList() else annotationItems(anns, replies, versions, version.id),
+            findings = if (version == null) emptyList() else {
+                val byId = env.findings.associateBy { it.value.id }
+                val versionNo = versions.associate { it.id to it.version }
+                env.findings.filter { it.value.versionId == version.id && it.value.deletedAt == null }
+                    .sortedBy { it.value.createdAt }
+                    .map { f -> FindingItem(f, f.value.carriedFromId?.let { byId[it]?.value?.versionId }?.let { versionNo[it] }) }
+            },
+            ai = env.ai,
             loaded = true,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ReviewState())
@@ -210,6 +246,25 @@ class ReviewViewModel @AssistedInject constructor(
     val diff: StateFlow<DiffState?> = _diff
 
     init {
+        // 等的 AI 审稿有结果了（实时通道通知；万一漏了，每 5 秒问一次）
+        viewModelScope.launch {
+            realtime.aiDone.collect { e ->
+                if (e.jobId == ai.value.pending) finishAi(e.status == AiJobStatus.Done.wireName)
+            }
+        }
+        viewModelScope.launch {
+            ai.map { it.pending }.distinctUntilChanged().collectLatest { jobId ->
+                jobId ?: return@collectLatest
+                repeat(60) {
+                    delay(5_000)
+                    val job = runCatching { reviews.aiJob(roomId, jobId) }.getOrNull() ?: return@repeat
+                    if (job.status == AiJobStatus.Done || job.status == AiJobStatus.Failed) {
+                        finishAi(job.status == AiJobStatus.Done, job.error)
+                        return@collectLatest
+                    }
+                }
+            }
+        }
         // 版本换了、或者它的预览刚生成好：重新取预览页
         viewModelScope.launch {
             state.map { s -> s.doc to s.version }.distinctUntilChanged { a, b ->
@@ -284,11 +339,67 @@ class ReviewViewModel @AssistedInject constructor(
         }
     }
 
+    /** 本次授权 AI 审当前这一版。返回不能开始的原因（没有就是开始了）。 */
+    fun askAi(): String? {
+        val s = state.value
+        val doc = s.doc ?: return null
+        val version = s.version ?: return null
+        when {
+            !s.ai.online -> return "需要联网"
+            !s.ai.enabled -> return "AI 还没有开启（要在服务器上配置）"
+            s.ai.pending != null -> return "AI 还在看"
+            version.previewStatus != PreviewStatus.Ready -> return "预览生成好之后才能请 AI 看"
+        }
+        val jobId = UuidV7.generate()
+        val before = s.findings.size
+        ai.value = AiState(pending = jobId, lastCount = before)
+        viewModelScope.launch {
+            try {
+                reviews.askAi(doc, version, jobId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val reason = when ((e as? ApiException)?.code) {
+                    ProblemCode.AiQuotaExceeded -> "这个月的 AI 额度用完了"
+                    ProblemCode.AiUnavailable -> "AI 还没有开启"
+                    else -> "没能发给 AI，稍后再试"
+                }
+                ai.update { if (it.pending == jobId) it.copy(pending = null, failed = reason) else it }
+            }
+        }
+        return null
+    }
+
+    private fun finishAi(done: Boolean, error: String? = null) {
+        val before = ai.value.lastCount ?: 0
+        ai.update { it.copy(pending = null, failed = if (done) null else (error ?: "AI 没有给出结果")) }
+        if (done) viewModelScope.launch {
+            // 等同步把新的发现带回来再说有几条
+            delay(1_500)
+            val added = state.value.findings.size - before
+            _message.value = if (added > 0) "AI 找到 $added 个值得看的地方" else "AI 没发现明显的问题"
+        }
+    }
+
+    fun dismiss(f: AiFinding) = viewModelScope.launch { reviews.dismiss(f) }
+    fun convert(f: AiFinding) = viewModelScope.launch {
+        reviews.convert(f)
+        _message.value = "转成批注了"
+    }
+
     fun closeDiff() { _diff.value = null }
     fun messageShown() { _message.value = null }
 
     @AssistedFactory
     interface Factory { fun create(@Assisted("room") roomId: UUID, @Assisted("doc") docId: UUID): ReviewViewModel }
 }
+
+private data class Env(
+    val anns: List<Local<Annotation>>,
+    val replies: List<Local<AnnotationReply>>,
+    val selected: Int?,
+    val findings: List<Local<AiFinding>>,
+    val ai: AiState,
+)
 
 data class DiffState(val from: Int, val to: Int, val diff: ReviewDiff?, val error: String?)

@@ -40,6 +40,7 @@ enum class EntityType {
     @SerialName("review_version") ReviewVersion,
     @SerialName("annotation") Annotation,
     @SerialName("annotation_reply") AnnotationReply,
+    @SerialName("ai_finding") AiFinding,
 }
 
 /** 变化类型：软删除与恢复都是 upsert，只有彻底删除是 delete。 */
@@ -275,4 +276,12 @@ enum class AnnotationStatus {
     @SerialName("open") Open,
     @SerialName("accepted") Accepted,
     @SerialName("archived") Archived,
+}
+
+/** AI 审稿发现的状态：新的、忽略了、转成了人工批注。 */
+@Serializable
+enum class FindingStatus {
+    @SerialName("new") New,
+    @SerialName("dismissed") Dismissed,
+    @SerialName("converted") Converted,
 }

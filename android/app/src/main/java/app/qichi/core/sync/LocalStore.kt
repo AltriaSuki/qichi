@@ -15,6 +15,7 @@ import app.qichi.shared.api.BoardPost
 import app.qichi.shared.api.Book
 import app.qichi.shared.api.Decision
 import app.qichi.shared.api.Summary
+import app.qichi.shared.api.AiFinding
 import app.qichi.shared.api.Annotation
 import app.qichi.shared.api.AnnotationReply
 import app.qichi.shared.api.ReviewDocument
@@ -83,6 +84,9 @@ data class OutboxOp(
          * 基线落后（409）或被拒绝时只丢掉这条操作，草稿原样留着，界面据此进入「重基线」。
          */
         const val KIND_DOC_VERSION = "document.version"
+
+        /** AI 发现转成批注：响应是新建的批注；发现本身按本机状态标为已同步，之后的同步会带来服务端的版本 */
+        const val KIND_FINDING_CONVERT = "ai_finding.convert"
 
         /** 保存阅读进度：服务端已有我的进度时返回的 id 可能和本机不同，本机多出来的那条删掉 */
         const val KIND_READING_PROGRESS = "reading_progress"
@@ -278,6 +282,11 @@ class LocalStore(
         }
     }
 
+    /** 操作成功但响应不是这个实体（例如 AI 发现转批注）：没有别的待发操作时标为已同步。 */
+    suspend fun markSynced(type: String, id: String) {
+        if (outbox.pendingCountFor(type, id) == 0) entities.setState(type, id, SyncState.SYNCED)
+    }
+
     suspend fun markConflict(type: String, id: String) {
         entities.setState(type, id, SyncState.CONFLICT)
     }
@@ -319,6 +328,7 @@ class LocalStore(
             is ReviewVersion -> EntityType.ReviewVersion
             is Annotation -> EntityType.Annotation
             is AnnotationReply -> EntityType.AnnotationReply
+            is AiFinding -> EntityType.AiFinding
         }
 
         fun encode(type: EntityType, entity: SyncEntity): String =
@@ -392,6 +402,7 @@ class LocalStore(
                 is ReviewVersion -> base(entity.roomId, entity.deletedAt != null, entity.uploadedBy, entity.documentId, entity.version.toLong(), entity.createdAt.toEpochMilli())
                 is Annotation -> base(entity.roomId, entity.deletedAt != null, entity.authorId, entity.documentId, null, entity.createdAt.toEpochMilli())
                 is AnnotationReply -> base(entity.roomId, entity.deletedAt != null, entity.authorId, entity.annotationId, null, entity.createdAt.toEpochMilli())
+                is AiFinding -> base(entity.roomId, entity.deletedAt != null, entity.requestedBy, entity.documentId, null, entity.createdAt.toEpochMilli())
             }
         }
     }

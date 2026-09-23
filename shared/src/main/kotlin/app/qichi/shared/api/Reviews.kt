@@ -3,6 +3,7 @@ package app.qichi.shared.api
 import app.qichi.shared.model.AnchorKind
 import app.qichi.shared.model.AnnotationKind
 import app.qichi.shared.model.AnnotationStatus
+import app.qichi.shared.model.FindingStatus
 import app.qichi.shared.model.PreviewStatus
 import app.qichi.shared.model.ReviewFormat
 import kotlinx.serialization.EncodeDefault
@@ -184,3 +185,52 @@ data class UpdateAnnotationRequest(
 
 @Serializable
 data class CreateAnnotationReplyRequest(val id: Id, val body: String)
+
+// ── 审稿 AI（P7-03） ──
+
+/** 一条原文证据：原文摘录和它在哪（第几页、文字层里的哪一块）。 */
+@Serializable
+data class FindingEvidence(
+    val page: Int,
+    val ref: String,
+    val quote: String,
+    val rect: NormRect,
+)
+
+/**
+ * 同步实体 ai_finding：AI 审稿时发现的一个问题，一定带原文证据和定位。AI 只提出问题，不替人定稿：
+ * 两人决定忽略它，或者转成一条人工批注。新版本的预览生成后，还是「新的」发现如果原文还在就带过去（[carriedFromId]），
+ * 原文找不到了就在旧的上面记下 [goneInVersion]（可能已经改好了）。
+ */
+@Serializable
+data class AiFinding(
+    override val id: Id,
+    val roomId: Id,
+    override val seq: Long,
+    val createdAt: Timestamp,
+    val updatedAt: Timestamp,
+    val deletedAt: Timestamp?,
+    val deletedBy: Id?,
+    val documentId: Id,
+    val versionId: Id,
+    /** 哪次 AI 审稿产生的（带过来的沿用原来的） */
+    val jobId: Id,
+    val requestedBy: Id?,
+    val title: String,
+    val body: String,
+    val evidence: List<FindingEvidence>,
+    val status: FindingStatus,
+    val convertedAnnotationId: Id?,
+    val carriedFromId: Id?,
+    /** 在这个版本里找不到证据原文了（可能已经改好） */
+    val goneInVersion: Int?,
+    val resolvedBy: Id?,
+) : SyncEntity
+
+/** 本次授权 AI 审这个版本 → 202；结果是若干条 ai_finding（jobId = 这里的 jobId）。 */
+@Serializable
+data class AiReviewFindingsRequest(val jobId: Id, val documentId: Id, val versionId: Id)
+
+/** 把发现转成人工批注：批注 id 由客户端生成（离线补发不重复）。 */
+@Serializable
+data class ConvertFindingRequest(val annotationId: Id)

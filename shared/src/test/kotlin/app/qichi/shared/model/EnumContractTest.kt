@@ -56,6 +56,7 @@ class EnumContractTest {
     @Test fun anchorKind() = assertMatches<AnchorKind>("AnchorKind")
     @Test fun annotationKind() = assertMatches<AnnotationKind>("AnnotationKind")
     @Test fun annotationStatus() = assertMatches<AnnotationStatus>("AnnotationStatus")
+    @Test fun findingStatus() = assertMatches<FindingStatus>("FindingStatus")
     @Test fun diffKind() = assertMatches<app.qichi.shared.api.DiffKind>("DiffKind")
 
     @Test

@@ -1,5 +1,6 @@
 package app.qichi.server.review
 
+import app.qichi.server.db.AiFindings
 import app.qichi.server.db.AnnotationReplies
 import app.qichi.server.db.Annotations
 import app.qichi.server.db.EntityWrites
@@ -21,6 +22,8 @@ import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
 import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomService
+import app.qichi.shared.api.AiFinding
+import app.qichi.shared.api.ConvertFindingRequest
 import app.qichi.shared.api.Annotation
 import app.qichi.shared.api.AnnotationAnchor
 import app.qichi.shared.api.AnnotationReply
@@ -43,6 +46,7 @@ import app.qichi.shared.model.AnnotationKind
 import app.qichi.shared.model.AnnotationStatus
 import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.FileKind
+import app.qichi.shared.model.FindingStatus
 import app.qichi.shared.model.PreviewStatus
 import app.qichi.shared.model.ProblemCode
 import app.qichi.shared.model.ReviewFormat
@@ -103,6 +107,17 @@ fun ResultRow.toAnnotation() = Annotation(
     authorId = this[Annotations.authorId], kind = fromWire(this[Annotations.kind]), status = fromWire(this[Annotations.status]),
     body = this[Annotations.body], carriedFromId = this[Annotations.carriedFromId], anchorLost = this[Annotations.anchorLost],
     resolvedBy = this[Annotations.resolvedBy], resolvedAt = this[Annotations.resolvedAt],
+)
+
+fun ResultRow.toAiFinding() = AiFinding(
+    id = this[AiFindings.id], roomId = this[AiFindings.roomId], seq = this[AiFindings.seq],
+    createdAt = this[AiFindings.createdAt], updatedAt = this[AiFindings.updatedAt],
+    deletedAt = this[AiFindings.deletedAt], deletedBy = this[AiFindings.deletedBy],
+    documentId = this[AiFindings.documentId], versionId = this[AiFindings.versionId], jobId = this[AiFindings.jobId],
+    requestedBy = this[AiFindings.requestedBy], title = this[AiFindings.title], body = this[AiFindings.body],
+    evidence = this[AiFindings.evidence], status = fromWire(this[AiFindings.status]),
+    convertedAnnotationId = this[AiFindings.convertedAnnotationId], carriedFromId = this[AiFindings.carriedFromId],
+    goneInVersion = this[AiFindings.goneInVersion], resolvedBy = this[AiFindings.resolvedBy],
 )
 
 fun ResultRow.toAnnotationReply() = AnnotationReply(
@@ -323,7 +338,9 @@ class ReviewService(
                     }
                 }
                 systemUpdateVersion(this, v.roomId, versionId, PreviewStatus.Ready, count, null)
-                carryAnnotations(this, current, loadPages(versionId))
+                val pages = loadPages(versionId)
+                carryAnnotations(this, current, pages)
+                carryFindings(this, current, pages)
             }
         } catch (e: PreviewFailure) {
             markFailed(v, e.message ?: "预览没能生成")
@@ -409,6 +426,110 @@ class ReviewService(
                 it[anchorLost] = lost
             }
         }
+    }
+
+    /**
+     * AI 发现的跨版本追踪：上一个预览好的版本里还是「新的」发现，证据原文在这版里还都找得到就带过来；
+     * 找不到了就在旧的上面记下「在第几版里找不到了」（可能已经改好）。
+     */
+    private fun carryFindings(tx: Tx, target: ReviewVersion, pages: List<ReviewPage>) {
+        if (pages.isEmpty()) return
+        val previous = ReviewVersions.selectAll()
+            .where {
+                (ReviewVersions.documentId eq target.documentId) and (ReviewVersions.version less target.version) and
+                    (ReviewVersions.previewStatus eq PreviewStatus.Ready.wireName)
+            }
+            .orderBy(ReviewVersions.version, SortOrder.DESC).limit(1).singleOrNull()?.get(ReviewVersions.id) ?: return
+        val open = AiFindings.selectAll().where {
+            (AiFindings.versionId eq previous) and (AiFindings.status eq FindingStatus.New.wireName) and AiFindings.deletedAt.isNull()
+        }.map { it.toAiFinding() }
+        val blocks = pages.flatMap { p -> p.blocks.map { b -> Triple(p.page, b, FindingParser.compact(b.text)) } }
+        for (old in open) {
+            if (AiFindings.select(AiFindings.id).where { (AiFindings.carriedFromId eq old.id) and (AiFindings.versionId eq target.id) }.any()) continue
+            val moved = old.evidence.map { e ->
+                val q = FindingParser.compact(e.quote)
+                blocks.firstOrNull { it.third.contains(q) }?.let { (page, block, _) -> e.copy(page = page, ref = block.id, rect = block.rect) }
+            }
+            val now = clock.instant()
+            if (moved.all { it != null }) {
+                val id = UuidV7.generate()
+                val seq = writer.change(tx, target.roomId, EntityType.AiFinding, id, null, now)
+                AiFindings.insert {
+                    it[AiFindings.id] = id
+                    it[roomId] = target.roomId
+                    it[AiFindings.seq] = seq
+                    it[createdAt] = now
+                    it[updatedAt] = now
+                    it[documentId] = target.documentId
+                    it[versionId] = target.id
+                    it[jobId] = old.jobId
+                    it[requestedBy] = old.requestedBy
+                    it[title] = old.title
+                    it[body] = old.body
+                    it[evidence] = moved.filterNotNull()
+                    it[status] = FindingStatus.New.wireName
+                    it[carriedFromId] = old.id
+                }
+            } else if (old.goneInVersion == null) {
+                val seq = writer.change(tx, target.roomId, EntityType.AiFinding, old.id, null, now)
+                AiFindings.update({ AiFindings.id eq old.id }) {
+                    it[AiFindings.seq] = seq
+                    it[updatedAt] = now
+                    it[goneInVersion] = target.version
+                }
+            }
+        }
+    }
+
+    // ── AI 发现：忽略、转成批注（AI 只提出，人来决定） ──
+
+    private fun finding(id: UUID) = AiFindings.selectAll().where { AiFindings.id eq id }.singleOrNull()?.toAiFinding()
+
+    private fun liveFinding(roomId: UUID, id: UUID): AiFinding {
+        val f = finding(id)?.takeIf { it.roomId == roomId && it.deletedAt == null } ?: notFound()
+        liveDocument(roomId, f.documentId)
+        return f
+    }
+
+    suspend fun dismissFinding(userId: UUID, roomId: UUID, id: UUID): AiFinding = db.tx {
+        rooms.requireMember(roomId, userId)
+        val f = liveFinding(roomId, id)
+        if (f.status == FindingStatus.New) {
+            writes.update(this, roomId, userId, EntityType.AiFinding, id, AiFindings) {
+                it[AiFindings.status] = FindingStatus.Dismissed.wireName
+                it[AiFindings.resolvedBy] = userId
+            }
+        }
+        finding(id)!!
+    }
+
+    /** 转成一条人工批注：作者是自己，钉在第一条证据那一块上；正文是发现的概括和说明。 */
+    suspend fun convertFinding(userId: UUID, roomId: UUID, id: UUID, req: ConvertFindingRequest): Pair<Annotation, Boolean> = db.tx {
+        rooms.requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId)
+        val f = liveFinding(roomId, id)
+        f.convertedAnnotationId?.let { existing -> annotation(existing)?.let { return@tx it to false } }
+        annotation(req.annotationId)?.let { throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用") }
+        val first = f.evidence.first()
+        val page = loadPages(f.versionId).firstOrNull { it.page == first.page }
+        val kind = page?.blocks?.firstOrNull { it.id == first.ref }?.kind ?: AnchorKind.Paragraph
+        val body = listOf(f.title, f.body).filter { it.isNotBlank() }.joinToString("\n").take(Limits.ANNOTATION_BODY_LENGTH.last)
+        val created = writes.create(this, roomId, userId, EntityType.Annotation, req.annotationId, Annotations, ::annotation) {
+            it[Annotations.documentId] = f.documentId
+            it[Annotations.versionId] = f.versionId
+            it[Annotations.anchor] = AnnotationAnchor(first.page, kind, first.rect, first.ref, first.quote)
+            it[Annotations.authorId] = userId
+            it[Annotations.kind] = AnnotationKind.Comment.wireName
+            it[Annotations.status] = AnnotationStatus.Open.wireName
+            it[Annotations.body] = body
+            it[Annotations.anchorLost] = false
+        }
+        writes.update(this, roomId, userId, EntityType.AiFinding, id, AiFindings) {
+            it[AiFindings.status] = FindingStatus.Converted.wireName
+            it[AiFindings.convertedAnnotationId] = req.annotationId
+            it[AiFindings.resolvedBy] = userId
+        }
+        created
     }
 
     // ── 批注与讨论 ──

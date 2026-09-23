@@ -1721,6 +1721,56 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
+  /rooms/{roomId}/ai/review-findings:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [reviews, ai]
+      operationId: requestReviewFindings
+      summary: 本次授权 AI 审这个版本（只发文字层，不发图片）→ 202；结果是若干条 ai_finding，每条都带原文证据和定位
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AiReviewFindingsRequest' } } }
+      responses:
+        '202': { description: 已排队, content: { application/json: { schema: { $ref: '#/components/schemas/AiJobAccepted' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/AiQuotaExceeded' }
+        '503': { $ref: '#/components/responses/AiUnavailable' }
+
+  /rooms/{roomId}/ai-findings/{id}/convert:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [reviews]
+      operationId: convertFinding
+      summary: 把 AI 发现转成一条人工批注（作者是自己，钉在第一条证据上）；已经转过的返回那条批注
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ConvertFindingRequest' } } }
+      responses:
+        '200': { description: 已经转过, content: { application/json: { schema: { $ref: '#/components/schemas/Annotation' } } } }
+        '201': { description: 已转为批注, content: { application/json: { schema: { $ref: '#/components/schemas/Annotation' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/ai-findings/{id}/dismiss:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [reviews]
+      operationId: dismissFinding
+      summary: 忽略这条 AI 发现
+      responses:
+        '200': { description: 忽略后的发现, content: { application/json: { schema: { $ref: '#/components/schemas/AiFinding' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /rooms/{roomId}/timeline:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -2812,7 +2862,7 @@ components:
     EntityType:
       type: string
       description: 与 `shared/model/EntityType` 一致，后续阶段追加
-      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document, board_topic, board_post, board_reaction, archive_item, decision, book, reading_progress, highlight, summary, review_document, review_version, annotation, annotation_reply]
+      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document, board_topic, board_post, board_reaction, archive_item, decision, book, reading_progress, highlight, summary, review_document, review_version, annotation, annotation_reply, ai_finding]
     ChangeOp:
       type: string
       description: '`upsert` 包括软删除与恢复；只有彻底删除是 `delete`'
@@ -2864,6 +2914,7 @@ components:
             - $ref: '#/components/schemas/ReviewVersion'
             - $ref: '#/components/schemas/Annotation'
             - $ref: '#/components/schemas/AnnotationReply'
+            - $ref: '#/components/schemas/AiFinding'
             - type: 'null'
     SyncResponse:
       type: object
@@ -2877,7 +2928,7 @@ components:
           items: { $ref: '#/components/schemas/Change' }
     Bootstrap:
       type: object
-      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents, boardTopics, boardPosts, boardReactions, archiveItems, decisions, books, readingProgress, highlights, summaries, reviewDocuments, reviewVersions, annotations, annotationReplies]
+      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents, boardTopics, boardPosts, boardReactions, archiveItems, decisions, books, readingProgress, highlights, summaries, reviewDocuments, reviewVersions, annotations, annotationReplies, aiFindings]
       properties:
         room: { $ref: '#/components/schemas/Room' }
         members:
@@ -2935,6 +2986,7 @@ components:
         reviewVersions: { type: array, items: { $ref: '#/components/schemas/ReviewVersion' } }
         annotations: { type: array, items: { $ref: '#/components/schemas/Annotation' } }
         annotationReplies: { type: array, items: { $ref: '#/components/schemas/AnnotationReply' } }
+        aiFindings: { type: array, items: { $ref: '#/components/schemas/AiFinding' } }
     WsHello:
       type: object
       required: [type, userId, rooms]
@@ -4030,6 +4082,49 @@ components:
       properties:
         id: { $ref: '#/components/schemas/Uuid' }
         body: { type: string, minLength: 1, maxLength: 2000 }
+
+    FindingStatus:
+      type: string
+      enum: [new, dismissed, converted]
+    FindingEvidence:
+      type: object
+      required: [page, ref, quote, rect]
+      properties:
+        page: { type: integer, minimum: 1 }
+        ref: { type: string, description: 文字层里的块 id }
+        quote: { type: string, description: 原文摘录（一定是那一块里的原话） }
+        rect: { $ref: '#/components/schemas/NormRect' }
+    AiFinding:
+      description: 同步实体类型 `ai_finding`（P7-03）：AI 审稿发现，一定带原文证据；只能忽略或转为人工批注，AI 不替人定稿
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [documentId, versionId, jobId, requestedBy, title, body, evidence, status, convertedAnnotationId, carriedFromId, goneInVersion, resolvedBy]
+          properties:
+            documentId: { $ref: '#/components/schemas/Uuid' }
+            versionId: { $ref: '#/components/schemas/Uuid' }
+            jobId: { $ref: '#/components/schemas/Uuid' }
+            requestedBy: { $ref: '#/components/schemas/NullableUuid' }
+            title: { type: string, maxLength: 60 }
+            body: { type: string, maxLength: 600 }
+            evidence: { type: array, minItems: 1, maxItems: 3, items: { $ref: '#/components/schemas/FindingEvidence' } }
+            status: { $ref: '#/components/schemas/FindingStatus' }
+            convertedAnnotationId: { $ref: '#/components/schemas/NullableUuid' }
+            carriedFromId: { $ref: '#/components/schemas/NullableUuid' }
+            goneInVersion: { type: [integer, 'null'], description: 在这个版本里找不到证据原文了（可能已改好） }
+            resolvedBy: { $ref: '#/components/schemas/NullableUuid' }
+    AiReviewFindingsRequest:
+      type: object
+      required: [jobId, documentId, versionId]
+      properties:
+        jobId: { $ref: '#/components/schemas/Uuid' }
+        documentId: { $ref: '#/components/schemas/Uuid' }
+        versionId: { $ref: '#/components/schemas/Uuid' }
+    ConvertFindingRequest:
+      type: object
+      required: [annotationId]
+      properties:
+        annotationId: { $ref: '#/components/schemas/Uuid' }
 
     # ── 回收站 ──
     TrashType:

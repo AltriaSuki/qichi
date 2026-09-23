@@ -69,6 +69,7 @@ data class Bootstrap(
     val reviewVersions: List<ReviewVersion> = emptyList(),
     val annotations: List<Annotation> = emptyList(),
     val annotationReplies: List<AnnotationReply> = emptyList(),
+    val aiFindings: List<AiFinding> = emptyList(),
 )
 
 /** 实体类型 ⇄ 数据类的对应关系，两端共用。 */
@@ -105,6 +106,7 @@ object EntityCodec {
         EntityType.ReviewVersion -> ReviewVersion.serializer()
         EntityType.Annotation -> Annotation.serializer()
         EntityType.AnnotationReply -> AnnotationReply.serializer()
+        EntityType.AiFinding -> AiFinding.serializer()
     } as KSerializer<Any>
 
     fun decode(type: EntityType, data: JsonElement): Any = QichiJson.decodeFromJsonElement(serializer(type), data)

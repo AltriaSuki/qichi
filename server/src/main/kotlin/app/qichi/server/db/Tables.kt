@@ -3,6 +3,7 @@ package app.qichi.server.db
 import app.qichi.shared.api.DecisionConcern
 import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.AnnotationAnchor
+import app.qichi.shared.api.FindingEvidence
 import app.qichi.shared.api.NormRect
 import app.qichi.shared.api.SummarySource
 import app.qichi.shared.api.TextBlock
@@ -422,6 +423,21 @@ object AnnotationReplies : SyncedTable("annotation_replies") {
     val annotationId = javaUUID("annotation_id")
     val authorId = javaUUID("author_id")
     val body = text("body")
+}
+
+object AiFindings : SyncedTable("ai_findings") {
+    val documentId = javaUUID("document_id")
+    val versionId = javaUUID("version_id")
+    val jobId = javaUUID("job_id")
+    val requestedBy = javaUUID("requested_by").nullable()
+    val title = text("title")
+    val body = text("body")
+    val evidence = jsonb("evidence", QichiJson, ListSerializer(FindingEvidence.serializer()))
+    val status = text("status")
+    val convertedAnnotationId = javaUUID("converted_annotation_id").nullable()
+    val carriedFromId = javaUUID("carried_from_id").nullable()
+    val goneInVersion = integer("gone_in_version").nullable()
+    val resolvedBy = javaUUID("resolved_by").nullable()
 }
 
 object Devices : Table("devices") {

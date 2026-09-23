@@ -227,6 +227,6 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | GET | `/rooms/{roomId}/reviews/{id}/diff?from=&to=` | 版本间文字差异 |
 | POST · PATCH · DELETE | `/rooms/{roomId}/reviews/{id}/annotations[/{annId}]` | 批注、提议；状态：open → accepted / archived（两人都能改）；正文只有作者能改、只能删自己的 |
 | POST | `/rooms/{roomId}/annotations/{annId}/replies` | 讨论 |
-| POST | `/rooms/{roomId}/ai/review-findings` | 本次授权 AI 出审稿发现 → 202 |
-| POST | `/rooms/{roomId}/ai-findings/{id}/convert` | 转为人工批注 |
+| POST | `/rooms/{roomId}/ai/review-findings` | 本次授权 AI 出审稿发现 → 202（只发文字层；结果是若干条 `ai_finding`，证据核对不上原文的丢掉） |
+| POST | `/rooms/{roomId}/ai-findings/{id}/convert` | 转为人工批注（请求带客户端生成的 `annotationId`，可经发件箱补发；作者是自己，钉在第一条证据上） |
 | POST | `/rooms/{roomId}/ai-findings/{id}/dismiss` | 忽略 |

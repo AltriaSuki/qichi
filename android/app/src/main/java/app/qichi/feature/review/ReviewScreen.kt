@@ -85,7 +85,9 @@ import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.DiffView
 import app.qichi.core.ui.relativeDay
+import app.qichi.shared.api.AiFinding
 import app.qichi.shared.api.Annotation
+import app.qichi.shared.api.FindingEvidence
 import app.qichi.shared.api.AnnotationAnchor
 import app.qichi.shared.api.DiffKind
 import app.qichi.shared.api.NormRect
@@ -94,6 +96,7 @@ import app.qichi.shared.api.ReviewVersion
 import app.qichi.shared.model.AnchorKind
 import app.qichi.shared.model.AnnotationKind
 import app.qichi.shared.model.AnnotationStatus
+import app.qichi.shared.model.FindingStatus
 import app.qichi.shared.model.PreviewStatus
 import app.qichi.shared.model.ReviewFormat
 import app.qichi.shared.rules.Limits
@@ -143,6 +146,8 @@ fun ReviewScreen(
     var removing by remember { mutableStateOf(false) }
     var tab by rememberSaveable { mutableStateOf(0) }
     var showResolved by rememberSaveable { mutableStateOf(false) }
+    var showResolvedFindings by rememberSaveable { mutableStateOf(false) }
+    var askingAi by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::uploadVersion) }
 
     LaunchedEffect(message) { message?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show(); vm.messageShown() } }
@@ -241,7 +246,7 @@ fun ReviewScreen(
         // 批注 / AI
         Row(Modifier.padding(horizontal = Spacing.page), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
             TabLabel("批注", tab == 0, dot = state.open.isNotEmpty()) { tab = 0 }
-            TabLabel("AI", tab == 1, dot = false) { tab = 1 }
+            TabLabel("AI", tab == 1, dot = state.newFindings.isNotEmpty()) { tab = 1 }
         }
         Column(Modifier.weight(0.42f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
             if (tab == 0) {
@@ -259,8 +264,18 @@ fun ReviewScreen(
                     if (showResolved) state.resolved.forEach { item -> AnnotationRow(item, state.people) { detailId = item.value.id.toString() } }
                 }
             } else {
-                Text("请 AI 帮着找找问题（前后矛盾、数字对不上、漏掉的条款），每次都要你点一下才会发给 AI。这一步马上加上。",
-                    style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.s))
+                AiPanel(
+                    state = state,
+                    onAsk = { askingAi = true },
+                    onEvidence = { e ->
+                        selection = Selection(e.page, AnchorKind.Paragraph, e.rect, e.ref, e.quote)
+                        scope.launch { pagerState.animateScrollToPage((e.page - 1).coerceIn(0, max(readyPages.size - 1, 0))) }
+                    },
+                    onDismiss = vm::dismiss,
+                    onConvert = vm::convert,
+                    showResolved = showResolvedFindings,
+                    onToggleResolved = { showResolvedFindings = !showResolvedFindings },
+                )
             }
             Spacer(Modifier.height(Spacing.l))
         }
@@ -293,6 +308,18 @@ fun ReviewScreen(
                 Spacer(Modifier.height(Spacing.l))
             }
         }
+    }
+    if (askingAi && version != null) {
+        ConfirmDialog(
+            "请 AI 看第 ${version.version} 版？",
+            "会把这一版的文字（不含图片）发给 AI 服务商看一遍，只这一次。AI 只指出值得注意的地方，每条都附原文；要不要改、怎么改，由你们决定。",
+            "发给 AI",
+            onConfirm = {
+                askingAi = false
+                vm.askAi()?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+            },
+            onDismiss = { askingAi = false },
+        )
     }
     if (renaming && doc != null) RenameSheet(doc.title, onSave = { vm.rename(it); renaming = false }, onDismiss = { renaming = false })
     if (removing && doc != null) {
@@ -661,6 +688,100 @@ private fun DiffSheet(d: DiffState, onDismiss: () -> Unit) {
                 }
             }
             Spacer(Modifier.height(Spacing.l))
+        }
+    }
+}
+
+/** 「p. 2 ¶ 3」：第几页第几块。 */
+private fun evidenceLabel(e: FindingEvidence): String = "p. ${e.page} ¶ ${e.ref.substringAfterLast("-b", "?")}"
+
+/** AI 页：每次都要点一下（并确认）才发给 AI；发现带原文证据，只能忽略或转为批注，AI 不替人定稿。 */
+@Composable
+private fun AiPanel(
+    state: ReviewState,
+    onAsk: () -> Unit,
+    onEvidence: (FindingEvidence) -> Unit,
+    onDismiss: (AiFinding) -> Unit,
+    onConvert: (AiFinding) -> Unit,
+    showResolved: Boolean,
+    onToggleResolved: () -> Unit,
+) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    val ai = state.ai
+    Column(Modifier.padding(top = Spacing.xs), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
+        when {
+            ai.pending != null -> Text("AI 正在看这一版……一般一两分钟。可以先做别的，看完会提醒你。", style = type.caption.copy(color = colors.muted))
+            else -> {
+                Text(
+                    "请 AI 帮着找找前后矛盾、数字对不上、说法含糊、漏掉的条款。每次都要你点一下才会发出去。",
+                    style = type.caption.copy(color = colors.muted),
+                )
+                ai.failed?.let { Text(it, style = type.caption.copy(color = colors.accent)) }
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.m), verticalAlignment = Alignment.CenterVertically) {
+                    TextAction(if (state.findings.isEmpty()) "请 AI 看这一版" else "请 AI 再看一遍", onAsk,
+                        enabled = state.version?.previewStatus == PreviewStatus.Ready, color = colors.personB)
+                    if (!ai.enabled) Text("（AI 还没有开启）", style = type.caption.copy(color = colors.faint))
+                    else if (!ai.online) Text("（需要联网）", style = type.caption.copy(color = colors.faint))
+                }
+            }
+        }
+        state.newFindings.forEach { item -> FindingCard(item, onEvidence, onDismiss, onConvert) }
+        val resolved = state.findings.filter { it.value.status != FindingStatus.New }
+        if (resolved.isNotEmpty()) {
+            TextAction(if (showResolved) "收起处理过的" else "处理过的 ${resolved.size} 条", onToggleResolved, color = colors.muted)
+            if (showResolved) resolved.forEach { item ->
+                val f = item.value
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
+                    Text("AI", style = type.numeral.copy(fontSize = 15.tsp, color = colors.faint))
+                    Text(f.title, style = type.body.copy(color = colors.muted), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(if (f.status == FindingStatus.Converted) "已转为批注" else "已忽略", style = type.caption.copy(color = colors.faint))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FindingCard(item: FindingItem, onEvidence: (FindingEvidence) -> Unit, onDismiss: (AiFinding) -> Unit, onConvert: (AiFinding) -> Unit) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    val f = item.value
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(colors.surface).padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("AI", style = type.numeral.copy(fontSize = 19.tsp, color = colors.personB))
+            Text(f.title, style = type.bodyLarge.copy(color = colors.ink), modifier = Modifier.weight(1f))
+        }
+        if (f.body.isNotBlank()) Text(f.body, style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = 4.dp))
+        // 原文证据：两列排开，点一下跳到那一页并圈出那一段
+        f.evidence.chunked(2).forEach { row ->
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                row.forEach { e ->
+                    Column(Modifier.weight(1f).clickable(role = Role.Button, onClickLabel = "看原文") { onEvidence(e) }
+                        .semantics(mergeDescendants = true) { contentDescription = "原文：${e.quote}，第 ${e.page} 页" }) {
+                        Text("“${e.quote}”", style = type.body.copy(color = colors.ink), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        Text(evidenceLabel(e), style = type.numeral.copy(fontSize = 15.tsp, color = colors.muted))
+                    }
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+        val notes = buildList {
+            item.carriedFrom?.let { add("v$it 里就有") }
+            f.goneInVersion?.let { add("v$it 里找不到这段原文了，可能已经改好") }
+            if (item.local.isPending) add("等待发送")
+        }
+        if (notes.isNotEmpty()) Text(notes.joinToString(" · "), style = type.caption.copy(color = colors.faint), modifier = Modifier.padding(top = 6.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+            TextAction("忽略", { onDismiss(f) }, color = colors.muted)
+            Spacer(Modifier.width(10.dp))
+            Box(
+                Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).border(1.dp, colors.line2, RoundedCornerShape(22.dp))
+                    .clickable(role = Role.Button) { onConvert(f) }.padding(horizontal = 18.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("转为批注", style = type.body.copy(color = colors.ink))
+            }
         }
     }
 }

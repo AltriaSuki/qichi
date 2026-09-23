@@ -23,6 +23,8 @@ import app.qichi.server.db.Decisions
 import app.qichi.server.db.Books
 import app.qichi.server.db.Summaries
 import app.qichi.server.db.AnnotationReplies
+import app.qichi.server.db.AiFindings
+import app.qichi.server.review.toAiFinding
 import app.qichi.server.db.Annotations
 import app.qichi.server.db.ReviewDocuments
 import app.qichi.server.db.ReviewVersions
@@ -139,6 +141,7 @@ class SyncService(private val db: QichiDatabase) {
                 reviewVersions = reviewVersionQuery().where { ReviewVersions.roomId eq roomId }.map { it.toReviewVersion() },
                 annotations = Annotations.selectAll().where { Annotations.roomId eq roomId }.map { it.toAnnotation() },
                 annotationReplies = AnnotationReplies.selectAll().where { AnnotationReplies.roomId eq roomId }.map { it.toAnnotationReply() },
+                aiFindings = AiFindings.selectAll().where { AiFindings.roomId eq roomId }.map { it.toAiFinding() },
             )
         }
 
@@ -221,6 +224,7 @@ class SyncService(private val db: QichiDatabase) {
                 EntityType.ReviewVersion -> reviewVersionQuery().where { ReviewVersions.id inList ids }.map { it.toReviewVersion() }
                 EntityType.Annotation -> Annotations.selectAll().where { Annotations.id inList ids }.map { it.toAnnotation() }
                 EntityType.AnnotationReply -> AnnotationReplies.selectAll().where { AnnotationReplies.id inList ids }.map { it.toAnnotationReply() }
+                EntityType.AiFinding -> AiFindings.selectAll().where { AiFindings.id inList ids }.map { it.toAiFinding() }
             }
             loaded.forEach { result[type to it.id] = it }
         }

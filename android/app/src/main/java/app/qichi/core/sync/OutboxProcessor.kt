@@ -126,6 +126,10 @@ class OutboxProcessor(
             OutboxOp.KIND_READING_PROGRESS -> store.applyReadingProgress(QichiJson.decodeFromString(ReadingProgress.serializer(), body))
             OutboxOp.KIND_DOC_VERSION ->
                 store.applyDocumentVersion(UUID.fromString(row.roomId), QichiJson.decodeFromString(DocumentVersion.serializer(), body))
+            OutboxOp.KIND_FINDING_CONVERT -> {
+                store.applyResponse(QichiJson.decodeFromString(app.qichi.shared.api.Annotation.serializer(), body))
+                store.markSynced(row.entityType, row.entityId)
+            }
             OutboxOp.KIND_TODO_COMPLETE -> {
                 val result = QichiJson.decodeFromString(CompleteTodoResponse.serializer(), body)
                 store.applyResponse(result.todo)

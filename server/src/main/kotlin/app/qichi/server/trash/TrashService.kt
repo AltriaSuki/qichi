@@ -18,6 +18,7 @@ import app.qichi.server.db.Decisions
 import app.qichi.server.db.Books
 import app.qichi.server.db.Summaries
 import app.qichi.server.db.AnnotationReplies
+import app.qichi.server.db.AiFindings
 import app.qichi.server.db.Annotations
 import app.qichi.server.db.ReviewDocuments
 import app.qichi.server.db.ReviewVersions
@@ -322,6 +323,8 @@ class TrashService(
                 TrashType.Milestone -> hardDelete(this, roomId, userId, EntityType.Milestone, id, Milestones, now)
                 TrashType.ReviewDocument -> {
                         val fileIds = reviews.detachFiles(id)
+                        AiFindings.select(AiFindings.id).where { AiFindings.documentId eq id }.map { it[AiFindings.id] }.sortedDescending()
+                            .forEach { hardDelete(this, roomId, userId, EntityType.AiFinding, it, AiFindings, now) }
                         val annotationIds = Annotations.select(Annotations.id).where { Annotations.documentId eq id }.map { it[Annotations.id] }
                         AnnotationReplies.select(AnnotationReplies.id).where { AnnotationReplies.annotationId inList annotationIds }.map { it[AnnotationReplies.id] }
                             .forEach { hardDelete(this, roomId, userId, EntityType.AnnotationReply, it, AnnotationReplies, now) }
@@ -333,6 +336,10 @@ class TrashService(
                         orphanFiles += files.releaseAll(fileIds)
                     }
                 TrashType.Annotation -> {
+                    // 由 AI 发现转来的：发现上的链接断开
+                    AiFindings.select(AiFindings.id).where { AiFindings.convertedAnnotationId eq id }.map { it[AiFindings.id] }.forEach { f ->
+                        writes.update(this, roomId, userId, EntityType.AiFinding, f, AiFindings) { it[AiFindings.convertedAnnotationId] = null }
+                    }
                     // 从它带过去的批注：来源断开
                     Annotations.select(Annotations.id).where { Annotations.carriedFromId eq id }.map { it[Annotations.id] }.forEach { child ->
                         writes.update(this, roomId, userId, EntityType.Annotation, child, Annotations) { it[Annotations.carriedFromId] = null }

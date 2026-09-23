@@ -7,12 +7,18 @@ import app.qichi.core.auth.SessionManager
 import app.qichi.core.database.QichiDatabase
 import app.qichi.core.sync.FakeServer
 import app.qichi.core.sync.LocalStore
+import app.qichi.core.sync.OutboxOp
+import app.qichi.core.sync.OutboxProcessor
 import app.qichi.core.sync.SyncEngine
 import app.qichi.core.sync.SyncFixtures
 import app.qichi.core.sync.SyncFixtures.me
 import app.qichi.core.sync.SyncFixtures.roomId
 import app.qichi.core.sync.SyncScheduler
+import app.qichi.shared.api.AiFinding
+import app.qichi.shared.api.Annotation
 import app.qichi.shared.api.AnnotationAnchor
+import app.qichi.shared.api.ConvertFindingRequest
+import app.qichi.shared.api.FindingEvidence
 import app.qichi.shared.api.CreateAnnotationReplyRequest
 import app.qichi.shared.api.CreateAnnotationRequest
 import app.qichi.shared.api.NormRect
@@ -26,10 +32,12 @@ import app.qichi.shared.api.Patch
 import app.qichi.shared.model.AnchorKind
 import app.qichi.shared.model.AnnotationKind
 import app.qichi.shared.model.AnnotationStatus
+import app.qichi.shared.model.FindingStatus
 import app.qichi.shared.model.PreviewStatus
 import app.qichi.shared.model.ReviewFormat
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -52,6 +60,8 @@ import kotlin.test.assertTrue
 class ReviewRepositoryTest {
     private lateinit var db: QichiDatabase
     private lateinit var reviews: ReviewRepository
+    private lateinit var store: LocalStore
+    private lateinit var api: app.qichi.core.network.ApiClient
     private val server = FakeServer()
     private val t0 = Instant.parse("2026-09-21T10:00:00Z")
     private val doc = ReviewDocument(UUID.randomUUID(), roomId, 1, t0, t0, null, null, "报价方案", me, 1)
@@ -64,8 +74,8 @@ class ReviewRepositoryTest {
         val context = ApplicationProvider.getApplicationContext<android.app.Application>()
         WorkManagerTestInitHelper.initializeTestWorkManager(context)
         db = SyncFixtures.database()
-        val store = LocalStore(db)
-        val api = SyncFixtures.api(server.engine)
+        store = LocalStore(db)
+        api = SyncFixtures.api(server.engine)
         val session = SessionManager(api, InMemoryTokenStore(SyncFixtures.tokens()), emptySet(), "test", TestScope(testScheduler))
         testScheduler.advanceUntilIdle()
         reviews = ReviewRepository(context, db, store, FileRepository(api), api, SyncEngine(api, db, store), SyncScheduler(context), session)
@@ -113,6 +123,42 @@ class ReviewRepositoryTest {
         assertEquals("rooms/$roomId/annotations/${a.id}/replies", replyOp.path)
         assertEquals("我去问问", QichiJson.decodeFromString(CreateAnnotationReplyRequest.serializer(), replyOp.bodyJson!!).body)
         assertEquals(1, reviews.observeReplies(roomId).first().size)
+    }
+
+    @Test
+    fun `AI 发现：忽略、转批注都走发件箱；转批注发出后批注存进本机，发现标为已同步`() = runTest {
+        val finding = AiFinding(
+            UUID.randomUUID(), roomId, 5, t0, t0, null, null, doc.id, version.id, UUID.randomUUID(), me, "首付比例不一致", "请核对",
+            listOf(FindingEvidence(1, "p1-b1", "30%", NormRect(0.1, 0.1, 0.5, 0.05))), FindingStatus.New, null, null, null, null,
+        )
+        store.applyServer(finding)
+        server.online = false
+        reviews.convert(finding)
+        val local = reviews.observeFindings(roomId).first().single()
+        assertEquals(FindingStatus.Converted, local.value.status)
+        assertTrue(local.isPending)
+        val op = db.outbox().all().single()
+        assertEquals(OutboxOp.KIND_FINDING_CONVERT, op.kind)
+        val annotationId = QichiJson.decodeFromString(ConvertFindingRequest.serializer(), op.bodyJson!!).annotationId
+        assertEquals(annotationId, local.value.convertedAnnotationId)
+
+        // 联网后发出：服务端返回新建的批注
+        server.online = true
+        server.custom = { req ->
+            if (req.url.encodedPath.endsWith("/convert")) {
+                val ann = Annotation(annotationId, roomId, 7, t0, t0, null, null, doc.id, version.id,
+                    AnnotationAnchor(1, AnchorKind.Paragraph, null, "p1-b1", "30%"), me, AnnotationKind.Comment, AnnotationStatus.Open, "首付比例不一致", null, false, null, null)
+                respond(QichiJson.encodeToString(Annotation.serializer(), ann), HttpStatusCode.Created, headersOf(HttpHeaders.ContentType, "application/json"))
+            } else null
+        }
+        OutboxProcessor(api, db, store).drain()
+        assertTrue(db.outbox().all().isEmpty())
+        assertEquals(listOf(annotationId), reviews.observeAnnotations(roomId).first().map { it.value.id })
+        assertTrue(!reviews.observeFindings(roomId).first().single().isPending)
+
+        // 已经处理过的不能再忽略
+        reviews.dismiss(reviews.observeFindings(roomId).first().single().value)
+        assertTrue(db.outbox().all().isEmpty())
     }
 
     @Test

@@ -8,6 +8,7 @@ import app.qichi.server.plugins.user
 import app.qichi.server.plugins.uuidParam
 import app.qichi.shared.api.CreateAnnotationReplyRequest
 import app.qichi.shared.api.CreateAnnotationRequest
+import app.qichi.shared.api.ConvertFindingRequest
 import app.qichi.shared.api.CreateReviewRequest
 import app.qichi.shared.api.CreateReviewVersionRequest
 import app.qichi.shared.api.UpdateAnnotationRequest
@@ -61,6 +62,12 @@ fun Route.reviewRoutes(ctx: AppContext) {
             delete("/{id}/annotations/{annId}") {
                 call.respond(ctx.reviews.deleteAnnotation(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id"), call.uuidParam("annId")))
             }
+        }
+        post("/rooms/{roomId}/ai-findings/{id}/convert") {
+            call.respondCreated(ctx.reviews.convertFinding(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id"), call.receive<ConvertFindingRequest>()))
+        }
+        post("/rooms/{roomId}/ai-findings/{id}/dismiss") {
+            call.respond(ctx.reviews.dismissFinding(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id")))
         }
         post("/rooms/{roomId}/annotations/{annId}/replies") {
             call.respondCreated(ctx.reviews.createReply(call.user.userId, call.uuidParam("roomId"), call.uuidParam("annId"), call.receive<CreateAnnotationReplyRequest>()))

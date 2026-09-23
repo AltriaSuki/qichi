@@ -13,6 +13,11 @@ import app.qichi.core.sync.LocalStore
 import app.qichi.core.sync.OutboxOp
 import app.qichi.core.sync.SyncEngine
 import app.qichi.core.sync.SyncScheduler
+import app.qichi.shared.api.AiFinding
+import app.qichi.shared.api.AiJob
+import app.qichi.shared.api.AiJobAccepted
+import app.qichi.shared.api.AiReviewFindingsRequest
+import app.qichi.shared.api.ConvertFindingRequest
 import app.qichi.shared.api.Annotation
 import app.qichi.shared.api.AnnotationAnchor
 import app.qichi.shared.api.AnnotationReply
@@ -33,6 +38,7 @@ import app.qichi.shared.model.AnnotationKind
 import app.qichi.shared.model.AnnotationStatus
 import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.FileKind
+import app.qichi.shared.model.FindingStatus
 import app.qichi.shared.model.PreviewStatus
 import app.qichi.shared.model.wireName
 import app.qichi.shared.rules.Limits
@@ -97,6 +103,8 @@ class ReviewRepository(
     fun observeAnnotations(roomId: UUID): Flow<List<Local<Annotation>>> = observe(roomId, EntityType.Annotation)
 
     fun observeReplies(roomId: UUID): Flow<List<Local<AnnotationReply>>> = observe(roomId, EntityType.AnnotationReply)
+
+    fun observeFindings(roomId: UUID): Flow<List<Local<AiFinding>>> = observe(roomId, EntityType.AiFinding)
 
     // ── 审稿文件与版本（需要联网） ──
 
@@ -243,5 +251,29 @@ class ReviewRepository(
         store.writeLocal(a.roomId, r, OutboxOp.post("rooms/${a.roomId}/annotations/${a.id}/replies", CreateAnnotationReplyRequest(r.id, body)))
         scheduler.kickOutbox()
         return r
+    }
+
+    // ── 审稿 AI（P7-03，发请求要联网；忽略、转批注可以离线） ──
+
+    /** 本次授权 AI 审这一版（只发文字层）。结果是若干条 AI 发现，同步回来后显示。 */
+    suspend fun askAi(doc: ReviewDocument, version: ReviewVersion, jobId: UUID): AiJobAccepted =
+        api.post("rooms/${doc.roomId}/ai/review-findings", AiReviewFindingsRequest(jobId, doc.id, version.id))
+
+    suspend fun aiJob(roomId: UUID, jobId: UUID): AiJob = api.get("rooms/$roomId/ai/jobs/$jobId")
+
+    suspend fun dismiss(f: AiFinding) {
+        if (f.status != FindingStatus.New) return
+        store.writeLocal(f.roomId, f.copy(status = FindingStatus.Dismissed, resolvedBy = me, updatedAt = clock.instant()),
+            OutboxOp.action("rooms/${f.roomId}/ai-findings/${f.id}/dismiss"))
+        scheduler.kickOutbox()
+    }
+
+    /** 转成人工批注：批注由服务端建（钉在第一条证据上），同步回来后出现在批注里。 */
+    suspend fun convert(f: AiFinding) {
+        if (f.status != FindingStatus.New) return
+        val annotationId = UuidV7.generate()
+        store.writeLocal(f.roomId, f.copy(status = FindingStatus.Converted, convertedAnnotationId = annotationId, resolvedBy = me, updatedAt = clock.instant()),
+            OutboxOp.post("rooms/${f.roomId}/ai-findings/${f.id}/convert", ConvertFindingRequest(annotationId), kind = OutboxOp.KIND_FINDING_CONVERT))
+        scheduler.kickOutbox()
     }
 }

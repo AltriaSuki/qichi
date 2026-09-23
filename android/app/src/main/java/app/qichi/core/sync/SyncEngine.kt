@@ -90,6 +90,7 @@ class SyncEngine(
                 addAll(snapshot.reviewVersions)
                 addAll(snapshot.annotations)
                 addAll(snapshot.annotationReplies)
+                addAll(snapshot.aiFindings)
                 addAll(snapshot.messages)
             }
             all.forEach { store.applyServer(it) }

@@ -28,6 +28,8 @@ import app.qichi.server.db.ReadingProgressTable
 import app.qichi.server.db.Rooms
 import app.qichi.server.db.Summaries
 import app.qichi.server.db.AnnotationReplies
+import app.qichi.server.db.AiFindings
+import app.qichi.server.review.toAiFinding
 import app.qichi.server.db.Annotations
 import app.qichi.server.db.ReviewDocuments
 import app.qichi.server.db.ReviewVersions
@@ -164,6 +166,8 @@ class ExportService(
                 put("reviewDocuments", QichiJson.encodeToJsonElement(reviewDocs))
                 put("reviewVersions", QichiJson.encodeToJsonElement(reviewVersions))
                 put("annotations", QichiJson.encodeToJsonElement(annotations))
+                put("aiFindings", QichiJson.encodeToJsonElement(AiFindings.selectAll().where { AiFindings.roomId eq roomId }
+                    .map { it.toAiFinding() }.filter { it.documentId in liveDocs }))
                 put("annotationReplies", QichiJson.encodeToJsonElement(AnnotationReplies.selectAll().where { (AnnotationReplies.roomId eq roomId) and AnnotationReplies.deletedAt.isNull() }
                     .map { it.toAnnotationReply() }.filter { it.annotationId in annotations.map { a -> a.id }.toSet() }))
             }
