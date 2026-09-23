@@ -44,6 +44,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -110,6 +111,10 @@ private val TIME = DateTimeFormatter.ofPattern("HH:mm")
 @Composable
 fun ChatScreen(
     roomId: UUID,
+    /** 进入后跳到这条消息（通知、档案的来源） */
+    jumpTo: UUID? = null,
+    /** 长按「存进档案」 */
+    onArchive: (Message) -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel<ChatViewModel, ChatViewModel.Factory>(key = roomId.toString()) { it.create(roomId) },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -121,6 +126,14 @@ fun ChatScreen(
     val people = state.people
 
     val replyTo by viewModel.replyTo.collectAsStateWithLifecycle()
+    // 从通知或档案的来源进来：跳到那条消息（只跳一次）
+    var jumped by rememberSaveable(jumpTo) { mutableStateOf(false) }
+    LaunchedEffect(jumpTo) {
+        if (jumpTo != null && !jumped) {
+            jumped = true
+            viewModel.jumpTo(jumpTo)
+        }
+    }
     val jumping by viewModel.jumping.collectAsStateWithLifecycle()
     val uploads by viewModel.uploads.collectAsStateWithLifecycle()
     val pendingAi by viewModel.pendingAi.collectAsStateWithLifecycle()
@@ -334,6 +347,7 @@ fun ChatScreen(
             },
             onRetract = { retracting = target.value },
             onDelete = { viewModel.delete(target.value) },
+            onArchive = { onArchive(target.value) },
         )
     }
     retracting?.let { message ->
@@ -748,7 +762,7 @@ private fun ReplyStrip(message: Message, people: People, onCancel: () -> Unit) {
     }
 }
 
-/** 长按消息：回复、复制、撤回（自己的）、删除。待发送或发送失败的消息只能复制。 */
+/** 长按消息：回复、复制、存进档案、撤回（自己的）、删除。待发送或发送失败的消息只能复制。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MessageActions(
@@ -759,6 +773,7 @@ private fun MessageActions(
     onCopy: () -> Unit,
     onRetract: () -> Unit,
     onDelete: () -> Unit,
+    onArchive: () -> Unit,
 ) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
@@ -775,6 +790,7 @@ private fun MessageActions(
             )
             if (synced) ActionRow("回复") { onReply(); onDismiss() }
             if (m.body.isNotEmpty()) ActionRow("复制") { onCopy(); onDismiss() }
+            if (synced && m.body.isNotEmpty() && m.retractedAt == null) ActionRow("存进档案") { onArchive(); onDismiss() }
             if (synced && m.authorId == people.myUserId && m.retractedAt == null) ActionRow("撤回") { onRetract(); onDismiss() }
             if (synced) ActionRow("删除") { onDelete(); onDismiss() }
         }

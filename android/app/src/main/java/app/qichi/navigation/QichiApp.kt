@@ -52,6 +52,8 @@ import app.qichi.feature.plan.PlanDetailScreen
 import app.qichi.feature.plan.PlanListScreen
 import app.qichi.feature.qna.QnaScreen
 import app.qichi.feature.room.MembersScreen
+import app.qichi.feature.archive.ArchiveDetailScreen
+import app.qichi.feature.archive.ArchiveListScreen
 import app.qichi.feature.board.BoardListScreen
 import app.qichi.feature.board.TopicScreen
 import app.qichi.feature.today.TodayScreen
@@ -124,7 +126,14 @@ fun QichiApp(
                     composable<TodayHome> { TodayScreen(roomId = LocalRoomId.current, onOpen = { navigator.open(it) }, onOpenPlan = { navigator.open(Page.Plan, it.toString()) }) }
                 }
                 navigation<ChatGraph>(startDestination = ChatHome()) {
-                    composable<ChatHome> { ChatScreen(roomId = LocalRoomId.current) }
+                    composable<ChatHome> { entry ->
+                        val jumpTo = entry.toRoute<ChatHome>().jumpTo?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
+                        ChatScreen(
+                            roomId = LocalRoomId.current,
+                            jumpTo = jumpTo,
+                            onArchive = { navigator.open(Page.Archive, "new:${it.id}") },
+                        )
+                    }
                 }
                 navigation<TogetherGraph>(startDestination = TogetherHome) {
                     composable<TogetherHome> {
@@ -160,6 +169,20 @@ fun QichiApp(
                                 }
                             }
                             Page.Ideas -> IdeasScreen(roomId = roomId, onBack = navigator::back)
+                            Page.Archive -> {
+                                // id：条目；或「new:消息 id」（从聊天「存进档案」进来）
+                                val raw = route.id
+                                val fromMessage = raw?.removePrefix("new:")?.takeIf { raw.startsWith("new:") }
+                                    ?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
+                                val itemId = raw?.takeIf { !it.startsWith("new:") }?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
+                                if (itemId == null) {
+                                    ArchiveListScreen(roomId = roomId, fromMessageId = fromMessage, onBack = navigator::back,
+                                        onOpen = { navigator.open(Page.Archive, it.toString()) })
+                                } else {
+                                    ArchiveDetailScreen(roomId = roomId, itemId = itemId, onBack = navigator::back,
+                                        onOpenMessage = { navigator.handle(DeepLink.ToTab(roomId.toString(), TopTab.Chat, it.toString())) })
+                                }
+                            }
                             Page.Board -> {
                                 // id 是「主题」或「主题:留言」（从搜索点进来时滚到那一条）
                                 val parts = route.id?.split(":").orEmpty()

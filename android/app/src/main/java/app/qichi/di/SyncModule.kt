@@ -9,6 +9,7 @@ import app.qichi.core.data.AttachmentPreparer
 import app.qichi.core.data.ChatRepository
 import app.qichi.core.data.CalendarTransferRepository
 import app.qichi.core.data.DataStoreProfileStore
+import app.qichi.core.data.ArchiveRepository
 import app.qichi.core.data.BoardRepository
 import app.qichi.core.data.DocumentRepository
 import app.qichi.core.data.DraftStore
@@ -147,6 +148,11 @@ object SyncModule {
     @Singleton
     fun ideaRepository(db: QichiDatabase, store: LocalStore, scheduler: SyncScheduler, session: SessionManager): IdeaRepository =
         IdeaRepository(db, store, scheduler, session)
+
+    @Provides
+    @Singleton
+    fun archiveRepository(db: QichiDatabase, store: LocalStore, api: ApiClient, scheduler: SyncScheduler, session: SessionManager): ArchiveRepository =
+        ArchiveRepository(db, store, api, scheduler, session)
 
     @Provides
     @Singleton
