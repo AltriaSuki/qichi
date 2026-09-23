@@ -11,6 +11,7 @@ import app.qichi.core.data.CalendarTransferRepository
 import app.qichi.core.data.DataStoreProfileStore
 import app.qichi.core.data.ArchiveRepository
 import app.qichi.core.data.DecisionRepository
+import app.qichi.core.data.TimelineRepository
 import app.qichi.core.data.BoardRepository
 import app.qichi.core.data.DocumentRepository
 import app.qichi.core.data.DraftStore
@@ -149,6 +150,10 @@ object SyncModule {
     @Singleton
     fun ideaRepository(db: QichiDatabase, store: LocalStore, scheduler: SyncScheduler, session: SessionManager): IdeaRepository =
         IdeaRepository(db, store, scheduler, session)
+
+    @Provides
+    @Singleton
+    fun timelineRepository(db: QichiDatabase, api: ApiClient): TimelineRepository = TimelineRepository(db, api)
 
     @Provides
     @Singleton

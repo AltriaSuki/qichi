@@ -58,6 +58,7 @@ import app.qichi.feature.board.BoardListScreen
 import app.qichi.feature.decisions.DecisionDetailScreen
 import app.qichi.feature.decisions.DecisionListScreen
 import app.qichi.feature.board.TopicScreen
+import app.qichi.feature.timeline.TimelineScreen
 import app.qichi.feature.today.TodayScreen
 import app.qichi.feature.writing.DocumentEditorScreen
 import app.qichi.feature.writing.DocumentListScreen
@@ -172,6 +173,14 @@ fun QichiApp(
                                 }
                             }
                             Page.Ideas -> IdeasScreen(roomId = roomId, onBack = navigator::back)
+                            Page.Timeline -> TimelineScreen(roomId = roomId, onBack = navigator::back, onOpen = { e ->
+                                when (e.kind) {
+                                    app.qichi.shared.model.TimelineEntryKind.Decision -> navigator.open(Page.Decisions, e.refId.toString())
+                                    app.qichi.shared.model.TimelineEntryKind.Plan -> navigator.open(Page.Plan, e.refId.toString())
+                                    app.qichi.shared.model.TimelineEntryKind.Idea -> navigator.open(Page.Ideas)
+                                    app.qichi.shared.model.TimelineEntryKind.Photo -> Unit
+                                }
+                            })
                             Page.Decisions -> {
                                 val decisionId = route.id?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
                                 if (decisionId == null) {

@@ -32,6 +32,13 @@ interface EntityDao {
     @Query("SELECT * FROM entities WHERE roomId = :roomId AND type = :type AND deleted = 0 ORDER BY sortTime, localTime")
     fun observeByType(roomId: String, type: String): Flow<List<EntityRow>>
 
+    /** 房间里的图片消息（时间线选照片用；先按 JSON 粗筛，调用方再解开确认）。 */
+    @Query(
+        """SELECT * FROM entities WHERE roomId = :roomId AND type = 'message' AND deleted = 0
+           AND json LIKE '%"kind":"image"%' ORDER BY sortTime DESC""",
+    )
+    fun observeImageMessages(roomId: String): Flow<List<EntityRow>>
+
     /** 包括回收站里的。 */
     @Query("SELECT * FROM entities WHERE roomId = :roomId AND type = :type ORDER BY sortTime, localTime")
     fun observeAllByType(roomId: String, type: String): Flow<List<EntityRow>>
