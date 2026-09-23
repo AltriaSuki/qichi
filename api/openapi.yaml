@@ -1330,6 +1330,25 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /rooms/{roomId}/export:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [rooms]
+      operationId: exportRoom
+      summary: 房间数据导出（ZIP：说明.txt、data.json、聊天记录.md、文稿/，files=true 时加 附件/）
+      description: 不含撤回的内容、回收站里的内容、对方没共享的书中标注、对方还没揭晓的问答回答。
+      parameters:
+        - { name: files, in: query, schema: { type: boolean, default: false } }
+      responses:
+        '200':
+          description: ZIP 文件
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /rooms/{roomId}/summaries:
     parameters:
       - $ref: '#/components/parameters/RoomId'
