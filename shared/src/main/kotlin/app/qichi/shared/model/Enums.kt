@@ -30,6 +30,7 @@ enum class EntityType {
     @SerialName("board_topic") BoardTopic,
     @SerialName("board_post") BoardPost,
     @SerialName("board_reaction") BoardReaction,
+    @SerialName("archive_item") ArchiveItem,
 }
 
 /** 变化类型：软删除与恢复都是 upsert，只有彻底删除是 delete。 */
@@ -56,6 +57,17 @@ enum class MoodLabel {
     @SerialName("down") Down,
     @SerialName("angry") Angry,
     @SerialName("hurt") Hurt,
+}
+
+/** 档案条目的种类：偏好、共识、决定、边界、担忧、里程碑。 */
+@Serializable
+enum class ArchiveKind {
+    @SerialName("preference") Preference,
+    @SerialName("consensus") Consensus,
+    @SerialName("decision") Decision,
+    @SerialName("boundary") Boundary,
+    @SerialName("concern") Concern,
+    @SerialName("milestone") Milestone,
 }
 
 /** 留言的回应：喜欢、拥抱、支持。 */
@@ -106,6 +118,7 @@ enum class TrashType {
     @SerialName("document") Document,
     @SerialName("board_topic") BoardTopic,
     @SerialName("board_post") BoardPost,
+    @SerialName("archive_item") ArchiveItem,
 }
 
 @Serializable

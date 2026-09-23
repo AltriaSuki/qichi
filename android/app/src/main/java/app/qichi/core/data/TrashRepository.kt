@@ -10,6 +10,7 @@ import app.qichi.core.sync.SyncScheduler
 import app.qichi.shared.api.EntityCodec
 import app.qichi.shared.api.Event
 import app.qichi.shared.api.Message
+import app.qichi.shared.api.ArchiveItem
 import app.qichi.shared.api.BoardPost
 import app.qichi.shared.api.BoardTopic
 import app.qichi.shared.api.Document
@@ -68,6 +69,7 @@ class TrashRepository(
                     is Document -> TrashEntry(TrashType.Document, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     is BoardTopic -> TrashEntry(TrashType.BoardTopic, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     is BoardPost -> TrashEntry(TrashType.BoardPost, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
+                    is ArchiveItem -> TrashEntry(TrashType.ArchiveItem, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     else -> null
                 }
             }.sortedByDescending { it.deletedAt }
@@ -102,6 +104,7 @@ class TrashRepository(
             is Document -> e.copy(deletedAt = null, deletedBy = null)
             is BoardTopic -> e.copy(deletedAt = null, deletedBy = null)
             is BoardPost -> e.copy(deletedAt = null, deletedBy = null)
+            is ArchiveItem -> e.copy(deletedAt = null, deletedBy = null)
             else -> return
         }
         db.transaction {
@@ -163,4 +166,5 @@ val TrashType.entityType: EntityType
         TrashType.Document -> EntityType.Document
         TrashType.BoardTopic -> EntityType.BoardTopic
         TrashType.BoardPost -> EntityType.BoardPost
+        TrashType.ArchiveItem -> EntityType.ArchiveItem
     }

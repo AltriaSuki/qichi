@@ -53,6 +53,12 @@ object Limits {
     /** 留言板：引用时摘录的长度 */
     const val BOARD_QUOTE_EXCERPT: Int = 80
 
+    /** 档案：条目标题 */
+    val ARCHIVE_TITLE_LENGTH: IntRange = 1..80
+
+    /** 档案：条目正文（可以为空，只写标题） */
+    const val ARCHIVE_BODY_MAX: Int = 5_000
+
     const val IMAGE_MAX_BYTES: Long = 20L * 1024 * 1024
     const val FILE_MAX_BYTES: Long = 100L * 1024 * 1024
     val THUMBNAIL_WIDTHS: Set<Int> = setOf(200, 400, 800)

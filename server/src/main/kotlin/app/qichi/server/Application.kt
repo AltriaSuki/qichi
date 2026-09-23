@@ -19,6 +19,8 @@ import app.qichi.server.files.FileService
 import app.qichi.server.files.FileStorage
 import app.qichi.server.files.LocalFileStorage
 import app.qichi.server.files.fileRoutes
+import app.qichi.server.archive.ArchiveService
+import app.qichi.server.archive.archiveRoutes
 import app.qichi.server.board.BoardService
 import app.qichi.server.board.boardRoutes
 import app.qichi.server.documents.DocumentService
@@ -124,6 +126,7 @@ fun Application.module(ctx: AppContext) {
             ideaRoutes(ctx)
             documentRoutes(ctx)
             boardRoutes(ctx)
+            archiveRoutes(ctx)
             calendarRoutes(ctx)
         }
     }
@@ -163,6 +166,7 @@ class AppContext(
     val ideas = IdeaService(database, rooms, writes)
     val documents = DocumentService(database, rooms, writes)
     val board = BoardService(database, rooms, writes)
+    val archive = ArchiveService(database, rooms, writes)
     val calendar = CalendarService(database, rooms, writes, writer, clock, config.publicBaseUrl)
 }
 

@@ -58,6 +58,8 @@ tags:
     description: 灵感（P4）
   - name: documents
     description: 共同写作：文稿与不可变版本（P5）
+  - name: archive
+    description: 档案：长期共同事实与不可变的修订历史（P6）
   - name: board
     description: 留言板：主题、留言（可引用、可修订）、回应、搜索（P5）
   - name: ai
@@ -1295,6 +1297,81 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /rooms/{roomId}/archive:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [archive]
+      operationId: listArchive
+      summary: 档案条目（最近修订的在前，不含已删除的）
+      responses:
+        '200':
+          description: 条目
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/ArchiveItem' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [archive]
+      operationId: createArchiveItem
+      summary: 新条目（同时产生第 1 次修订）；可以带来源消息
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateArchiveItemRequest' } } }
+      responses:
+        '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/ArchiveItem' } } } }
+        '201': { description: 已创建, content: { application/json: { schema: { $ref: '#/components/schemas/ArchiveItem' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/archive/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [archive]
+      operationId: deleteArchiveItem
+      summary: 删除条目进回收站（两位成员都可以；修订历史随它保留）
+      responses:
+        '200': { description: 删除后的条目, content: { application/json: { schema: { $ref: '#/components/schemas/ArchiveItem' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/archive/{id}/revisions:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [archive]
+      operationId: listArchiveRevisions
+      summary: 历次修订（修订号从大到小，含当前这次）
+      responses:
+        '200':
+          description: 修订
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/ArchiveRevision' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [archive]
+      operationId: reviseArchiveItem
+      summary: 新修订
+      description: 带 `baseRevision`；不是当前修订号 → 409 `conflict_version`，`latestVersion` 是当前修订号。同一个修订 `id` 重试返回修订后的条目（200）。
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ReviseArchiveItemRequest' } } }
+      responses:
+        '200': { description: 同一次修订重试, content: { application/json: { schema: { $ref: '#/components/schemas/ArchiveItem' } } } }
+        '201': { description: 修订后的条目, content: { application/json: { schema: { $ref: '#/components/schemas/ArchiveItem' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /rooms/{roomId}/board/topics:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -2176,7 +2253,7 @@ components:
     EntityType:
       type: string
       description: 与 `shared/model/EntityType` 一致，后续阶段追加
-      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document, board_topic, board_post, board_reaction]
+      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document, board_topic, board_post, board_reaction, archive_item]
     ChangeOp:
       type: string
       description: '`upsert` 包括软删除与恢复；只有彻底删除是 `delete`'
@@ -2218,6 +2295,7 @@ components:
             - $ref: '#/components/schemas/BoardTopic'
             - $ref: '#/components/schemas/BoardPost'
             - $ref: '#/components/schemas/BoardReaction'
+            - $ref: '#/components/schemas/ArchiveItem'
             - type: 'null'
     SyncResponse:
       type: object
@@ -2231,7 +2309,7 @@ components:
           items: { $ref: '#/components/schemas/Change' }
     Bootstrap:
       type: object
-      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents, boardTopics, boardPosts, boardReactions]
+      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents, boardTopics, boardPosts, boardReactions, archiveItems]
       properties:
         room: { $ref: '#/components/schemas/Room' }
         members:
@@ -2279,6 +2357,7 @@ components:
         boardTopics: { type: array, items: { $ref: '#/components/schemas/BoardTopic' } }
         boardPosts: { type: array, items: { $ref: '#/components/schemas/BoardPost' } }
         boardReactions: { type: array, items: { $ref: '#/components/schemas/BoardReaction' } }
+        archiveItems: { type: array, items: { $ref: '#/components/schemas/ArchiveItem' } }
     WsHello:
       type: object
       required: [type, userId, rooms]
@@ -2564,6 +2643,53 @@ components:
       required: [body]
       properties:
         body: { type: string, minLength: 1, maxLength: 2000 }
+    ArchiveKind:
+      type: string
+      enum: [preference, consensus, decision, boundary, concern, milestone]
+    ArchiveItem:
+      description: 同步实体类型 `archive_item`（P6）；当前标题与正文随条目同步，历次修订另取
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [kind, title, body, createdBy, currentRevision, revisedBy, sourceMessageId]
+          properties:
+            kind: { $ref: '#/components/schemas/ArchiveKind' }
+            title: { type: string, minLength: 1, maxLength: 80 }
+            body: { type: string, maxLength: 5000 }
+            createdBy: { $ref: '#/components/schemas/Uuid' }
+            currentRevision: { type: integer, minimum: 1 }
+            revisedBy: { $ref: '#/components/schemas/Uuid' }
+            sourceMessageId: { $ref: '#/components/schemas/NullableUuid' }
+    CreateArchiveItemRequest:
+      type: object
+      required: [id, kind, title]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        kind: { $ref: '#/components/schemas/ArchiveKind' }
+        title: { type: string, minLength: 1, maxLength: 80 }
+        body: { type: string, maxLength: 5000 }
+        sourceMessageId: { $ref: '#/components/schemas/NullableUuid' }
+    ReviseArchiveItemRequest:
+      type: object
+      required: [id, baseRevision, title]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        baseRevision: { type: integer, minimum: 1 }
+        title: { type: string, minLength: 1, maxLength: 80 }
+        body: { type: string, maxLength: 5000 }
+        sourceMessageId: { $ref: '#/components/schemas/NullableUuid' }
+    ArchiveRevision:
+      type: object
+      required: [id, itemId, revision, authorId, title, body, sourceMessageId, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        itemId: { $ref: '#/components/schemas/Uuid' }
+        revision: { type: integer, minimum: 1 }
+        authorId: { $ref: '#/components/schemas/Uuid' }
+        title: { type: string }
+        body: { type: string }
+        sourceMessageId: { $ref: '#/components/schemas/NullableUuid' }
+        createdAt: { $ref: '#/components/schemas/Instant' }
     BoardReactionKind:
       type: string
       enum: [like, hug, support]
@@ -2946,7 +3072,7 @@ components:
     TrashType:
       type: string
       description: 第 3 阶段可恢复的类型，后续阶段追加
-      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post]
+      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post, archive_item]
     TrashItem:
       type: object
       required: [type, id, deletedAt, deletedBy, data]
@@ -2967,6 +3093,7 @@ components:
             - $ref: '#/components/schemas/Document'
             - $ref: '#/components/schemas/BoardTopic'
             - $ref: '#/components/schemas/BoardPost'
+            - $ref: '#/components/schemas/ArchiveItem'
     TrashPage:
       type: object
       required: [items, nextCursor]

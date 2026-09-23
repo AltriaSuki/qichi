@@ -46,6 +46,7 @@ class EnumContractTest {
     @Test fun questionSource() = assertMatches<QuestionSource>("QuestionSource")
     @Test fun planStatus() = assertMatches<PlanStatus>("PlanStatus")
     @Test fun boardReactionKind() = assertMatches<BoardReactionKind>("BoardReactionKind")
+    @Test fun archiveKind() = assertMatches<ArchiveKind>("ArchiveKind")
 
     @Test
     fun `JSON 序列化使用小写字符串`() {

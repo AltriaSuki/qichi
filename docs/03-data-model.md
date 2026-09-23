@@ -81,8 +81,8 @@
 
 | 表 | 关键字段 |
 |---|---|
-| `archive_items` | `kind`（preference / consensus / decision / boundary / concern / milestone）、`title`、`current_revision`、`source_message_id` |
-| `archive_revisions` | **不可变**：`item_id`、`revision`、`author_id`、`body`、`source_message_id` |
+| `archive_items` | 同步实体（`archive_item`）：`kind`（preference / consensus / decision / boundary / concern / milestone）、当前的 `title` 与 `body`、`created_by`、`current_revision`、`revised_by`、`source_message_id` |
+| `archive_revisions` | **不可变**、不进同步：`item_id`、`revision`、`author_id`、`title`、`body`、`source_message_id` |
 | `decisions` | `question`、`options` jsonb、`concerns` jsonb（按成员）、`final_choice`、`decided_at`、`review_date` |
 | `timeline_picks` | 共同时间线里「双方都选中的照片」：`file_id`、`user_id`，两人都选才显示 |
 | `books` | `title`、`author`、`file_id`（EPUB）、`added_by` |

@@ -13,6 +13,7 @@ import app.qichi.server.db.Documents
 import app.qichi.server.db.BoardPosts
 import app.qichi.server.db.BoardReactions
 import app.qichi.server.db.BoardTopics
+import app.qichi.server.db.ArchiveItems
 import app.qichi.server.db.Plans
 import app.qichi.server.db.QichiDatabase
 import app.qichi.server.db.Questions
@@ -35,6 +36,7 @@ import app.qichi.server.ideas.toIdea
 import app.qichi.server.documents.toDocument
 import app.qichi.server.board.toBoardPost
 import app.qichi.server.board.toBoardTopic
+import app.qichi.server.archive.toArchiveItem
 import app.qichi.server.plans.toPlan
 import app.qichi.server.qna.toQuestion
 import app.qichi.server.rooms.RoomService
@@ -155,6 +157,10 @@ class TrashService(
                     val p = row.toBoardPost()
                     add(Candidate(TrashType.BoardPost, p, p.deletedAt!!, p.deletedBy!!))
                 }
+                ArchiveItems.selectAll().deleted(ArchiveItems, roomId, cursor, take).forEach { row ->
+                    val a = row.toArchiveItem()
+                    add(Candidate(TrashType.ArchiveItem, a, a.deletedAt!!, a.deletedBy!!))
+                }
             }.sortedWith(compareByDescending<Candidate> { it.deletedAt }.thenByDescending { it.sortKey })
 
             val page = candidates.take(limit)
@@ -200,6 +206,10 @@ class TrashService(
                             it[Messages.replyExcerpt] = null
                             it[Messages.replyToId] = null
                         }
+                    }
+                    // 以它为来源的档案条目：来源断开（外键也会置空，这里写变化让客户端同步到）
+                    ArchiveItems.select(ArchiveItems.id).where { ArchiveItems.sourceMessageId eq id }.map { it[ArchiveItems.id] }.forEach { item ->
+                        writes.update(this, roomId, userId, EntityType.ArchiveItem, item, ArchiveItems) { it[ArchiveItems.sourceMessageId] = null }
                     }
                     val fileId = Messages.select(Messages.fileId).where { Messages.id eq id }.single()[Messages.fileId]
                     hardDelete(this, roomId, userId, EntityType.Message, id, Messages, now)
@@ -247,6 +257,8 @@ class TrashService(
                     hardDelete(this, roomId, userId, EntityType.BoardTopic, id, BoardTopics, now)
                 }
                 TrashType.BoardPost -> purgeBoardPost(this, roomId, userId, id, now)
+                // 修订随条目级联删除
+                TrashType.ArchiveItem -> hardDelete(this, roomId, userId, EntityType.ArchiveItem, id, ArchiveItems, now)
             }
         }
         files.deleteStored(orphanFiles)
@@ -296,6 +308,7 @@ class TrashService(
         TrashType.Document -> Documents.selectAll().where { Documents.id eq id }.singleOrNull()?.toDocument()
         TrashType.BoardTopic -> BoardTopics.selectAll().where { BoardTopics.id eq id }.singleOrNull()?.toBoardTopic()
         TrashType.BoardPost -> BoardPosts.selectAll().where { BoardPosts.id eq id }.singleOrNull()?.toBoardPost()
+        TrashType.ArchiveItem -> ArchiveItems.selectAll().where { ArchiveItems.id eq id }.singleOrNull()?.toArchiveItem()
     }
 
     /** 在查询上加「这个房间、已删除、在游标之后」，按 (deletedAt, id) 降序取 [take] 条。 */
@@ -322,6 +335,7 @@ val TrashType.entityType: EntityType
         TrashType.Document -> EntityType.Document
         TrashType.BoardTopic -> EntityType.BoardTopic
         TrashType.BoardPost -> EntityType.BoardPost
+        TrashType.ArchiveItem -> EntityType.ArchiveItem
     }
 
 private val TrashType.table: SyncedTable
@@ -336,4 +350,5 @@ private val TrashType.table: SyncedTable
         TrashType.Document -> Documents
         TrashType.BoardTopic -> BoardTopics
         TrashType.BoardPost -> BoardPosts
+        TrashType.ArchiveItem -> ArchiveItems
     }

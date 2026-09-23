@@ -289,6 +289,29 @@ object BoardReactions : SyncedTable("board_reactions") {
     val kind = text("kind")
 }
 
+object ArchiveItems : SyncedTable("archive_items") {
+    val kind = text("kind")
+    val title = text("title")
+    val body = text("body")
+    val createdBy = javaUUID("created_by")
+    val currentRevision = integer("current_revision")
+    val revisedBy = javaUUID("revised_by")
+    val sourceMessageId = javaUUID("source_message_id").nullable()
+}
+
+/** 不可变：只插入，不更新。 */
+object ArchiveRevisions : Table("archive_revisions") {
+    val id = javaUUID("id")
+    val itemId = javaUUID("item_id")
+    val revision = integer("revision")
+    val authorId = javaUUID("author_id")
+    val title = text("title")
+    val body = text("body")
+    val sourceMessageId = javaUUID("source_message_id").nullable()
+    val createdAt = timestamp("created_at")
+    override val primaryKey = PrimaryKey(id)
+}
+
 object Devices : Table("devices") {
     val id = javaUUID("id")
     val userId = javaUUID("user_id")
