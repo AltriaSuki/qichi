@@ -27,6 +27,9 @@ enum class EntityType {
     @SerialName("plan_log") PlanLog,
     @SerialName("idea") Idea,
     @SerialName("document") Document,
+    @SerialName("board_topic") BoardTopic,
+    @SerialName("board_post") BoardPost,
+    @SerialName("board_reaction") BoardReaction,
 }
 
 /** 变化类型：软删除与恢复都是 upsert，只有彻底删除是 delete。 */
@@ -53,6 +56,14 @@ enum class MoodLabel {
     @SerialName("down") Down,
     @SerialName("angry") Angry,
     @SerialName("hurt") Hurt,
+}
+
+/** 留言的回应：喜欢、拥抱、支持。 */
+@Serializable
+enum class BoardReactionKind {
+    @SerialName("like") Like,
+    @SerialName("hug") Hug,
+    @SerialName("support") Support,
 }
 
 /** 对心情的回应：我在这里、给你一个拥抱、等你准备好。 */
@@ -93,6 +104,8 @@ enum class TrashType {
     @SerialName("plan") Plan,
     @SerialName("idea") Idea,
     @SerialName("document") Document,
+    @SerialName("board_topic") BoardTopic,
+    @SerialName("board_post") BoardPost,
 }
 
 @Serializable

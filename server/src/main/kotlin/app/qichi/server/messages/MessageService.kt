@@ -3,6 +3,7 @@ package app.qichi.server.messages
 import app.qichi.server.db.EntityWrites
 import app.qichi.server.db.Files
 import app.qichi.server.db.Messages
+import app.qichi.server.db.ilike
 import app.qichi.server.db.ReadMarkers
 import app.qichi.server.db.QichiDatabase
 import app.qichi.server.db.RoomWriter
@@ -257,18 +258,6 @@ class MessageService(
                 .map { it.toMessage() }
             val page = rows.take(limit)
             MessageSearchPage(messages = page, nextCursor = if (rows.size > limit) page.last().createdSeq.toString() else null)
-        }
-    }
-}
-
-/** PostgreSQL 的 ILIKE（Exposed 没有内置）；三元组 GIN 索引支持它。模式里的 \\ % _ 已由调用方转义。 */
-private infix fun Expression<String>.ilike(pattern: String): Op<Boolean> {
-    val column = this
-    return object : Op<Boolean>() {
-        override fun toQueryBuilder(queryBuilder: QueryBuilder) = queryBuilder {
-            append(column)
-            append(" ILIKE ")
-            append(stringParam(pattern))
         }
     }
 }

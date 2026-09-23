@@ -182,11 +182,12 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | GET | `/rooms/{roomId}/documents/{id}/versions` | 版本列表（不含正文，版本号从大到小，`cursor` + `limit` 分页） |
 | GET | `/rooms/{roomId}/documents/{id}/versions/{v}` | 某个版本的正文 |
 | POST | `/rooms/{roomId}/documents/{id}/versions` | 保存新版本：`{id, baseVersion, body, restoredFromVersion?}`，新文稿的基线是 0；基线落后 409；同 `id` 重试返回已保存的版本 |
-| GET · POST · PATCH | `/rooms/{roomId}/board/topics[/{id}]` | 留言主题（含置顶） |
-| POST | `/rooms/{roomId}/board/topics/{topicId}/posts` | 发帖（可引用） |
-| PATCH | `/rooms/{roomId}/board/posts/{id}` | 修订（带 `baseRevision`） |
-| PUT · DELETE | `/rooms/{roomId}/board/posts/{id}/reactions/{kind}` | 喜欢 / 拥抱 / 支持 |
-| GET | `/rooms/{roomId}/board/search?q=` | 搜索 |
+| GET · POST · PATCH · DELETE | `/rooms/{roomId}/board/topics[/{id}]` | 留言主题：列表（置顶在前，其余按最近留言）/ 新建 / 改标题与置顶 / 删除进回收站 |
+| POST | `/rooms/{roomId}/board/topics/{topicId}/posts` | 发帖（可引用，摘录由服务端生成，原文之后修订也不变） |
+| PATCH · DELETE | `/rooms/{roomId}/board/posts/{id}` | 修订（仅作者，带 `baseRevision`，落后 409）/ 删除进回收站 |
+| GET | `/rooms/{roomId}/board/posts/{id}/revisions` | 修订历史（旧版本） |
+| PUT · DELETE | `/rooms/{roomId}/board/posts/{id}/reactions/{kind}` | 喜欢 / 拥抱 / 支持（PUT 带客户端 `id`；不能回应自己的）/ 收回 |
+| GET | `/rooms/{roomId}/board/search?q=` | 搜索正文与标题 |
 
 逐行对比由客户端用 `shared/util/Diff` 计算，不另设接口。
 

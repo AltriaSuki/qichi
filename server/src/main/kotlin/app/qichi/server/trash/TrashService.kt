@@ -10,6 +10,9 @@ import app.qichi.server.db.PlanLogs
 import app.qichi.server.db.PlanStages
 import app.qichi.server.db.Ideas
 import app.qichi.server.db.Documents
+import app.qichi.server.db.BoardPosts
+import app.qichi.server.db.BoardReactions
+import app.qichi.server.db.BoardTopics
 import app.qichi.server.db.Plans
 import app.qichi.server.db.QichiDatabase
 import app.qichi.server.db.Questions
@@ -30,6 +33,8 @@ import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
 import app.qichi.server.ideas.toIdea
 import app.qichi.server.documents.toDocument
+import app.qichi.server.board.toBoardPost
+import app.qichi.server.board.toBoardTopic
 import app.qichi.server.plans.toPlan
 import app.qichi.server.qna.toQuestion
 import app.qichi.server.rooms.RoomService
@@ -142,6 +147,14 @@ class TrashService(
                     val d = row.toDocument()
                     add(Candidate(TrashType.Document, d, d.deletedAt!!, d.deletedBy!!))
                 }
+                BoardTopics.selectAll().deleted(BoardTopics, roomId, cursor, take).forEach { row ->
+                    val t = row.toBoardTopic()
+                    add(Candidate(TrashType.BoardTopic, t, t.deletedAt!!, t.deletedBy!!))
+                }
+                BoardPosts.selectAll().deleted(BoardPosts, roomId, cursor, take).forEach { row ->
+                    val p = row.toBoardPost()
+                    add(Candidate(TrashType.BoardPost, p, p.deletedAt!!, p.deletedBy!!))
+                }
             }.sortedWith(compareByDescending<Candidate> { it.deletedAt }.thenByDescending { it.sortKey })
 
             val page = candidates.take(limit)
@@ -228,6 +241,12 @@ class TrashService(
                 TrashType.Idea -> hardDelete(this, roomId, userId, EntityType.Idea, id, Ideas, now)
                 // 版本随文稿级联删除
                 TrashType.Document -> hardDelete(this, roomId, userId, EntityType.Document, id, Documents, now)
+                TrashType.BoardTopic -> {
+                    BoardPosts.select(BoardPosts.id).where { BoardPosts.topicId eq id }.map { it[BoardPosts.id] }
+                        .forEach { purgeBoardPost(this, roomId, userId, it, now) }
+                    hardDelete(this, roomId, userId, EntityType.BoardTopic, id, BoardTopics, now)
+                }
+                TrashType.BoardPost -> purgeBoardPost(this, roomId, userId, id, now)
             }
         }
         files.deleteStored(orphanFiles)
@@ -251,6 +270,16 @@ class TrashService(
         if (author != userId) forbidden("只能处理自己的心情")
     }
 
+    /** 彻底删除一条留言：它的回应一起删；引用了它的留言保留摘录，只断开链接。 */
+    private fun purgeBoardPost(tx: Tx, roomId: UUID, userId: UUID, id: UUID, now: Instant) {
+        BoardReactions.select(BoardReactions.id).where { BoardReactions.postId eq id }.map { it[BoardReactions.id] }
+            .forEach { hardDelete(tx, roomId, userId, EntityType.BoardReaction, it, BoardReactions, now) }
+        BoardPosts.select(BoardPosts.id).where { BoardPosts.quotePostId eq id }.map { it[BoardPosts.id] }.forEach { quoting ->
+            writes.update(tx, roomId, userId, EntityType.BoardPost, quoting, BoardPosts) { it[BoardPosts.quotePostId] = null }
+        }
+        hardDelete(tx, roomId, userId, EntityType.BoardPost, id, BoardPosts, now)
+    }
+
     private fun hardDelete(tx: Tx, roomId: UUID, userId: UUID, type: EntityType, id: UUID, table: SyncedTable, at: Instant) {
         writer.change(tx, roomId, type, id, userId, at, ChangeOp.Delete)
         table.deleteWhere { table.id eq id }
@@ -265,6 +294,8 @@ class TrashService(
         TrashType.Plan -> Plans.selectAll().where { Plans.id eq id }.singleOrNull()?.toPlan()
         TrashType.Idea -> Ideas.selectAll().where { Ideas.id eq id }.singleOrNull()?.toIdea()
         TrashType.Document -> Documents.selectAll().where { Documents.id eq id }.singleOrNull()?.toDocument()
+        TrashType.BoardTopic -> BoardTopics.selectAll().where { BoardTopics.id eq id }.singleOrNull()?.toBoardTopic()
+        TrashType.BoardPost -> BoardPosts.selectAll().where { BoardPosts.id eq id }.singleOrNull()?.toBoardPost()
     }
 
     /** 在查询上加「这个房间、已删除、在游标之后」，按 (deletedAt, id) 降序取 [take] 条。 */
@@ -289,6 +320,8 @@ val TrashType.entityType: EntityType
         TrashType.Plan -> EntityType.Plan
         TrashType.Idea -> EntityType.Idea
         TrashType.Document -> EntityType.Document
+        TrashType.BoardTopic -> EntityType.BoardTopic
+        TrashType.BoardPost -> EntityType.BoardPost
     }
 
 private val TrashType.table: SyncedTable
@@ -301,4 +334,6 @@ private val TrashType.table: SyncedTable
         TrashType.Plan -> Plans
         TrashType.Idea -> Ideas
         TrashType.Document -> Documents
+        TrashType.BoardTopic -> BoardTopics
+        TrashType.BoardPost -> BoardPosts
     }

@@ -58,6 +58,8 @@ tags:
     description: 灵感（P4）
   - name: documents
     description: 共同写作：文稿与不可变版本（P5）
+  - name: board
+    description: 留言板：主题、留言（可引用、可修订）、回应、搜索（P5）
   - name: ai
     description: AI（P4）：请求立即返回 202，结果异步写进对应实体，并通过 WebSocket 发 ai.done
   - name: plans
@@ -1293,6 +1295,177 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /rooms/{roomId}/board/topics:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [board]
+      operationId: listBoardTopics
+      summary: 主题列表（置顶的在前，其余按最近留言；不含已删除的）
+      responses:
+        '200':
+          description: 主题
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/BoardTopic' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [board]
+      operationId: createBoardTopic
+      summary: 新建主题（第一条留言另外发）
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateBoardTopicRequest' } } }
+      responses:
+        '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/BoardTopic' } } } }
+        '201': { description: 已创建, content: { application/json: { schema: { $ref: '#/components/schemas/BoardTopic' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/board/topics/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [board]
+      operationId: updateBoardTopic
+      summary: 改标题、置顶或取消置顶（两位成员都可以）
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateBoardTopicRequest' } } }
+      responses:
+        '200': { description: 修改后的主题, content: { application/json: { schema: { $ref: '#/components/schemas/BoardTopic' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [board]
+      operationId: deleteBoardTopic
+      summary: 删除主题进回收站（主题下的留言随它隐藏；彻底删除时一起删掉）
+      responses:
+        '200': { description: 删除后的主题, content: { application/json: { schema: { $ref: '#/components/schemas/BoardTopic' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/board/topics/{topicId}/posts:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - name: topicId
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Uuid' }
+    post:
+      tags: [board]
+      operationId: createBoardPost
+      summary: 发一条留言（可引用同一房间里的另一条留言；摘录由服务端生成）
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateBoardPostRequest' } } }
+      responses:
+        '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/BoardPost' } } } }
+        '201': { description: 已发出, content: { application/json: { schema: { $ref: '#/components/schemas/BoardPost' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/board/posts/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [board]
+      operationId: reviseBoardPost
+      summary: 修订留言（仅作者）
+      description: 带 `baseRevision`；不是当前修订号 → 409 `conflict_version`，`latestVersion` 是当前修订号。旧内容进修订历史。
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ReviseBoardPostRequest' } } }
+      responses:
+        '200': { description: 修订后的留言, content: { application/json: { schema: { $ref: '#/components/schemas/BoardPost' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [board]
+      operationId: deleteBoardPost
+      summary: 删除留言进回收站（两位成员都可以）
+      responses:
+        '200': { description: 删除后的留言, content: { application/json: { schema: { $ref: '#/components/schemas/BoardPost' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/board/posts/{id}/revisions:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [board]
+      operationId: listBoardPostRevisions
+      summary: 修订历史（旧版本，修订号从大到小；不含当前内容）
+      responses:
+        '200':
+          description: 旧版本
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/BoardPostRevision' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/board/posts/{id}/reactions/{kind}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+      - name: kind
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/BoardReactionKind' }
+    put:
+      tags: [board]
+      operationId: putBoardReaction
+      summary: 回应一条留言（不能回应自己的；同一种回应已有时返回已有的）
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PutBoardReactionRequest' } } }
+      responses:
+        '200': { description: 已经回应过, content: { application/json: { schema: { $ref: '#/components/schemas/BoardReaction' } } } }
+        '201': { description: 已回应, content: { application/json: { schema: { $ref: '#/components/schemas/BoardReaction' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [board]
+      operationId: deleteBoardReaction
+      summary: 收回自己的这种回应（没有时 404）
+      responses:
+        '200': { description: 收回后的回应（带 deletedAt）, content: { application/json: { schema: { $ref: '#/components/schemas/BoardReaction' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/board/search:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [board]
+      operationId: searchBoard
+      summary: 搜索主题标题与留言正文（不区分大小写，最多 50 条）
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 100 }
+      responses:
+        '200': { description: 搜索结果, content: { application/json: { schema: { $ref: '#/components/schemas/BoardSearchResult' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /rooms/{roomId}/plans:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -2003,7 +2176,7 @@ components:
     EntityType:
       type: string
       description: 与 `shared/model/EntityType` 一致，后续阶段追加
-      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document]
+      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document, board_topic, board_post, board_reaction]
     ChangeOp:
       type: string
       description: '`upsert` 包括软删除与恢复；只有彻底删除是 `delete`'
@@ -2042,6 +2215,9 @@ components:
             - $ref: '#/components/schemas/PlanLog'
             - $ref: '#/components/schemas/Idea'
             - $ref: '#/components/schemas/Document'
+            - $ref: '#/components/schemas/BoardTopic'
+            - $ref: '#/components/schemas/BoardPost'
+            - $ref: '#/components/schemas/BoardReaction'
             - type: 'null'
     SyncResponse:
       type: object
@@ -2055,7 +2231,7 @@ components:
           items: { $ref: '#/components/schemas/Change' }
     Bootstrap:
       type: object
-      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents]
+      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents, boardTopics, boardPosts, boardReactions]
       properties:
         room: { $ref: '#/components/schemas/Room' }
         members:
@@ -2100,6 +2276,9 @@ components:
         planLogs: { type: array, items: { $ref: '#/components/schemas/PlanLog' } }
         ideas: { type: array, items: { $ref: '#/components/schemas/Idea' } }
         documents: { type: array, items: { $ref: '#/components/schemas/Document' } }
+        boardTopics: { type: array, items: { $ref: '#/components/schemas/BoardTopic' } }
+        boardPosts: { type: array, items: { $ref: '#/components/schemas/BoardPost' } }
+        boardReactions: { type: array, items: { $ref: '#/components/schemas/BoardReaction' } }
     WsHello:
       type: object
       required: [type, userId, rooms]
@@ -2385,6 +2564,87 @@ components:
       required: [body]
       properties:
         body: { type: string, minLength: 1, maxLength: 2000 }
+    BoardReactionKind:
+      type: string
+      enum: [like, hug, support]
+    BoardTopic:
+      description: 同步实体类型 `board_topic`（P5）
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [title, authorId, pinnedAt]
+          properties:
+            title: { type: string, minLength: 1, maxLength: 60 }
+            authorId: { $ref: '#/components/schemas/Uuid' }
+            pinnedAt: { $ref: '#/components/schemas/NullableInstant' }
+    BoardPost:
+      description: 同步实体类型 `board_post`（P5）
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [topicId, authorId, body, quotePostId, quoteAuthorId, quoteExcerpt, revision, revisedAt]
+          properties:
+            topicId: { $ref: '#/components/schemas/Uuid' }
+            authorId: { $ref: '#/components/schemas/Uuid' }
+            body: { type: string, minLength: 1, maxLength: 10000 }
+            quotePostId: { $ref: '#/components/schemas/NullableUuid' }
+            quoteAuthorId: { $ref: '#/components/schemas/NullableUuid' }
+            quoteExcerpt: { type: [string, 'null'], maxLength: 80 }
+            revision: { type: integer, minimum: 1 }
+            revisedAt: { $ref: '#/components/schemas/NullableInstant' }
+    BoardReaction:
+      description: 同步实体类型 `board_reaction`（P5）；收回是软删除
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [postId, authorId, kind]
+          properties:
+            postId: { $ref: '#/components/schemas/Uuid' }
+            authorId: { $ref: '#/components/schemas/Uuid' }
+            kind: { $ref: '#/components/schemas/BoardReactionKind' }
+    CreateBoardTopicRequest:
+      type: object
+      required: [id, title]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        title: { type: string, minLength: 1, maxLength: 60 }
+    UpdateBoardTopicRequest:
+      type: object
+      description: 只发要改的字段
+      properties:
+        title: { type: string, minLength: 1, maxLength: 60 }
+        pinned: { type: boolean }
+    CreateBoardPostRequest:
+      type: object
+      required: [id, body]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        body: { type: string, minLength: 1, maxLength: 10000 }
+        quotePostId: { $ref: '#/components/schemas/NullableUuid' }
+    ReviseBoardPostRequest:
+      type: object
+      required: [baseRevision, body]
+      properties:
+        baseRevision: { type: integer, minimum: 1 }
+        body: { type: string, minLength: 1, maxLength: 10000 }
+    PutBoardReactionRequest:
+      type: object
+      required: [id]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+    BoardPostRevision:
+      type: object
+      required: [revision, body, createdAt]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        body: { type: string }
+        createdAt: { $ref: '#/components/schemas/Instant' }
+    BoardSearchResult:
+      type: object
+      required: [posts, topics]
+      properties:
+        posts: { type: array, items: { $ref: '#/components/schemas/BoardPost' } }
+        topics: { type: array, items: { $ref: '#/components/schemas/BoardTopic' } }
     Document:
       description: 同步实体类型 `document`：共同写作的文稿（P5）。正文不在同步里，按版本另取
       allOf:
@@ -2686,7 +2946,7 @@ components:
     TrashType:
       type: string
       description: 第 3 阶段可恢复的类型，后续阶段追加
-      enum: [message, mood, todo, event, question, plan, idea, document]
+      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post]
     TrashItem:
       type: object
       required: [type, id, deletedAt, deletedBy, data]
@@ -2705,6 +2965,8 @@ components:
             - $ref: '#/components/schemas/Plan'
             - $ref: '#/components/schemas/Idea'
             - $ref: '#/components/schemas/Document'
+            - $ref: '#/components/schemas/BoardTopic'
+            - $ref: '#/components/schemas/BoardPost'
     TrashPage:
       type: object
       required: [items, nextCursor]

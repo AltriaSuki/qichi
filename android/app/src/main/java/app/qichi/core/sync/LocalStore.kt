@@ -10,6 +10,9 @@ import app.qichi.shared.api.EntityCodec
 import app.qichi.shared.api.Event
 import app.qichi.core.data.DraftStore
 import app.qichi.core.database.DocumentVersionRow
+import app.qichi.shared.api.BoardPost
+import app.qichi.shared.api.BoardReaction
+import app.qichi.shared.api.BoardTopic
 import app.qichi.shared.api.Document
 import app.qichi.shared.api.DocumentVersion
 import app.qichi.shared.api.Idea
@@ -282,6 +285,9 @@ class LocalStore(
             is PlanLog -> EntityType.PlanLog
             is Idea -> EntityType.Idea
             is Document -> EntityType.Document
+            is BoardTopic -> EntityType.BoardTopic
+            is BoardPost -> EntityType.BoardPost
+            is BoardReaction -> EntityType.BoardReaction
         }
 
         fun encode(type: EntityType, entity: SyncEntity): String =
@@ -341,6 +347,9 @@ class LocalStore(
                 is Idea -> base(entity.roomId, entity.deletedAt != null, entity.authorId, null, null, entity.createdAt.toEpochMilli())
                 // 文稿列表按最近更新排序
                 is Document -> base(entity.roomId, entity.deletedAt != null, entity.createdBy, null, null, entity.updatedAt.toEpochMilli())
+                is BoardTopic -> base(entity.roomId, entity.deletedAt != null, entity.authorId, null, null, entity.createdAt.toEpochMilli())
+                is BoardPost -> base(entity.roomId, entity.deletedAt != null, entity.authorId, entity.topicId, null, entity.createdAt.toEpochMilli())
+                is BoardReaction -> base(entity.roomId, entity.deletedAt != null, entity.authorId, entity.postId, null, entity.createdAt.toEpochMilli())
             }
         }
     }

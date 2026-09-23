@@ -257,6 +257,38 @@ object DocumentVersions : Table("document_versions") {
     override val primaryKey = PrimaryKey(id)
 }
 
+object BoardTopics : SyncedTable("board_topics") {
+    val title = text("title")
+    val authorId = javaUUID("author_id")
+    val pinnedAt = timestamp("pinned_at").nullable()
+}
+
+object BoardPosts : SyncedTable("board_posts") {
+    val topicId = javaUUID("topic_id")
+    val authorId = javaUUID("author_id")
+    val body = text("body")
+    val quotePostId = javaUUID("quote_post_id").nullable()
+    val quoteAuthorId = javaUUID("quote_author_id").nullable()
+    val quoteExcerpt = text("quote_excerpt").nullable()
+    val revision = integer("revision")
+    val revisedAt = timestamp("revised_at").nullable()
+}
+
+/** 不可变：只插入，不更新。 */
+object BoardPostRevisions : Table("board_post_revisions") {
+    val postId = javaUUID("post_id")
+    val revision = integer("revision")
+    val body = text("body")
+    val createdAt = timestamp("created_at")
+    override val primaryKey = PrimaryKey(postId, revision)
+}
+
+object BoardReactions : SyncedTable("board_reactions") {
+    val postId = javaUUID("post_id")
+    val authorId = javaUUID("author_id")
+    val kind = text("kind")
+}
+
 object Devices : Table("devices") {
     val id = javaUUID("id")
     val userId = javaUUID("user_id")

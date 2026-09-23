@@ -44,6 +44,15 @@ object Limits {
     /** 共同写作：一个版本的正文最多这么多个字符（约十万字，够写很长的信） */
     const val DOCUMENT_BODY_MAX: Int = 200_000
 
+    /** 留言板：主题标题 */
+    val BOARD_TITLE_LENGTH: IntRange = 1..60
+
+    /** 留言板：一条留言（长文留言，和聊天消息一样最多一万字） */
+    val BOARD_POST_LENGTH: IntRange = 1..10_000
+
+    /** 留言板：引用时摘录的长度 */
+    const val BOARD_QUOTE_EXCERPT: Int = 80
+
     const val IMAGE_MAX_BYTES: Long = 20L * 1024 * 1024
     const val FILE_MAX_BYTES: Long = 100L * 1024 * 1024
     val THUMBNAIL_WIDTHS: Set<Int> = setOf(200, 400, 800)

@@ -72,10 +72,10 @@
 |---|---|
 | `documents` | 同步实体（`document`）：`title`、`created_by`、`latest_version`（0 = 还没有版本）、`latest_author_id`、`char_count`（最新版本的字数）；正文不进同步 |
 | `document_versions` | **不可变**：`document_id`、`version`（从 1 递增）、`base_version`、`author_id`、`body`（Markdown）、`char_count`、`restored_from_version`（旧版另存为新版时） |
-| `board_topics` | 留言主题：`title`、`author_id`、`pinned_at` |
-| `board_posts` | `topic_id`、`author_id`、`body`、`quote_post_id` + `quote_excerpt`、`revision`、`revised_at` |
-| `board_post_revisions` | 修订历史（不可变） |
-| `board_reactions` | `post_id`、`author_id`、`kind`（like / hug / support），唯一 `(post_id, author_id, kind)` |
+| `board_topics` | 同步实体（`board_topic`）：`title`、`author_id`、`pinned_at` |
+| `board_posts` | 同步实体（`board_post`）：`topic_id`、`author_id`、`body`、`quote_post_id` + `quote_author_id` + `quote_excerpt`、`revision`（从 1 开始）、`revised_at` |
+| `board_post_revisions` | 修订历史（不可变，不进同步）：`post_id`、`revision`、`body` |
+| `board_reactions` | 同步实体（`board_reaction`）：`post_id`、`author_id`、`kind`（like / hug / support）；收回是软删除，未收回的唯一 `(post_id, author_id, kind)` |
 
 ### 第 6 阶段：档案、决定、时间线、阅读、总结
 
