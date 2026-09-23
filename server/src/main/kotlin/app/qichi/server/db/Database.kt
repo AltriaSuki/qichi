@@ -30,6 +30,9 @@ class QichiDatabase private constructor(
                     isAutoCommit = false
                     transactionIsolation = "TRANSACTION_READ_COMMITTED"
                     connectionInitSql = "SET TIME ZONE 'UTC'"
+                    // 关了自动提交时，连接池自己执行的语句（上面的设时区）也要提交掉，
+                    // 否则新连接带着没结束的事务交出去，第一次用时换隔离级别会报错
+                    isIsolateInternalQueries = true
                 },
             )
             try {
