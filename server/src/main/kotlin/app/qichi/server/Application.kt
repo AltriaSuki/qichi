@@ -23,6 +23,8 @@ import app.qichi.server.archive.ArchiveService
 import app.qichi.server.archive.archiveRoutes
 import app.qichi.server.board.BoardService
 import app.qichi.server.decisions.DecisionService
+import app.qichi.server.timeline.TimelineService
+import app.qichi.server.timeline.timelineRoutes
 import app.qichi.server.decisions.decisionRoutes
 import app.qichi.server.board.boardRoutes
 import app.qichi.server.documents.DocumentService
@@ -130,6 +132,7 @@ fun Application.module(ctx: AppContext) {
             boardRoutes(ctx)
             archiveRoutes(ctx)
             decisionRoutes(ctx)
+            timelineRoutes(ctx)
             calendarRoutes(ctx)
         }
     }
@@ -171,6 +174,7 @@ class AppContext(
     val board = BoardService(database, rooms, writes)
     val archive = ArchiveService(database, rooms, writes)
     val decisions = DecisionService(database, rooms, writes)
+    val timeline = TimelineService(database, rooms, clock)
     val calendar = CalendarService(database, rooms, writes, writer, clock, config.publicBaseUrl)
 }
 

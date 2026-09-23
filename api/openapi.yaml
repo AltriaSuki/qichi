@@ -58,6 +58,8 @@ tags:
     description: 灵感（P4）
   - name: documents
     description: 共同写作：文稿与不可变版本（P5）
+  - name: timeline
+    description: 共同时间线：按月回看决定、灵感、计划完成、两人都选中的照片（服务端拼装，需要联网）（P6）
   - name: decisions
     description: 决定记录：问题、备选、各自关注点、最终决定、复查日期（P6）
   - name: archive
@@ -1296,6 +1298,62 @@ paths:
       summary: 某个版本的正文
       responses:
         '200': { description: 版本, content: { application/json: { schema: { $ref: '#/components/schemas/DocumentVersion' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/timeline:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [timeline]
+      operationId: getTimeline
+      summary: 某个月的时间线（不带年月时取最近一个有内容的月份；没有内容时是本月）
+      parameters:
+        - { name: year, in: query, schema: { type: integer, minimum: 2000, maximum: 2100 } }
+        - { name: month, in: query, schema: { type: integer, minimum: 1, maximum: 12 } }
+      responses:
+        '200': { description: 一个月, content: { application/json: { schema: { $ref: '#/components/schemas/TimelinePage' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/timeline/picks:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [timeline]
+      operationId: listTimelinePicks
+      summary: 两个人各自选中的照片
+      responses:
+        '200':
+          description: 选中记录
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/TimelinePick' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/timeline/picks/{fileId}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - name: fileId
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Uuid' }
+    put:
+      tags: [timeline]
+      operationId: pickTimelinePhoto
+      summary: 选中一张照片（必须是这个房间里的图片；重复选中不报错）
+      responses:
+        '204': { description: 已选中 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [timeline]
+      operationId: unpickTimelinePhoto
+      summary: 取消选中（本来没选也不报错）
+      responses:
+        '204': { description: 已取消 }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -2702,6 +2760,42 @@ components:
       required: [body]
       properties:
         body: { type: string, minLength: 1, maxLength: 2000 }
+    TimelineEntryKind:
+      type: string
+      enum: [decision, idea, plan, photo]
+    TimelineEntry:
+      type: object
+      required: [kind, refId, at, title]
+      properties:
+        kind: { $ref: '#/components/schemas/TimelineEntryKind' }
+        refId: { $ref: '#/components/schemas/Uuid' }
+        at: { $ref: '#/components/schemas/Instant' }
+        title: { type: string }
+        detail: { type: [string, 'null'] }
+        authorId: { $ref: '#/components/schemas/NullableUuid' }
+        file: { oneOf: [{ $ref: '#/components/schemas/FileMeta' }, { type: 'null' }] }
+    TimelineMonthCount:
+      type: object
+      required: [year, month, count]
+      properties:
+        year: { type: integer }
+        month: { type: integer, minimum: 1, maximum: 12 }
+        count: { type: integer, minimum: 1 }
+    TimelinePage:
+      type: object
+      required: [year, month, entries, months]
+      properties:
+        year: { type: integer }
+        month: { type: integer, minimum: 1, maximum: 12 }
+        entries: { type: array, items: { $ref: '#/components/schemas/TimelineEntry' } }
+        months: { type: array, items: { $ref: '#/components/schemas/TimelineMonthCount' } }
+    TimelinePick:
+      type: object
+      required: [fileId, userId, createdAt]
+      properties:
+        fileId: { $ref: '#/components/schemas/Uuid' }
+        userId: { $ref: '#/components/schemas/Uuid' }
+        createdAt: { $ref: '#/components/schemas/Instant' }
     DecisionConcern:
       type: object
       required: [userId, text]

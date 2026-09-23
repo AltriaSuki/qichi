@@ -199,8 +199,9 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | DELETE | `/rooms/{roomId}/archive/{id}` | 删除进回收站 |
 | GET · POST | `/rooms/{roomId}/archive/{id}/revisions` | 历次修订 / 新修订（带修订 `id` 与 `baseRevision`，落后 409） |
 | GET · POST · PATCH · DELETE | `/rooms/{roomId}/decisions[/{id}]` | 决定记录（PATCH 只发改动的字段；`myConcern` 只改自己的关注点；`finalChoice` 非空为定下、null 为重新考虑） |
-| GET | `/rooms/{roomId}/timeline?year=&month=` | 共同时间线（服务端拼装） |
-| PUT · DELETE | `/rooms/{roomId}/timeline/picks/{fileId}` | 选中 / 取消选中照片 |
+| GET | `/rooms/{roomId}/timeline?year=&month=` | 共同时间线（服务端拼装，按房间时区的月份；不带年月取最近有内容的月份；附带所有有内容的月份） |
+| GET | `/rooms/{roomId}/timeline/picks` | 两个人各自选中了哪些照片 |
+| PUT · DELETE | `/rooms/{roomId}/timeline/picks/{fileId}` | 选中 / 取消选中照片（两人都选中才上时间线） |
 | GET · POST | `/rooms/{roomId}/books` | 书架；上传 EPUB 先走 `/files` |
 | PUT | `/rooms/{roomId}/books/{bookId}/progress` | 我的进度 |
 | POST · PATCH · DELETE | `/rooms/{roomId}/books/{bookId}/highlights[/{id}]` | 书签、摘录、标注、感想 |

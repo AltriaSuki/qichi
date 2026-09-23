@@ -326,6 +326,14 @@ object Decisions : SyncedTable("decisions") {
     val createdBy = javaUUID("created_by")
 }
 
+object TimelinePicks : Table("timeline_picks") {
+    val roomId = javaUUID("room_id")
+    val fileId = javaUUID("file_id")
+    val userId = javaUUID("user_id")
+    val createdAt = timestamp("created_at")
+    override val primaryKey = PrimaryKey(fileId, userId)
+}
+
 object Devices : Table("devices") {
     val id = javaUUID("id")
     val userId = javaUUID("user_id")

@@ -60,6 +60,15 @@ enum class MoodLabel {
     @SerialName("hurt") Hurt,
 }
 
+/** 时间线上的事：决定、灵感、计划完成、照片。 */
+@Serializable
+enum class TimelineEntryKind {
+    @SerialName("decision") Decision,
+    @SerialName("idea") Idea,
+    @SerialName("plan") Plan,
+    @SerialName("photo") Photo,
+}
+
 /** 档案条目的种类：偏好、共识、决定、边界、担忧、里程碑。 */
 @Serializable
 enum class ArchiveKind {
