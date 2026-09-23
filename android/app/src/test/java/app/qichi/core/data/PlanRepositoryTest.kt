@@ -13,7 +13,7 @@ import app.qichi.core.sync.SyncFixtures.me
 import app.qichi.core.sync.SyncFixtures.partner
 import app.qichi.core.sync.SyncFixtures.roomId
 import app.qichi.core.sync.SyncScheduler
-import app.qichi.feature.plan.currentStage
+import app.qichi.core.ui.currentStage
 import app.qichi.shared.api.CreatePlanRequest
 import app.qichi.shared.api.CreateTodoRequest
 import app.qichi.shared.api.Patch

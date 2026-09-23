@@ -8,6 +8,7 @@ import app.qichi.core.data.PlanRepository
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.data.TodoRepository
 import app.qichi.core.sync.Local
+import app.qichi.core.ui.currentStage
 import app.qichi.core.ui.todayIn
 import app.qichi.core.ui.zoneOf
 import app.qichi.shared.api.Milestone
@@ -46,9 +47,6 @@ data class PlanListState(
     val done: List<PlanSummary> = emptyList(),
     val loaded: Boolean = false,
 )
-
-/** 当前阶段 = 按顺序第一个还没完成的阶段；都完成了就没有当前阶段。 */
-fun currentStage(stages: List<PlanStage>): PlanStage? = stages.sortedBy { it.sortOrder }.firstOrNull { it.doneAt == null }
 
 @HiltViewModel(assistedFactory = PlanListViewModel.Factory::class)
 class PlanListViewModel @AssistedInject constructor(

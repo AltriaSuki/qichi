@@ -60,6 +60,7 @@ import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
+import app.qichi.core.ui.StageTrack
 import app.qichi.core.ui.TodoRow
 import app.qichi.core.ui.monthRoman
 import app.qichi.core.ui.relativeDay
@@ -305,56 +306,6 @@ fun PlanDetailScreen(
             onConfirm = { vm.deleteMilestone(m) },
             onDismiss = { removingMilestone = null },
         )
-    }
-}
-
-/**
- * 阶段进度线（设计稿）：完成的阶段是实心小点，当前阶段是 accent 大点，后面的阶段是空心点；
- * 当前阶段之前的连线用 ink，之后的用 line2。点阶段名切换完成与否。
- */
-@Composable
-private fun StageTrack(stages: List<PlanStage>, current: PlanStage?, onToggle: (PlanStage) -> Unit) {
-    val colors = QichiTheme.colors
-    val type = QichiTheme.typography
-    val currentIndex = current?.let { stages.indexOf(it) } ?: stages.size
-    Column(Modifier.padding(top = 18.dp)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-            stages.forEachIndexed { i, _ ->
-                if (i > 0) Box(Modifier.weight(1f).height(1.dp).background(if (i <= currentIndex) colors.ink else colors.line2))
-                when {
-                    i < currentIndex -> Box(Modifier.size(7.dp).background(colors.ink, CircleShape))
-                    i == currentIndex -> Box(Modifier.size(11.dp).background(colors.personA, CircleShape))
-                    else -> Box(Modifier.size(7.dp).border(1.dp, colors.faint, CircleShape))
-                }
-            }
-        }
-        Row(Modifier.fillMaxWidth().padding(top = Spacing.xs)) {
-            stages.forEachIndexed { i, stage ->
-                val isCurrent = i == currentIndex
-                Text(
-                    stage.title,
-                    style = type.caption.copy(
-                        letterSpacing = 0.14.em,
-                        fontWeight = if (isCurrent) FontWeight.W400 else FontWeight.W300,
-                        color = if (isCurrent) colors.ink else colors.muted,
-                    ),
-                    textAlign = when {
-                        stages.size == 1 -> TextAlign.Start
-                        i == 0 -> TextAlign.Start
-                        i == stages.lastIndex -> TextAlign.End
-                        else -> TextAlign.Center
-                    },
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = Sizes.touchTarget)
-                        .clickable(role = Role.Checkbox, onClickLabel = if (stage.doneAt == null) "标为完成" else "标为未完成") { onToggle(stage) }
-                        .semantics { contentDescription = "${stage.title}，${if (stage.doneAt != null) "已完成" else if (isCurrent) "当前阶段" else "未开始"}" }
-                        .padding(top = Spacing.xxs),
-                )
-            }
-        }
     }
 }
 
