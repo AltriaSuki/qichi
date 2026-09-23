@@ -3,6 +3,7 @@ package app.qichi.feature.together
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.qichi.core.auth.SessionManager
+import app.qichi.core.data.DecisionRepository
 import app.qichi.core.data.EventRepository
 import app.qichi.core.data.IdeaRepository
 import app.qichi.core.data.MoodRepository
@@ -39,6 +40,7 @@ class TogetherHubViewModel @AssistedInject constructor(
     plans: PlanRepository,
     todos: TodoRepository,
     events: EventRepository,
+    decisions: DecisionRepository,
     session: SessionManager,
 ) : ViewModel() {
     private val _saved = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
@@ -66,9 +68,14 @@ class TogetherHubViewModel @AssistedInject constructor(
     )
 
     val counts: StateFlow<Map<Page, String>> = combine(
-        rooms.observeRoom(roomId), lists, ideas.observeIdeas(roomId), minuteTicker,
-    ) { room, l, allIdeas, now ->
-        hubCounts(HubData(session.currentUserId, zoneOf(room?.timezone), now, l.moods, l.rounds, l.plans, l.todos, l.events, allIdeas.map { it.value }))
+        rooms.observeRoom(roomId), lists, combine(ideas.observeIdeas(roomId), decisions.observeDecisions(roomId)) { i, d -> i to d }, minuteTicker,
+    ) { room, l, (allIdeas, allDecisions), now ->
+        hubCounts(
+            HubData(
+                session.currentUserId, zoneOf(room?.timezone), now, l.moods, l.rounds, l.plans, l.todos, l.events,
+                allIdeas.map { it.value }, allDecisions.map { it.value },
+            ),
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     fun addIdea(text: String) = viewModelScope.launch {

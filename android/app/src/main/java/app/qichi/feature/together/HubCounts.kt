@@ -2,6 +2,7 @@ package app.qichi.feature.together
 
 import app.qichi.core.data.days
 import app.qichi.navigation.Page
+import app.qichi.shared.api.Decision
 import app.qichi.shared.api.Event
 import app.qichi.shared.api.Idea
 import app.qichi.shared.api.Mood
@@ -28,6 +29,7 @@ data class HubData(
     val todos: List<Todo>,
     val events: List<Event>,
     val ideas: List<Idea>,
+    val decisions: List<Decision> = emptyList(),
 )
 
 /**
@@ -35,6 +37,7 @@ data class HubData(
  * 心情 = 今天两人记下的心情条数；问答 = 今天的问题我还没确认回答时为 1；
  * 计划 = 进行中的计划数；待办 = 截止在今天或更早、还没完成的顶层待办数；
  * 日历 = 今天接下来第一个有具体时间的日程几点开始；灵感 = 灵感总数。
+ * 「回看」里：决定 = 还没定的加上复查日期到了的。
  */
 fun hubCounts(d: HubData): Map<Page, String> {
     val today: LocalDate = d.now.atZone(d.zone).toLocalDate()
@@ -45,6 +48,7 @@ fun hubCounts(d: HubData): Map<Page, String> {
         Page.Plan to d.plans.count { it.status != PlanStatus.Done },
         Page.Todo to d.todos.count { it.parentId == null && it.doneAt == null && dueOf(it)?.let { due -> !due.isAfter(today) } == true },
         Page.Ideas to d.ideas.size,
+        Page.Decisions to d.decisions.count { it.finalChoice == null || it.reviewDate?.let { r -> !r.isAfter(today) } == true },
     ).filterValues { it > 0 }.mapValues { it.value.toString() }
     val nextEvent = d.events
         .filter { !it.allDay && it.startsAt != null && it.startsAt!! > d.now && today in it.days(d.zone) }

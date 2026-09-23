@@ -79,7 +79,7 @@ private fun weekdayName(d: DayOfWeek) = when (d) {
 }
 
 /**
- * 今天页，按 Main.dc.html：星期与两人标记、日期大字、主视觉，下面是心情、一问、待办、安排、进行中、一年前。
+ * 今天页，按 Main.dc.html：星期与两人标记、日期大字、主视觉，下面是心情、一问、待办、安排、进行中、该复查的决定、一年前。
  * 没有数据的区块整块不显示，不放空状态说明。
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -88,6 +88,7 @@ fun TodayScreen(
     roomId: UUID,
     onOpen: (Page) -> Unit,
     onOpenPlan: (UUID) -> Unit,
+    onOpenDecision: (UUID) -> Unit = {},
     viewModel: TodayViewModel = hiltViewModel<TodayViewModel, TodayViewModel.Factory>(key = roomId.toString()) { it.create(roomId) },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -340,6 +341,19 @@ fun TodayScreen(
                                     Text(step, style = type.body.copy(fontSize = 15.tsp, fontWeight = FontWeight.W300, color = colors.ink))
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            // ── 复查 ──
+            if (state.reviews.isNotEmpty()) {
+                Column(Modifier.padding(horizontal = Spacing.page)) {
+                    SectionLabel("该复查了")
+                    state.reviews.forEach { d ->
+                        Column(Modifier.fillMaxWidth().clickable(role = Role.Button) { onOpenDecision(d.id) }.padding(vertical = Spacing.xs)) {
+                            Text(d.question, style = type.bodyLarge.copy(color = colors.ink), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("当时定了：${d.finalChoice}", style = type.caption.copy(color = colors.muted), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }

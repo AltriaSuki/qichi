@@ -55,6 +55,8 @@ import app.qichi.feature.room.MembersScreen
 import app.qichi.feature.archive.ArchiveDetailScreen
 import app.qichi.feature.archive.ArchiveListScreen
 import app.qichi.feature.board.BoardListScreen
+import app.qichi.feature.decisions.DecisionDetailScreen
+import app.qichi.feature.decisions.DecisionListScreen
 import app.qichi.feature.board.TopicScreen
 import app.qichi.feature.today.TodayScreen
 import app.qichi.feature.writing.DocumentEditorScreen
@@ -123,7 +125,8 @@ fun QichiApp(
                 popExitTransition = popExit,
             ) {
                 navigation<TodayGraph>(startDestination = TodayHome) {
-                    composable<TodayHome> { TodayScreen(roomId = LocalRoomId.current, onOpen = { navigator.open(it) }, onOpenPlan = { navigator.open(Page.Plan, it.toString()) }) }
+                    composable<TodayHome> { TodayScreen(roomId = LocalRoomId.current, onOpen = { navigator.open(it) }, onOpenPlan = { navigator.open(Page.Plan, it.toString()) },
+                        onOpenDecision = { navigator.open(Page.Decisions, it.toString()) }) }
                 }
                 navigation<ChatGraph>(startDestination = ChatHome()) {
                     composable<ChatHome> { entry ->
@@ -169,6 +172,14 @@ fun QichiApp(
                                 }
                             }
                             Page.Ideas -> IdeasScreen(roomId = roomId, onBack = navigator::back)
+                            Page.Decisions -> {
+                                val decisionId = route.id?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
+                                if (decisionId == null) {
+                                    DecisionListScreen(roomId = roomId, onBack = navigator::back, onOpen = { navigator.open(Page.Decisions, it.toString()) })
+                                } else {
+                                    DecisionDetailScreen(roomId = roomId, decisionId = decisionId, onBack = navigator::back)
+                                }
+                            }
                             Page.Archive -> {
                                 // id：条目；或「new:消息 id」（从聊天「存进档案」进来）
                                 val raw = route.id

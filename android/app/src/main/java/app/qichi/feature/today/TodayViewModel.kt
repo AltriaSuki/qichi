@@ -3,6 +3,7 @@ package app.qichi.feature.today
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.qichi.core.auth.SessionManager
+import app.qichi.core.data.DecisionRepository
 import app.qichi.core.data.EventRepository
 import app.qichi.core.data.MoodRepository
 import app.qichi.core.data.People
@@ -16,6 +17,7 @@ import app.qichi.core.sync.Local
 import app.qichi.core.ui.currentStage
 import app.qichi.core.ui.todayIn
 import app.qichi.core.ui.zoneOf
+import app.qichi.shared.api.Decision
 import app.qichi.shared.api.Event
 import app.qichi.shared.api.Mood
 import app.qichi.shared.api.MoodReply
@@ -60,6 +62,8 @@ data class TodayState(
     val question: Question? = null,
     /** 进行中的计划，最多三个 */
     val plans: List<TodayPlan> = emptyList(),
+    /** 已经定下、复查日期到了的决定 */
+    val reviews: List<Decision> = emptyList(),
     /** 去年今天的心情（本阶段「一年前」只显示心情） */
     val yearAgoMoods: List<Mood> = emptyList(),
 ) {
@@ -81,6 +85,7 @@ class TodayViewModel @AssistedInject constructor(
     events: EventRepository,
     private val qna: QnaRepository,
     plans: PlanRepository,
+    decisions: DecisionRepository,
     session: SessionManager,
     val urls: FileUrls,
 ) : ViewModel() {
@@ -103,6 +108,7 @@ class TodayViewModel @AssistedInject constructor(
         val questions: List<Question>,
         val plans: List<Plan>,
         val stages: List<PlanStage>,
+        val decisions: List<Decision> = emptyList(),
     )
 
     private val more = combine(
@@ -110,8 +116,8 @@ class TodayViewModel @AssistedInject constructor(
         qna.observeRounds(roomId),
         qna.observeQuestions(roomId),
         plans.observePlans(roomId),
-        plans.observeStages(roomId),
-    ) { (t, e), r, q, p, st -> More(t, e, r.map { it.value }, q.map { it.value }, p.map { it.value }, st.map { it.value }) }
+        combine(plans.observeStages(roomId), decisions.observeDecisions(roomId)) { st, d -> st to d },
+    ) { (t, e), r, q, p, (st, d) -> More(t, e, r.map { it.value }, q.map { it.value }, p.map { it.value }, st.map { it.value }, d.map { it.value }) }
 
     val state: StateFlow<TodayState> = combine(
         people,
@@ -147,6 +153,8 @@ class TodayViewModel @AssistedInject constructor(
                 .sortedWith(compareBy({ it.targetDate == null }, { it.targetDate }, { it.createdAt }))
                 .take(3)
                 .map { plan -> TodayPlan(plan, more.stages.filter { it.planId == plan.id }.sortedWith(compareBy({ it.sortOrder }, { it.createdAt }))) },
+            reviews = more.decisions.filter { d -> d.finalChoice != null && d.reviewDate?.let { !it.isAfter(today) } == true }
+                .sortedBy { it.reviewDate },
             yearAgoMoods = allMoods.map { it.value }
                 .filter { it.createdAt.atZone(zone).toLocalDate() == today.minusYears(1) }
                 .sortedBy { it.createdAt },
