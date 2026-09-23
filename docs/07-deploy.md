@@ -104,6 +104,14 @@ docker run --rm -v qichi_files:/data -v /var/backups/qichi:/backup alpine \
 docker compose start server
 ```
 
+### 演练记录
+
+| 日期 | 在哪里 | 做法 | 结果 |
+|---|---|---|---|
+| 2026-09-23 | 开发电脑（本机开发库） | 按上面的命令形式备份（`pg_dump --format=custom` + 打包文件目录）；恢复到一个全新的 Postgres 容器，解压文件，另起一个服务端连上去 | 登录正常；房间快照里各类内容数量与原库完全一致（最后序号 3213）；书的文件逐字节一致 |
+
+首次部署到 VPS（P0-06）后，在 VPS 上再完整演练一次，并补一行记录。
+
 ## 8. AI 配置（第 4 阶段起）
 
 在 `.env` 里填：
