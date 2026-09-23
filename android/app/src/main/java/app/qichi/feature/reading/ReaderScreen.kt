@@ -135,8 +135,14 @@ fun ReaderScreen(
             val pub = vm.publication
             when {
                 state.ready && pub != null -> {
-                    val prefs = remember(colors) {
-                        EpubPreferences(backgroundColor = ReadiumColor(colors.background.toArgb()), textColor = ReadiumColor(colors.ink.toArgb()))
+                    // 书的正文也跟着「大字」放大
+                    val scale = type.scale
+                    val prefs = remember(colors, scale) {
+                        EpubPreferences(
+                            backgroundColor = ReadiumColor(colors.background.toArgb()),
+                            textColor = ReadiumColor(colors.ink.toArgb()),
+                            fontSize = scale.toDouble(),
+                        )
                     }
                     val actions = remember(vm) {
                         listOf(
