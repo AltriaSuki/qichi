@@ -5,6 +5,11 @@ import app.qichi.server.TestDatabase
 import app.qichi.server.assertProblem
 import app.qichi.server.serverTest
 import app.qichi.shared.api.Bootstrap
+import app.qichi.shared.api.UpdateTodoRequest
+import app.qichi.shared.api.Todo
+import app.qichi.shared.api.CreateTodoRequest
+import app.qichi.shared.api.CompleteTodoResponse
+import app.qichi.shared.api.CompleteTodoRequest
 import app.qichi.shared.api.CompletePlanRequest
 import app.qichi.shared.api.CreateMilestoneRequest
 import app.qichi.shared.api.CreatePlanLogRequest
@@ -85,6 +90,24 @@ class PlanTest {
         assertNotNull(detail.milestones.single().doneAt)
         assertEquals(listOf(logId), detail.logs.map { it.id })
         assertEquals(1, chi.get("/api/v1/rooms/$room/bootstrap").body<Bootstrap>().planLogs.size)
+    }
+
+    @Test fun `待办可属于计划；重复待办完成后下一次仍属于这个计划；计划不存在时拒绝`() = serverTest { client ->
+        val (aqi, _, room) = Api(client).pair()
+        val plan = aqi.post("/api/v1/rooms/$room/plans", CreatePlanRequest(UuidV7.generate(), "秋天去海边", aqi.userId())).body<Plan>()
+        val todo = aqi.post(
+            "/api/v1/rooms/$room/todos",
+            CreateTodoRequest(UuidV7.generate(), "每周看一次车票", dueDate = LocalDate.of(2026, 9, 27), recurrence = "FREQ=WEEKLY;INTERVAL=1;BYDAY=SU", planId = plan.id),
+        ).body<Todo>()
+        assertEquals(plan.id, todo.planId)
+        val result = aqi.post("/api/v1/rooms/$room/todos/${todo.id}/complete", CompleteTodoRequest(UuidV7.generate())).body<CompleteTodoResponse>()
+        assertEquals(plan.id, result.next!!.planId, "下一次实例仍属于计划")
+
+        // 移出计划
+        val moved = aqi.patch("/api/v1/rooms/$room/todos/${result.next!!.id}", UpdateTodoRequest(planId = Patch.of(null))).body<Todo>()
+        assertEquals(null, moved.planId)
+        aqi.post("/api/v1/rooms/$room/todos", CreateTodoRequest(UuidV7.generate(), "x", planId = UuidV7.generate()))
+            .assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
     }
 
     @Test fun `非成员访问隐藏资源，删除进回收站并可恢复或彻底删除`() = serverTest { client ->

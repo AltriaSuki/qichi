@@ -22,7 +22,6 @@ import app.qichi.shared.api.ifPresent
 import app.qichi.shared.model.EntityType
 import app.qichi.shared.rules.Limits
 import app.qichi.shared.rules.Recurrence
-import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
@@ -81,7 +80,6 @@ class TodoService(
         val dueDate = if (req.dueDate.isPresent) req.dueDate.orNull() else current.dueDate
         val dueAt = if (req.dueAt.isPresent) req.dueAt.orNull() else current.dueAt
         val recurrence = if (req.recurrence.isPresent) req.recurrence.orNull()?.takeIf { it.isNotBlank() } else current.recurrence
-        val planId = if (req.planId.isPresent) req.planId.orNull() else current.planId
         validate {
             checkTitle(title)
             checkNote(note)
@@ -185,6 +183,7 @@ class TodoService(
             it[Todos.dueAt] = nextDueAt
             it[Todos.recurrence] = current.recurrence
             it[Todos.recurrencePrevId] = current.id
+            it[Todos.planId] = current.planId
         }.first
     }
 
