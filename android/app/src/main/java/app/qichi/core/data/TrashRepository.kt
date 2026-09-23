@@ -15,6 +15,8 @@ import app.qichi.shared.api.BoardPost
 import app.qichi.shared.api.Book
 import app.qichi.shared.api.Decision
 import app.qichi.shared.api.Summary
+import app.qichi.shared.api.PlanStage
+import app.qichi.shared.api.Milestone
 import app.qichi.shared.api.BoardTopic
 import app.qichi.shared.api.Document
 import app.qichi.shared.api.Idea
@@ -60,6 +62,7 @@ class TrashRepository(
         db.entities().observeDeleted(roomId.toString(), TYPES.map { it.entityType.wireName }).map { rows ->
             val entities = rows.map { LocalStore.toLocal<SyncEntity>(it).value }
             val deletedTodos = entities.filterIsInstance<Todo>().map { it.id }.toSet()
+            val deletedPlans = entities.filterIsInstance<Plan>().map { it.id }.toSet()
             entities.mapNotNull { entity ->
                 when (entity) {
                     is Message -> TrashEntry(TrashType.Message, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
@@ -76,6 +79,9 @@ class TrashRepository(
                     is Decision -> TrashEntry(TrashType.Decision, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     is Book -> TrashEntry(TrashType.Book, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     is Summary -> TrashEntry(TrashType.Summary, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
+                    // 计划也在回收站里时，阶段、里程碑随计划一起，不单独列出
+                    is PlanStage -> if (entity.planId in deletedPlans) null else TrashEntry(TrashType.PlanStage, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
+                    is Milestone -> if (entity.planId in deletedPlans) null else TrashEntry(TrashType.Milestone, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     else -> null
                 }
             }.sortedByDescending { it.deletedAt }
@@ -114,6 +120,8 @@ class TrashRepository(
             is Decision -> e.copy(deletedAt = null, deletedBy = null)
             is Book -> e.copy(deletedAt = null, deletedBy = null)
             is Summary -> e.copy(deletedAt = null, deletedBy = null)
+            is PlanStage -> e.copy(deletedAt = null, deletedBy = null)
+            is Milestone -> e.copy(deletedAt = null, deletedBy = null)
             else -> return
         }
         db.transaction {
@@ -179,4 +187,6 @@ val TrashType.entityType: EntityType
         TrashType.Decision -> EntityType.Decision
         TrashType.Book -> EntityType.Book
         TrashType.Summary -> EntityType.Summary
+        TrashType.PlanStage -> EntityType.PlanStage
+        TrashType.Milestone -> EntityType.Milestone
     }

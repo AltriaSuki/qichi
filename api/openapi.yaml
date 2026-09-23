@@ -3669,7 +3669,7 @@ components:
     TrashType:
       type: string
       description: 第 3 阶段可恢复的类型，后续阶段追加
-      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post, archive_item, decision, book, summary]
+      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post, archive_item, decision, book, summary, plan_stage, milestone]
     TrashItem:
       type: object
       required: [type, id, deletedAt, deletedBy, data]
@@ -3694,6 +3694,8 @@ components:
             - $ref: '#/components/schemas/Decision'
             - $ref: '#/components/schemas/Book'
             - $ref: '#/components/schemas/Summary'
+            - $ref: '#/components/schemas/PlanStage'
+            - $ref: '#/components/schemas/Milestone'
     TrashPage:
       type: object
       required: [items, nextCursor]

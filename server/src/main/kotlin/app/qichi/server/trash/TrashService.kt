@@ -47,6 +47,8 @@ import app.qichi.server.reading.bookQuery
 import app.qichi.server.summaries.toSummary
 import app.qichi.server.reading.toBook
 import app.qichi.server.plans.toPlan
+import app.qichi.server.plans.toPlanStage
+import app.qichi.server.plans.toMilestone
 import app.qichi.server.qna.toQuestion
 import app.qichi.server.rooms.RoomService
 import app.qichi.server.todos.TodoService
@@ -178,6 +180,17 @@ class TrashService(
                     val b = row.toBook()
                     add(Candidate(TrashType.Book, b, b.deletedAt!!, b.deletedBy!!))
                 }
+                // 计划本身也在回收站里时，它的阶段、里程碑随计划一起，不单独列出
+                PlanStages.join(Plans, JoinType.INNER, PlanStages.planId, Plans.id).select(PlanStages.columns)
+                    .where { Plans.deletedAt.isNull() }.deleted(PlanStages, roomId, cursor, take).forEach { row ->
+                        val s = row.toPlanStage()
+                        add(Candidate(TrashType.PlanStage, s, s.deletedAt!!, s.deletedBy!!))
+                    }
+                Milestones.join(Plans, JoinType.INNER, Milestones.planId, Plans.id).select(Milestones.columns)
+                    .where { Plans.deletedAt.isNull() }.deleted(Milestones, roomId, cursor, take).forEach { row ->
+                        val m = row.toMilestone()
+                        add(Candidate(TrashType.Milestone, m, m.deletedAt!!, m.deletedBy!!))
+                    }
                 Summaries.selectAll().deleted(Summaries, roomId, cursor, take).forEach { row ->
                     val s = row.toSummary()
                     add(Candidate(TrashType.Summary, s, s.deletedAt!!, s.deletedBy!!))
@@ -204,7 +217,11 @@ class TrashService(
                 if (row.parentDeleted) notFound()
                 todos.restoreWithChildren(this, roomId, userId, id)
             }
-            else -> writes.restore(this, roomId, userId, type.entityType, id, table)
+            else -> {
+                // 计划还在回收站里时，阶段、里程碑不能单独恢复（它们不在列表里）
+                if (row.parentDeleted) notFound()
+                writes.restore(this, roomId, userId, type.entityType, id, table)
+            }
         }
         val entity = load(type, id)!!
         Change(entity.seq, type.entityType, id, ChangeOp.Upsert, EntityCodec.encode(type.entityType, entity))
@@ -217,7 +234,7 @@ class TrashService(
             rooms.requireMember(roomId, userId)
             val row = trashed(type.table, roomId, id)
             checkOwner(type, id, userId)
-            if (type == TrashType.Todo && row.parentDeleted) notFound()
+            if (row.parentDeleted) notFound()
             val now = clock.instant()
             when (type) {
                 TrashType.Message -> {
@@ -282,6 +299,8 @@ class TrashService(
                 TrashType.ArchiveItem -> hardDelete(this, roomId, userId, EntityType.ArchiveItem, id, ArchiveItems, now)
                 TrashType.Decision -> hardDelete(this, roomId, userId, EntityType.Decision, id, Decisions, now)
                 TrashType.Summary -> hardDelete(this, roomId, userId, EntityType.Summary, id, Summaries, now)
+                TrashType.PlanStage -> hardDelete(this, roomId, userId, EntityType.PlanStage, id, PlanStages, now)
+                TrashType.Milestone -> hardDelete(this, roomId, userId, EntityType.Milestone, id, Milestones, now)
                 TrashType.Book -> {
                     Highlights.select(Highlights.id).where { Highlights.bookId eq id }.map { it[Highlights.id] }
                         .forEach { hardDelete(this, roomId, userId, EntityType.Highlight, it, Highlights, now) }
@@ -302,9 +321,15 @@ class TrashService(
     private fun trashed(table: SyncedTable, roomId: UUID, id: UUID): TrashedRow {
         val row = table.selectAll().where { (table.id eq id) and (table.roomId eq roomId) and table.deletedAt.isNotNull() }
             .singleOrNull() ?: notFound()
-        val parentDeleted = table == Todos && row[Todos.parentId]?.let { parentId ->
-            Todos.select(Todos.deletedAt).where { Todos.id eq parentId }.singleOrNull()?.get(Todos.deletedAt) != null
-        } == true
+        fun planDeleted(planId: UUID) = Plans.select(Plans.deletedAt).where { Plans.id eq planId }.singleOrNull()?.get(Plans.deletedAt) != null
+        val parentDeleted = when (table) {
+            Todos -> row[Todos.parentId]?.let { parentId ->
+                Todos.select(Todos.deletedAt).where { Todos.id eq parentId }.singleOrNull()?.get(Todos.deletedAt) != null
+            } == true
+            PlanStages -> planDeleted(row[PlanStages.planId])
+            Milestones -> planDeleted(row[Milestones.planId])
+            else -> false
+        }
         return TrashedRow(parentDeleted)
     }
 
@@ -344,6 +369,8 @@ class TrashService(
         TrashType.Decision -> Decisions.selectAll().where { Decisions.id eq id }.singleOrNull()?.toDecision()
         TrashType.Book -> bookQuery().where { Books.id eq id }.singleOrNull()?.toBook()
         TrashType.Summary -> Summaries.selectAll().where { Summaries.id eq id }.singleOrNull()?.toSummary()
+        TrashType.PlanStage -> PlanStages.selectAll().where { PlanStages.id eq id }.singleOrNull()?.toPlanStage()
+        TrashType.Milestone -> Milestones.selectAll().where { Milestones.id eq id }.singleOrNull()?.toMilestone()
     }
 
     /** 在查询上加「这个房间、已删除、在游标之后」，按 (deletedAt, id) 降序取 [take] 条。 */
@@ -374,6 +401,8 @@ val TrashType.entityType: EntityType
         TrashType.Decision -> EntityType.Decision
         TrashType.Book -> EntityType.Book
         TrashType.Summary -> EntityType.Summary
+        TrashType.PlanStage -> EntityType.PlanStage
+        TrashType.Milestone -> EntityType.Milestone
     }
 
 private val TrashType.table: SyncedTable
@@ -392,4 +421,6 @@ private val TrashType.table: SyncedTable
         TrashType.Decision -> Decisions
         TrashType.Book -> Books
         TrashType.Summary -> Summaries
+        TrashType.PlanStage -> PlanStages
+        TrashType.Milestone -> Milestones
     }

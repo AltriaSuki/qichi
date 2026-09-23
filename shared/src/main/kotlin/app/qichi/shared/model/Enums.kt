@@ -161,6 +161,8 @@ enum class TrashType {
     @SerialName("decision") Decision,
     @SerialName("book") Book,
     @SerialName("summary") Summary,
+    @SerialName("plan_stage") PlanStage,
+    @SerialName("milestone") Milestone,
 }
 
 @Serializable
