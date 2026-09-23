@@ -31,6 +31,8 @@ fun QuickInput(
     actionLabel: String,
     onSubmit: () -> Unit,
     modifier: Modifier = Modifier,
+    /** 长文（留言）：回车换行，最多显示 6 行，只能点按钮发出 */
+    multiline: Boolean = false,
 ) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
@@ -47,9 +49,9 @@ fun QuickInput(
             onValueChange = onValueChange,
             textStyle = type.bodyLarge.copy(color = colors.ink),
             cursorBrush = SolidColor(colors.ink),
-            maxLines = 4,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { if (canSubmit) onSubmit() }),
+            maxLines = if (multiline) 6 else 4,
+            keyboardOptions = if (multiline) KeyboardOptions.Default else KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = if (multiline) KeyboardActions.Default else KeyboardActions(onDone = { if (canSubmit) onSubmit() }),
             modifier = Modifier.weight(1f).padding(vertical = 13.dp).semantics { contentDescription = placeholder },
             decorationBox = { inner ->
                 if (value.isEmpty()) Text(placeholder, style = type.bodyLarge.copy(color = colors.faint))

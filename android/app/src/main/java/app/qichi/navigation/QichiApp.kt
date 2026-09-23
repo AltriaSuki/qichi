@@ -52,6 +52,8 @@ import app.qichi.feature.plan.PlanDetailScreen
 import app.qichi.feature.plan.PlanListScreen
 import app.qichi.feature.qna.QnaScreen
 import app.qichi.feature.room.MembersScreen
+import app.qichi.feature.board.BoardListScreen
+import app.qichi.feature.board.TopicScreen
 import app.qichi.feature.today.TodayScreen
 import app.qichi.feature.writing.DocumentEditorScreen
 import app.qichi.feature.writing.DocumentListScreen
@@ -158,6 +160,19 @@ fun QichiApp(
                                 }
                             }
                             Page.Ideas -> IdeasScreen(roomId = roomId, onBack = navigator::back)
+                            Page.Board -> {
+                                // id 是「主题」或「主题:留言」（从搜索点进来时滚到那一条）
+                                val parts = route.id?.split(":").orEmpty()
+                                val topicId = parts.getOrNull(0)?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
+                                val postId = parts.getOrNull(1)?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
+                                if (topicId == null) {
+                                    BoardListScreen(roomId = roomId, onBack = navigator::back, onOpen = { t, p ->
+                                        navigator.open(Page.Board, if (p == null) t.toString() else "$t:$p")
+                                    })
+                                } else {
+                                    TopicScreen(roomId = roomId, topicId = topicId, focusPostId = postId, onBack = navigator::back)
+                                }
+                            }
                             Page.Writing -> {
                                 val docId = route.id?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
                                 if (docId == null) {
