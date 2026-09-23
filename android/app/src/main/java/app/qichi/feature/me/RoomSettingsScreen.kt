@@ -88,6 +88,12 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import app.qichi.core.network.ApiClient
+import dagger.hilt.android.qualifiers.ApplicationContext
+import android.content.Context
+import androidx.compose.foundation.layout.Spacer
 import java.util.UUID
 
 @HiltViewModel(assistedFactory = RoomSettingsViewModel.Factory::class)
@@ -97,8 +103,44 @@ class RoomSettingsViewModel @AssistedInject constructor(
     private val preparer: AttachmentPreparer,
     private val files: FileRepository,
     private val network: NetworkMonitor,
+    private val api: ApiClient,
+    @ApplicationContext private val context: Context,
     val urls: FileUrls,
 ) : ViewModel() {
+    /** 导出中：下载进度 0–1；null 表示没有在导出 */
+    private val _exporting = MutableStateFlow<Float?>(null)
+    val exporting: StateFlow<Float?> = _exporting.asStateFlow()
+
+    /** 房间数据导出（需要联网）：先下载到手机的临时目录，再写进用户选的位置。 */
+    fun export(target: Uri, includeFiles: Boolean) {
+        if (!network.isOnline.value) {
+            _messages.tryEmit("导出需要联网")
+            return
+        }
+        if (_exporting.value != null) return
+        viewModelScope.launch {
+            _exporting.value = 0f
+            val temp = java.io.File(context.cacheDir, "export-${UuidV7.generate()}.zip")
+            try {
+                api.download("rooms/$roomId/export?files=$includeFiles", temp) { received, total ->
+                    _exporting.value = if (total != null && total > 0) received.toFloat() / total else 0f
+                }
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(target)?.use { out -> temp.inputStream().use { it.copyTo(out) } }
+                        ?: throw java.io.IOException("写不进去")
+                }
+                _messages.emit("导出好了")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _messages.emit("没能导出，再试一次")
+            } finally {
+                temp.delete()
+                _exporting.value = null
+            }
+        }
+    }
+
     val room: StateFlow<Room?> = rooms.observeRoom(roomId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -219,6 +261,9 @@ fun RoomSettingsScreen(
     val heroProgress by viewModel.heroProgress.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val pickHero = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(viewModel::setHero) }
+    var includeFiles by rememberSaveable { mutableStateOf(false) }
+    val exporting by viewModel.exporting.collectAsStateWithLifecycle()
+    val saveExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri -> uri?.let { viewModel.export(it, includeFiles) } }
     LaunchedEffect(Unit) { viewModel.messages.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() } }
 
     Column(
@@ -268,6 +313,23 @@ fun RoomSettingsScreen(
                 onPick = { pickHero.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onClear = viewModel::clearHero,
             )
+
+            // ── 导出 ──
+            Column {
+                SectionLabel("导出房间数据")
+                Text("把房间里的内容打包成一个文件：聊天记录、文稿和全部数据。撤回的内容和回收站里的不会导出。",
+                    style = type.caption.copy(color = colors.muted))
+                Row(Modifier.fillMaxWidth().heightIn(min = Sizes.listRow), verticalAlignment = Alignment.CenterVertically) {
+                    Text("带上照片和附件（可能很大）", style = type.body.copy(color = colors.ink), modifier = Modifier.weight(1f))
+                    Switch(includeFiles, { includeFiles = it }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent))
+                }
+                TextAction(
+                    exporting?.let { "正在导出 ${(it * 100).toInt()}%" } ?: "导出……",
+                    onClick = { saveExport.launch("qichi-export-${LocalDate.now()}.zip") },
+                    enabled = exporting == null,
+                )
+            }
+            Spacer(Modifier.height(Spacing.xl))
         }
 
         if (pickingDate) {
