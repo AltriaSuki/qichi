@@ -75,6 +75,7 @@ class SyncEngine(
                 addAll(snapshot.planStages)
                 addAll(snapshot.milestones)
                 addAll(snapshot.planLogs)
+                addAll(snapshot.ideas)
                 addAll(snapshot.messages)
             }
             all.forEach { store.applyServer(it) }

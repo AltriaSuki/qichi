@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -20,7 +21,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -38,10 +43,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
+import app.qichi.core.designsystem.component.QuickInput
 import app.qichi.core.designsystem.component.TocRow
 import app.qichi.core.designsystem.tsp
 import app.qichi.navigation.Page
 import app.qichi.navigation.TogetherGroup
+import app.qichi.shared.rules.Limits
 
 /**
  * 「一起」入口页：大标题、三组标签（生活 / 创作 / 回看，点击或方向键切换）、目录。
@@ -53,6 +60,8 @@ fun TogetherHubScreen(
     onGroupChange: (TogetherGroup) -> Unit,
     onOpen: (Page) -> Unit,
     counts: Map<Page, String> = emptyMap(),
+    /** 底部的快速记灵感；为空时不显示 */
+    onAddIdea: ((String) -> Unit)? = null,
 ) {
     val colors = QichiTheme.colors
     val focus = remember { FocusRequester() }
@@ -101,6 +110,17 @@ fun TogetherHubScreen(
             Page.inGroup(group).forEachIndexed { i, page ->
                 TocRow(index = i + 1, title = page.title, trailing = counts[page], onClick = { onOpen(page) })
             }
+        }
+        if (onAddIdea != null) {
+            var idea by rememberSaveable { mutableStateOf("") }
+            QuickInput(
+                value = idea,
+                onValueChange = { idea = it.take(Limits.IDEA_BODY_LENGTH.last) },
+                placeholder = "记一个灵感",
+                actionLabel = "记下",
+                onSubmit = { onAddIdea(idea); idea = "" },
+                modifier = Modifier.imePadding().padding(start = 20.dp, end = 20.dp, top = Spacing.xs, bottom = Spacing.s),
+            )
         }
     }
 }

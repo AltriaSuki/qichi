@@ -40,6 +40,7 @@ import app.qichi.feature.calendar.CalendarMonthScreen
 import app.qichi.feature.calendar.EventListScreen
 import app.qichi.feature.chat.ChatScreen
 import app.qichi.feature.chat.UnreadViewModel
+import app.qichi.feature.ideas.IdeasScreen
 import app.qichi.feature.me.AiUsageScreen
 import app.qichi.feature.me.DisplayScreen
 import app.qichi.feature.me.MeScreen
@@ -54,6 +55,7 @@ import app.qichi.feature.room.MembersScreen
 import app.qichi.feature.today.TodayScreen
 import app.qichi.feature.todo.TodoScreen
 import app.qichi.feature.together.TogetherHubScreen
+import app.qichi.feature.together.TogetherHubViewModel
 
 /** 页面进出：200ms 淡入 + 8dp 位移；「减少动画」时直接切换。 */
 private const val PAGE_TRANSITION_MILLIS = 200
@@ -123,7 +125,13 @@ fun QichiApp(
                 navigation<TogetherGraph>(startDestination = TogetherHome) {
                     composable<TogetherHome> {
                         var group by rememberSaveable { mutableStateOf(TogetherGroup.Life) }
-                        TogetherHubScreen(group = group, onGroupChange = { group = it }, onOpen = { navigator.open(it) })
+                        val hubRoom = LocalRoomId.current
+                        val hub = hiltViewModel<TogetherHubViewModel, TogetherHubViewModel.Factory>(key = "hub-$hubRoom") { it.create(hubRoom) }
+                        val context = androidx.compose.ui.platform.LocalContext.current
+                        LaunchedEffect(hub) {
+                            hub.saved.collect { android.widget.Toast.makeText(context, "记下了，在「灵感」里", android.widget.Toast.LENGTH_SHORT).show() }
+                        }
+                        TogetherHubScreen(group = group, onGroupChange = { group = it }, onOpen = { navigator.open(it) }, onAddIdea = hub::addIdea)
                     }
                     composable<TogetherPage> { entry ->
                         val route = entry.toRoute<TogetherPage>()
@@ -146,6 +154,7 @@ fun QichiApp(
                                     PlanDetailScreen(roomId = roomId, planId = planId, onBack = navigator::back)
                                 }
                             }
+                            Page.Ideas -> IdeasScreen(roomId = roomId, onBack = navigator::back)
                             else -> PagePlaceholder(route.page.title, onBack = navigator::back)
                         }
                     }

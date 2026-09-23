@@ -12,6 +12,7 @@ import app.qichi.core.data.DataStoreProfileStore
 import app.qichi.core.data.DraftStore
 import app.qichi.core.data.EventRepository
 import app.qichi.core.data.FileRepository
+import app.qichi.core.data.IdeaRepository
 import app.qichi.core.data.MoodRepository
 import app.qichi.core.data.PlanRepository
 import app.qichi.core.data.ProfileStore
@@ -139,6 +140,11 @@ object SyncModule {
     @Singleton
     fun planRepository(db: QichiDatabase, store: LocalStore, scheduler: SyncScheduler, session: SessionManager): PlanRepository =
         PlanRepository(db, store, scheduler, session)
+
+    @Provides
+    @Singleton
+    fun ideaRepository(db: QichiDatabase, store: LocalStore, scheduler: SyncScheduler, session: SessionManager): IdeaRepository =
+        IdeaRepository(db, store, scheduler, session)
 
     @Provides
     @Singleton

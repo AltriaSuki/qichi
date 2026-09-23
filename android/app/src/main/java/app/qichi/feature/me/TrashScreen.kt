@@ -184,6 +184,7 @@ private fun typeLabel(type: TrashType): String = when (type) {
     TrashType.Event -> "日程"
     TrashType.Question -> "问答"
     TrashType.Plan -> "计划"
+    TrashType.Idea -> "灵感"
 }
 
 private fun summary(entry: TrashEntry, people: People): String = when (val e = entry.entity) {
@@ -196,5 +197,6 @@ private fun summary(entry: TrashEntry, people: People): String = when (val e = e
     is Event -> e.title
     is app.qichi.shared.api.Question -> e.text
     is app.qichi.shared.api.Plan -> e.title
+    is app.qichi.shared.api.Idea -> e.body
     else -> ""
 }
