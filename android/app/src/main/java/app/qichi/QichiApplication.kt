@@ -17,6 +17,7 @@ import app.qichi.core.auth.SessionState
 import app.qichi.core.database.QichiDatabase
 import app.qichi.core.network.ApiClient
 import app.qichi.core.network.NetworkMonitor
+import app.qichi.core.push.PushRegistrar
 import app.qichi.core.sync.RealtimeClient
 import app.qichi.core.sync.SyncEngine
 import app.qichi.core.sync.SyncScheduler
@@ -44,6 +45,7 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
     @Inject lateinit var db: QichiDatabase
     @Inject lateinit var network: NetworkMonitor
     @Inject lateinit var api: ApiClient
+    @Inject lateinit var push: PushRegistrar
     @Inject @ApplicationScope lateinit var appScope: CoroutineScope
 
     override val workManagerConfiguration: Configuration
@@ -83,6 +85,8 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
                 when (state) {
                     is SessionState.LoggedIn -> {
                         scheduler.schedulePeriodicSync()
+                        // 推送已开启的话，把推送地址登记到（可能是新登录的）这个账号
+                        launch { push.upload() }
                         if (inForeground) onForegroundLoggedIn()
                     }
                     SessionState.LoggedOut -> realtime.stop()

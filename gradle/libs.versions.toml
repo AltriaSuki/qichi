@@ -39,6 +39,8 @@ commonmark = "0.30.0"
 # 阅读（P6-04 引入，见 02-architecture.md）
 readium = "3.4.0"
 desugar-jdk-libs = "2.1.5"
+# 推送（P3-10，UnifiedPush，见 02-architecture.md D10）
+unifiedpush-connector = "3.3.5"
 fragment = "1.9.0"
 androidx-test-junit = "1.3.0"
 espresso = "3.7.0"
@@ -50,6 +52,7 @@ desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref 
 readium-shared = { module = "org.readium.kotlin-toolkit:readium-shared", version.ref = "readium" }
 readium-streamer = { module = "org.readium.kotlin-toolkit:readium-streamer", version.ref = "readium" }
 readium-navigator = { module = "org.readium.kotlin-toolkit:readium-navigator", version.ref = "readium" }
+unifiedpush-connector = { module = "org.unifiedpush.android:connector", version.ref = "unifiedpush-connector" }
 androidx-fragment-compose = { module = "androidx.fragment:fragment-compose", version.ref = "fragment" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
 java-diff-utils = { module = "io.github.java-diff-utils:java-diff-utils", version.ref = "java-diff-utils" }

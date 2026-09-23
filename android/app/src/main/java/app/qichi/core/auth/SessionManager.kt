@@ -30,6 +30,11 @@ fun interface LocalDataCleaner {
     suspend fun clear()
 }
 
+/** 主动登出前、令牌还在时要做的事（例如注销推送设备）。失败不影响登出。 */
+fun interface LogoutHook {
+    suspend fun beforeLogout()
+}
+
 /**
  * 登录状态的唯一来源：注册、登录、登出；刷新令牌失效时自动回到登出状态并清掉本机数据。
  */
@@ -39,6 +44,7 @@ class SessionManager(
     private val cleaners: Set<LocalDataCleaner>,
     private val deviceName: String,
     scope: CoroutineScope,
+    private val logoutHooks: Set<LogoutHook> = emptySet(),
 ) {
     private val _state = MutableStateFlow<SessionState>(SessionState.Loading)
     val state: StateFlow<SessionState> = _state.asStateFlow()
@@ -88,6 +94,14 @@ class SessionManager(
     suspend fun logout() {
         val tokens = tokenStore.read()
         if (tokens != null) {
+            logoutHooks.forEach { hook ->
+                try {
+                    hook.beforeLogout()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+            }
             try {
                 api.post<Unit>("auth/logout", RefreshRequest(tokens.refreshToken))
             } catch (e: CancellationException) {

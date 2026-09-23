@@ -5,6 +5,7 @@ import android.os.Build
 import app.qichi.BuildConfig
 import app.qichi.core.auth.EncryptedTokenStore
 import app.qichi.core.auth.LocalDataCleaner
+import app.qichi.core.auth.LogoutHook
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.auth.TokenStore
 import app.qichi.core.data.DataStoreDisplaySettingsStore
@@ -14,11 +15,14 @@ import app.qichi.core.data.WritingSettingsStore
 import app.qichi.core.network.AndroidNetworkMonitor
 import app.qichi.core.network.ApiClient
 import app.qichi.core.network.NetworkMonitor
+import app.qichi.core.push.PushRegistrar
+import app.qichi.core.push.SharedPrefsPushStore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import dagger.multibindings.IntoSet
 import dagger.multibindings.Multibinds
 import io.ktor.client.engine.okhttp.OkHttp
 import kotlinx.coroutines.CoroutineScope
@@ -87,6 +91,16 @@ object AppModule {
         api: ApiClient,
         tokenStore: TokenStore,
         cleaners: Set<@JvmSuppressWildcards LocalDataCleaner>,
+        logoutHooks: Set<@JvmSuppressWildcards LogoutHook>,
         @ApplicationScope scope: CoroutineScope,
-    ): SessionManager = SessionManager(api, tokenStore, cleaners, deviceName = "${Build.MANUFACTURER} ${Build.MODEL}", scope)
+    ): SessionManager = SessionManager(api, tokenStore, cleaners, deviceName = "${Build.MANUFACTURER} ${Build.MODEL}", scope, logoutHooks)
+
+    @Provides
+    @Singleton
+    fun pushRegistrar(@ApplicationContext context: Context, api: ApiClient): PushRegistrar =
+        PushRegistrar(api, SharedPrefsPushStore(context))
+
+    @Provides
+    @IntoSet
+    fun pushLogoutHook(push: PushRegistrar): LogoutHook = push
 }

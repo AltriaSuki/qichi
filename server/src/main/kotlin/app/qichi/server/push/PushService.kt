@@ -25,7 +25,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
@@ -38,17 +37,7 @@ import java.time.Clock
 import java.time.LocalTime
 import java.time.ZoneId
 import java.util.UUID
-
-/** 推送的内容：只有「谁做了什么」和点开后去哪里（深链），不含正文。 */
-@Serializable
-data class PushPayload(
-    val title: String,
-    val body: String,
-    /** qichi://room/{roomId}/{page}[/{id}] */
-    val link: String,
-    /** 同一个 tag 的通知在手机上合并成一条（比如同一个房间的新消息） */
-    val tag: String,
-)
+import app.qichi.shared.api.PushPayload
 
 /** 要推给谁、推什么、属于哪一类（用来查通知偏好）。 */
 data class PushIntent(val recipients: Set<UUID>, val category: Category, val payload: PushPayload) {

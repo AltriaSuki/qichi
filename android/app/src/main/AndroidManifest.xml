@@ -4,6 +4,7 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".QichiApplication"
@@ -31,6 +32,15 @@
                 <data android:scheme="qichi" android:host="room" />
             </intent-filter>
         </activity>
+
+        <!-- 推送（UnifiedPush）：ntfy 把推送地址和推送内容交给它 -->
+        <service
+            android:name=".core.push.QichiPushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
+            </intent-filter>
+        </service>
 
         <!-- WorkManager 由 QichiApplication 提供配置（Hilt 注入 Worker），去掉默认的自动初始化 -->
         <provider

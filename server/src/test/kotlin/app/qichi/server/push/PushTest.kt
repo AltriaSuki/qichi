@@ -13,6 +13,7 @@ import app.qichi.shared.api.Device
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.NotificationPrefs
 import app.qichi.shared.api.Patch
+import app.qichi.shared.api.PushPayload
 import app.qichi.shared.api.RegisterDeviceRequest
 import app.qichi.shared.api.SendMessageRequest
 import app.qichi.shared.api.UpdateMeRequest

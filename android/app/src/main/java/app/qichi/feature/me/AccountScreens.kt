@@ -1,6 +1,14 @@
 package app.qichi.feature.me
 
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import app.qichi.BuildConfig
+import app.qichi.core.push.PushNotifier
+import app.qichi.core.push.PushRegistrar
+import org.unifiedpush.android.connector.UnifiedPush
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -344,7 +352,17 @@ fun SecurityScreen(onBack: () -> Unit, vm: SecurityViewModel = hiltViewModel()) 
 // ───────────────────────── 通知 ─────────────────────────
 
 @HiltViewModel
-class NotificationsViewModel @Inject constructor(private val account: AccountRepository, rooms: RoomRepository) : ViewModel() {
+class NotificationsViewModel @Inject constructor(
+    private val account: AccountRepository,
+    rooms: RoomRepository,
+    private val push: PushRegistrar,
+    private val session: SessionManager,
+) : ViewModel() {
+    /** 非空 = 推送已开启。 */
+    val pushEndpoint: StateFlow<String?> = push.endpoint
+
+    fun pushTurnedOff() = viewModelScope.launch { push.onUnregistered(session.currentUserId != null) }
+
     val prefs: StateFlow<NotificationPrefs?> = kotlinx.coroutines.flow.combine(rooms.me, flowOf(Unit)) { me, _ -> me?.user?.notificationPrefs?.let(NotificationPrefs::from) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     private val _message = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
@@ -379,9 +397,8 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
     Column(Modifier.fillMaxSize().background(colors.background)) {
         BackBar("通知", onBack)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
-            Text("推送还没有开启（要先确定两台手机用哪种推送）。这里的设置会先存好，开启后生效。通知里只有「谁做了什么」，不含内容。",
-                style = type.caption.copy(color = colors.muted))
-            SectionLabel("提醒我", modifier = Modifier.padding(top = Spacing.m))
+            PushSection(vm)
+            SectionLabel("提醒我", modifier = Modifier.padding(top = Spacing.l))
             @Composable
             fun toggle(label: String, value: Boolean, change: (Boolean) -> NotificationPrefs) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -422,4 +439,80 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
             title = { Text(if (start) "免打扰开始" else "免打扰结束", style = type.body) },
         ) { TimePicker(timeState) }
     }
+}
+
+/**
+ * 后台推送（UnifiedPush）：手机上装了 ntfy 才能开。开启 = 请求通知权限 → 选分发器（只有 ntfy 时直接用）→ 注册，
+ * ntfy 回调推送地址后 [PushRegistrar] 登记到服务端。
+ */
+@Composable
+private fun PushSection(vm: NotificationsViewModel) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    val context = LocalContext.current
+    val endpoint by vm.pushEndpoint.collectAsStateWithLifecycle()
+    // 从系统设置或 ntfy 回来时重新看一眼
+    var resumed by remember { mutableStateOf(0) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { resumed++ }
+    val hasDistributor = remember(resumed, endpoint) { UnifiedPush.getDistributors(context).isNotEmpty() }
+    val canNotify = remember(resumed) { PushNotifier.canNotify(context) }
+    var hint by remember { mutableStateOf<String?>(null) }
+
+    fun register() {
+        val activity = context as? android.app.Activity ?: return
+        UnifiedPush.tryUseCurrentOrDefaultDistributor(activity) { ok ->
+            if (ok) {
+                UnifiedPush.register(context)
+                hint = null
+            } else {
+                hint = "没有选好推送服务，再点一次试试"
+            }
+        }
+    }
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        resumed++
+        if (granted) register() else hint = "没有通知权限就收不到提醒，可以在系统设置里打开"
+    }
+
+    SectionLabel("后台推送")
+    val pushHost = BuildConfig.BASE_URL.substringAfter("://").substringBefore('/').substringBefore(':')
+    val server = if (pushHost.contains('.') && !pushHost.first().isDigit()) "https://push.$pushHost" else "你的推送服务器地址"
+    val status = when {
+        endpoint != null && !canNotify -> "推送已开启，但系统通知被关掉了，收不到提醒。"
+        endpoint != null -> "推送已开启。App 不在前台时，对方做的事会通知你。"
+        !hasDistributor -> "要收到推送，先在手机上装 ntfy（F-Droid 或 GitHub 下载），在 ntfy 设置里把默认服务器改成 $server，再回来点「开启推送」。"
+        else -> "推送还没有开启。"
+    }
+    Text(status, style = type.body.copy(color = colors.ink), modifier = Modifier.padding(top = Spacing.xs))
+    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.m), verticalAlignment = Alignment.CenterVertically) {
+        when {
+            endpoint == null -> TextAction("开启推送", {
+                if (!hasDistributor) {
+                    hint = "还没找到 ntfy，装好后再点"
+                } else if (android.os.Build.VERSION.SDK_INT >= 33 && !canNotify) {
+                    permission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    register()
+                }
+            })
+            else -> TextAction("关闭推送", {
+                UnifiedPush.unregister(context)
+                vm.pushTurnedOff()
+            }, color = colors.muted)
+        }
+        if (endpoint != null && !canNotify) {
+            TextAction("打开系统通知", {
+                context.startActivity(
+                    android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName),
+                )
+            })
+        }
+    }
+    hint?.let { Text(it, style = type.caption.copy(color = colors.accent)) }
+    Text(
+        "记得在系统设置里把 ntfy 和栖迟都加入「电池优化白名单 / 允许后台运行 / 自启动」，不然手机省电时会收不到。通知里只有「谁做了什么」，不含内容。",
+        style = type.caption.copy(color = colors.muted),
+        modifier = Modifier.padding(top = Spacing.xs),
+    )
 }

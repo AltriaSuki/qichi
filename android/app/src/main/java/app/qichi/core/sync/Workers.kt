@@ -54,7 +54,7 @@ class OutboxWorker @AssistedInject constructor(
     }
 }
 
-/** 定期同步 Worker：每 15 分钟（有网络时）拉取所有房间；推送做好之前后台靠它。 */
+/** 定期同步 Worker：每 15 分钟（有网络时）拉取所有房间；收到推送时也用它马上拉一次。 */
 @HiltWorker
 class PeriodicSyncWorker @AssistedInject constructor(
     @Assisted context: Context,
@@ -98,6 +98,12 @@ class SyncScheduler(context: Context) {
         workManager.enqueueUniqueWork(OUTBOX_WORK, policy, request)
     }
 
+    /** 马上拉一次（收到推送、App 在后台时），有网络才跑。 */
+    fun pullNow() {
+        val request = OneTimeWorkRequestBuilder<PeriodicSyncWorker>().setConstraints(network).build()
+        workManager.enqueueUniqueWork(PULL_WORK, ExistingWorkPolicy.REPLACE, request)
+    }
+
     fun schedulePeriodicSync() {
         val request = PeriodicWorkRequestBuilder<PeriodicSyncWorker>(15, TimeUnit.MINUTES)
             .setConstraints(network)
@@ -108,10 +114,12 @@ class SyncScheduler(context: Context) {
     fun cancelAll() {
         workManager.cancelUniqueWork(OUTBOX_WORK)
         workManager.cancelUniqueWork(PERIODIC_WORK)
+        workManager.cancelUniqueWork(PULL_WORK)
     }
 
     private companion object {
         const val OUTBOX_WORK = "qichi-outbox"
         const val PERIODIC_WORK = "qichi-periodic-sync"
+        const val PULL_WORK = "qichi-pull-now"
     }
 }

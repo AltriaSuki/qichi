@@ -123,6 +123,8 @@ dependencies {
     implementation(libs.readium.streamer)
     implementation(libs.readium.navigator)
     implementation(libs.androidx.fragment.compose)
+    // 连接器依赖桌面版 tink；App 已经有 tink-android（同一套类），去掉重复的
+    implementation(libs.unifiedpush.connector) { exclude(group = "com.google.crypto.tink", module = "tink") }
     implementation(libs.coil.network.ktor)
     implementation(libs.work.runtime.ktx)
     implementation(libs.androidx.hilt.work)
