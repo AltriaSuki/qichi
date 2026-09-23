@@ -144,6 +144,12 @@ interface OutboxDao {
     @Query("SELECT COUNT(*) FROM outbox WHERE entityType = :type AND entityId = :id AND state = 'PENDING'")
     suspend fun pendingCountFor(type: String, id: String): Int
 
+    @Query("SELECT COUNT(*) FROM outbox WHERE entityType = :type AND entityId = :id AND kind = :kind")
+    fun observeCountFor(type: String, id: String, kind: String): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM outbox WHERE entityType = :type AND entityId = :id AND kind = :kind")
+    suspend fun countFor(type: String, id: String, kind: String): Int
+
     @Query("DELETE FROM outbox WHERE localId = :localId")
     suspend fun delete(localId: Long)
 
@@ -185,4 +191,33 @@ interface DraftDao {
 
     @Query("DELETE FROM drafts")
     suspend fun clear()
+}
+
+@Dao
+interface DocumentVersionDao {
+    @Query("SELECT * FROM document_versions WHERE documentId = :documentId ORDER BY version DESC")
+    fun observe(documentId: String): Flow<List<DocumentVersionRow>>
+
+    @Query("SELECT * FROM document_versions WHERE documentId = :documentId AND version = :version")
+    suspend fun get(documentId: String, version: Int): DocumentVersionRow?
+
+    @Query("SELECT * FROM document_versions WHERE documentId = :documentId AND version = :version")
+    fun observeOne(documentId: String, version: Int): Flow<DocumentVersionRow?>
+
+    @Upsert
+    suspend fun upsert(row: DocumentVersionRow)
+
+    /** 只补信息，不覆盖已经取到的正文。 */
+    @Query(
+        """INSERT INTO document_versions (id, roomId, documentId, version, baseVersion, authorId, charCount, restoredFromVersion, createdAt, body)
+           VALUES (:id, :roomId, :documentId, :version, :baseVersion, :authorId, :charCount, :restoredFromVersion, :createdAt, NULL)
+           ON CONFLICT(id) DO NOTHING""",
+    )
+    suspend fun insertInfo(
+        id: String, roomId: String, documentId: String, version: Int, baseVersion: Int,
+        authorId: String, charCount: Int, restoredFromVersion: Int?, createdAt: Long,
+    )
+
+    @Query("DELETE FROM document_versions WHERE documentId = :documentId")
+    suspend fun deleteFor(documentId: String)
 }

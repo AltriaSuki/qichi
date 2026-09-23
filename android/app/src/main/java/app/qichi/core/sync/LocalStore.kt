@@ -8,7 +8,10 @@ import app.qichi.core.database.SyncState
 import app.qichi.shared.api.Answer
 import app.qichi.shared.api.EntityCodec
 import app.qichi.shared.api.Event
+import app.qichi.core.data.DraftStore
+import app.qichi.core.database.DocumentVersionRow
 import app.qichi.shared.api.Document
+import app.qichi.shared.api.DocumentVersion
 import app.qichi.shared.api.Idea
 import app.qichi.shared.api.Member
 import app.qichi.shared.api.Message
@@ -61,6 +64,12 @@ data class OutboxOp(
 
         /** 响应是一条 Change（如从回收站恢复） */
         const val KIND_CHANGE = "change"
+
+        /**
+         * 保存文稿的新版本：响应是 DocumentVersion（不是同步实体）。成功时写进版本缓存、整理草稿；
+         * 基线落后（409）或被拒绝时只丢掉这条操作，草稿原样留着，界面据此进入「重基线」。
+         */
+        const val KIND_DOC_VERSION = "document.version"
 
         inline fun <reified B> post(path: String, body: B, kind: String = KIND_ENTITY) =
             OutboxOp(HttpMethod.Post, path, QichiJson.encodeToJsonElement(body), kind)
@@ -217,6 +226,28 @@ class LocalStore(
     suspend fun markFailed(type: String, id: String, error: String?) = db.transaction {
         outbox.failAllFor(type, id, error)
         entities.setState(type, id, SyncState.FAILED)
+    }
+
+    /**
+     * 文稿的新版本保存成功：存进版本缓存；草稿和刚保存的内容一样就删掉，
+     * 保存之后又接着写了的，草稿改为基于这个新版本。
+     */
+    suspend fun applyDocumentVersion(roomId: UUID, v: DocumentVersion) = db.transaction {
+        db.documentVersions().upsert(
+            DocumentVersionRow(
+                id = v.id.toString(), roomId = roomId.toString(), documentId = v.documentId.toString(), version = v.version,
+                baseVersion = v.baseVersion, authorId = v.authorId.toString(), charCount = v.charCount,
+                restoredFromVersion = v.restoredFromVersion, createdAt = v.createdAt.toEpochMilli(), body = v.body,
+            ),
+        )
+        val key = DraftStore.documentKey(v.documentId)
+        val draft = db.drafts().get(roomId.toString(), key) ?: return@transaction
+        if (draft.baseVersion != v.baseVersion) return@transaction
+        if (draft.text == v.body) {
+            db.drafts().delete(roomId.toString(), key)
+        } else {
+            db.drafts().upsert(draft.copy(baseVersion = v.version))
+        }
     }
 
     suspend fun markConflict(type: String, id: String) {

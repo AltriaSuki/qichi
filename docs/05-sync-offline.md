@@ -76,6 +76,7 @@ INSERT INTO … (id, …) VALUES (…) ON CONFLICT (id) DO NOTHING;
 - `sync_state(roomId, lastSeq)`
 - `outbox(localId 自增, roomId, entityType, entityId, method, path, bodyJson, createdAt, attempts, state, lastError)`
 - `drafts(roomId, key, text, baseVersion, updatedAt)`：聊天草稿、文稿未保存内容、留言草稿
+- `document_versions`：共同写作的版本缓存（版本不可变，缓存不过期）；列表信息先存，打开某个版本时补上正文，离线可读
 
 ### 3.2 拉取（SyncEngine.pull）
 

@@ -12,12 +12,14 @@ import androidx.room.withTransaction
  * 结构有变化时升 version 并写迁移（schemas/ 下有每个版本的结构导出）。
  */
 @Database(
-    entities = [EntityRow::class, SyncStateRow::class, OutboxRow::class, DraftRow::class, ChatHistoryRow::class],
-    version = 2,
+    entities = [EntityRow::class, SyncStateRow::class, OutboxRow::class, DraftRow::class, ChatHistoryRow::class, DocumentVersionRow::class],
+    version = 3,
     exportSchema = true,
     autoMigrations = [
         // 2：chat_history
         AutoMigration(from = 1, to = 2),
+        // 3：document_versions（共同写作的版本缓存）
+        AutoMigration(from = 2, to = 3),
     ],
 )
 abstract class QichiDatabase : RoomDatabase() {
@@ -26,6 +28,7 @@ abstract class QichiDatabase : RoomDatabase() {
     abstract fun outbox(): OutboxDao
     abstract fun drafts(): DraftDao
     abstract fun chatHistory(): ChatHistoryDao
+    abstract fun documentVersions(): DocumentVersionDao
 
     suspend fun <R> transaction(block: suspend () -> R): R = withTransaction(block)
 

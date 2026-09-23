@@ -113,3 +113,22 @@ data class ChatHistoryRow(
     @PrimaryKey val roomId: String,
     val floorSeq: Long,
 )
+
+/**
+ * 共同写作的版本缓存（版本不可变，缓存永远不会过期）。版本列表先存不含正文的信息，
+ * 打开某个版本时再补上 [body]；离线时能读已经打开过的版本。
+ */
+@Entity(tableName = "document_versions", indices = [Index("documentId", "version", unique = true)])
+data class DocumentVersionRow(
+    @PrimaryKey val id: String,
+    val roomId: String,
+    val documentId: String,
+    val version: Int,
+    val baseVersion: Int,
+    val authorId: String,
+    val charCount: Int,
+    val restoredFromVersion: Int?,
+    val createdAt: Long,
+    /** 为空表示还没取过正文 */
+    val body: String?,
+)

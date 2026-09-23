@@ -8,6 +8,7 @@ import app.qichi.core.network.NetworkException
 import app.qichi.core.network.SessionExpiredException
 import app.qichi.shared.api.Change
 import app.qichi.shared.api.CompleteTodoResponse
+import app.qichi.shared.api.DocumentVersion
 import app.qichi.shared.api.EntityCodec
 import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.ReadMarker
@@ -27,7 +28,7 @@ import java.util.UUID
  * |---|---|
  * | 2xx | 用响应覆盖本地（SYNCED），删除这条，继续 |
  * | 网络错误、超时、5xx、429 | attempts + 1，停止本轮，交给 WorkManager 退避重试 |
- * | 409 conflict_version | 实体标记 CONFLICT，保留本地内容，删除这条，继续 |
+ * | 409 conflict_version | 实体标记 CONFLICT，保留本地内容，删除这条，继续（文稿版本只删这条，草稿留着） |
  * | 其它 4xx | 实体标记 FAILED；同一实体后面排队的操作一并失败；不阻塞其它实体 |
  */
 class OutboxProcessor(
@@ -85,6 +86,11 @@ class OutboxProcessor(
         } catch (e: ApiException) {
             return when {
                 e.isRetryable -> Outcome.TryLater("${e.status} ${e.code}")
+                // 文稿版本：不动文稿本身的同步状态，草稿还在，界面看到基线落后就会进入重基线
+                row.kind == OutboxOp.KIND_DOC_VERSION -> {
+                    db.outbox().delete(row.localId)
+                    Outcome.Skip
+                }
                 e.status == 409 && e.code == ProblemCode.ConflictVersion -> {
                     db.transaction {
                         db.outbox().delete(row.localId)
@@ -116,6 +122,8 @@ class OutboxProcessor(
                 val change = QichiJson.decodeFromString(Change.serializer(), body)
                 change.data?.let { store.applyResponse(EntityCodec.decode(change.type, it) as SyncEntity) }
             }
+            OutboxOp.KIND_DOC_VERSION ->
+                store.applyDocumentVersion(UUID.fromString(row.roomId), QichiJson.decodeFromString(DocumentVersion.serializer(), body))
             OutboxOp.KIND_TODO_COMPLETE -> {
                 val result = QichiJson.decodeFromString(CompleteTodoResponse.serializer(), body)
                 store.applyResponse(result.todo)

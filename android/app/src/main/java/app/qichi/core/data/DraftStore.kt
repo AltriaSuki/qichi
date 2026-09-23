@@ -2,6 +2,7 @@ package app.qichi.core.data
 
 import app.qichi.core.database.DraftRow
 import app.qichi.core.database.QichiDatabase
+import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
 /**
@@ -25,8 +26,19 @@ class DraftStore(
 
     suspend fun delete(roomId: UUID, key: String) = db.drafts().delete(roomId.toString(), key)
 
+    /** 带基线版本的草稿（文稿）：[baseVersion] 是这段内容是在哪个版本上写的。 */
+    fun observeRow(roomId: UUID, key: String): Flow<DraftRow?> = db.drafts().observe(roomId.toString(), key)
+
+    suspend fun loadRow(roomId: UUID, key: String): DraftRow? = db.drafts().get(roomId.toString(), key)
+
+    suspend fun saveVersioned(roomId: UUID, key: String, text: String, baseVersion: Int) =
+        db.drafts().upsert(DraftRow(roomId.toString(), key, text, baseVersion, updatedAt = now()))
+
     companion object {
         /** 聊天输入框 */
         const val CHAT = "chat"
+
+        /** 文稿未保存的内容 */
+        fun documentKey(documentId: UUID) = "doc:$documentId"
     }
 }
