@@ -12,6 +12,7 @@ import app.qichi.shared.api.DocumentVersion
 import app.qichi.shared.api.EntityCodec
 import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.ReadMarker
+import app.qichi.shared.api.ReadingProgress
 import app.qichi.shared.api.SyncEntity
 import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.ProblemCode
@@ -122,6 +123,7 @@ class OutboxProcessor(
                 val change = QichiJson.decodeFromString(Change.serializer(), body)
                 change.data?.let { store.applyResponse(EntityCodec.decode(change.type, it) as SyncEntity) }
             }
+            OutboxOp.KIND_READING_PROGRESS -> store.applyReadingProgress(QichiJson.decodeFromString(ReadingProgress.serializer(), body))
             OutboxOp.KIND_DOC_VERSION ->
                 store.applyDocumentVersion(UUID.fromString(row.roomId), QichiJson.decodeFromString(DocumentVersion.serializer(), body))
             OutboxOp.KIND_TODO_COMPLETE -> {

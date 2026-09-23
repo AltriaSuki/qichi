@@ -58,6 +58,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
+        // Readium 需要（minSdk 26 上补齐较新的 java.time 等 API）
+        isCoreLibraryDesugaringEnabled = true
     }
 
     packaging {
@@ -116,6 +118,11 @@ dependencies {
     implementation(libs.paging.runtime)
     implementation(libs.paging.compose)
     implementation(libs.coil.compose)
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+    implementation(libs.readium.shared)
+    implementation(libs.readium.streamer)
+    implementation(libs.readium.navigator)
+    implementation(libs.androidx.fragment.compose)
     implementation(libs.coil.network.ktor)
     implementation(libs.work.runtime.ktx)
     implementation(libs.androidx.hilt.work)

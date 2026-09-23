@@ -46,6 +46,10 @@ interface EntityDao {
     @Query("SELECT * FROM entities WHERE roomId = :roomId AND type = :type AND deleted = 0 ORDER BY sortTime, localTime")
     suspend fun listByType(roomId: String, type: String): List<EntityRow>
 
+    /** 某个父实体下某种实体的所有行（含回收站里的）。 */
+    @Query("SELECT * FROM entities WHERE type = :type AND parentId = :parentId")
+    suspend fun byParent(type: String, parentId: String): List<EntityRow>
+
     @Query("SELECT * FROM entities WHERE roomId = :roomId AND type = :type AND parentId = :parentId AND deleted = 0 ORDER BY sortTime, localTime")
     fun observeChildren(roomId: String, type: String, parentId: String): Flow<List<EntityRow>>
 

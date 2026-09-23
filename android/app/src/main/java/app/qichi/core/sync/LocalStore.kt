@@ -79,6 +79,9 @@ data class OutboxOp(
          */
         const val KIND_DOC_VERSION = "document.version"
 
+        /** 保存阅读进度：服务端已有我的进度时返回的 id 可能和本机不同，本机多出来的那条删掉 */
+        const val KIND_READING_PROGRESS = "reading_progress"
+
         inline fun <reified B> post(path: String, body: B, kind: String = KIND_ENTITY) =
             OutboxOp(HttpMethod.Post, path, QichiJson.encodeToJsonElement(body), kind)
 
@@ -234,6 +237,14 @@ class LocalStore(
     suspend fun markFailed(type: String, id: String, error: String?) = db.transaction {
         outbox.failAllFor(type, id, error)
         entities.setState(type, id, SyncState.FAILED)
+    }
+
+    /** 阅读进度的响应：存服务端那条，删掉本机同一本书、同一个人的其它进度行。 */
+    suspend fun applyReadingProgress(progress: ReadingProgress) = db.transaction {
+        applyResponse(progress)
+        entities.byParent(EntityType.ReadingProgress.wireName, progress.bookId.toString())
+            .filter { it.ownerId == progress.userId.toString() && it.id != progress.id.toString() }
+            .forEach { entities.delete(it.type, it.id) }
     }
 
     /**

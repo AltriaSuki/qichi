@@ -96,3 +96,17 @@ adb shell getprop sys.boot_completed   # 输出 1 表示启动完成
 | App 显示「连不上服务器」，服务端日志里没有请求 | 模拟器里执行过 `adb reverse tcp:8080 tcp:8080` 吗？`adb reverse --list` 查看 |
 | 服务端测试报 `Previous attempts to find a Docker environment failed` | Gradle 守护进程是在加入 docker 组之前启动的：`./gradlew --stop` 后重跑，或加 `--no-daemon` |
 | Gradle 找不到 SDK | 确认 `ANDROID_HOME`，或在 `android/local.properties` 写 `sdk.dir=/home/<用户名>/Android/Sdk` |
+
+## Gradle 下载 Readium 失败（TLS 握手被中断）
+
+这台电脑的代理下，Gradle（Java）下载 `readium-navigator-3.4.0.aar` 时偶尔报 `Remote host terminated the handshake`，同一地址用 curl 能下载。
+`android/settings.gradle.kts` 已设置：Readium 这组包先查本机 Maven 仓库（`~/.m2`），本机没有才去 mavenCentral。遇到这个错误时，用 curl 把文件放进本机仓库，并和中央仓库的 `.sha1` 核对：
+
+```bash
+D=~/.m2/repository/org/readium/kotlin-toolkit/readium-navigator/3.4.0; mkdir -p $D
+B=https://repo.maven.apache.org/maven2/org/readium/kotlin-toolkit/readium-navigator/3.4.0
+for f in readium-navigator-3.4.0.pom readium-navigator-3.4.0.module readium-navigator-3.4.0.aar; do
+  curl -s -o $D/$f $B/$f
+  [ "$(curl -s $B/$f.sha1 | cut -c1-40)" = "$(sha1sum $D/$f | cut -c1-40)" ] && echo "$f ok" || echo "$f 校验不一致"
+done
+```
