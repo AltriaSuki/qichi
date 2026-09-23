@@ -15,6 +15,7 @@ import app.qichi.core.data.TimelineRepository
 import app.qichi.core.data.BookCache
 import app.qichi.core.data.SummaryRepository
 import app.qichi.core.data.AccountRepository
+import app.qichi.core.data.ReviewRepository
 import app.qichi.core.data.ReadingRepository
 import app.qichi.core.reading.EpubOpener
 import app.qichi.core.data.BoardRepository
@@ -199,6 +200,13 @@ object SyncModule {
     @Singleton
     fun boardRepository(db: QichiDatabase, store: LocalStore, api: ApiClient, scheduler: SyncScheduler, session: SessionManager): BoardRepository =
         BoardRepository(db, store, api, scheduler, session)
+
+    @Provides
+    @Singleton
+    fun reviewRepository(
+        @ApplicationContext context: Context, db: QichiDatabase, store: LocalStore, files: FileRepository, api: ApiClient,
+        sync: SyncEngine, scheduler: SyncScheduler, session: SessionManager,
+    ): ReviewRepository = ReviewRepository(context, db, store, files, api, sync, scheduler, session)
 
     @Provides
     @Singleton

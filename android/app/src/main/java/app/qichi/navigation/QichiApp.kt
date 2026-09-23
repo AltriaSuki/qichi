@@ -68,6 +68,8 @@ import app.qichi.feature.timeline.TimelineScreen
 import app.qichi.feature.today.TodayScreen
 import app.qichi.feature.writing.DocumentEditorScreen
 import app.qichi.feature.writing.DocumentListScreen
+import app.qichi.feature.review.ReviewListScreen
+import app.qichi.feature.review.ReviewScreen
 import app.qichi.feature.todo.TodoScreen
 import app.qichi.feature.together.TogetherHubScreen
 import app.qichi.feature.together.TogetherHubViewModel
@@ -239,6 +241,14 @@ fun QichiApp(
                                     })
                                 } else {
                                     TopicScreen(roomId = roomId, topicId = topicId, focusPostId = postId, onBack = navigator::back)
+                                }
+                            }
+                            Page.Review -> {
+                                val reviewId = route.id?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
+                                if (reviewId == null) {
+                                    ReviewListScreen(roomId = roomId, onBack = navigator::back, onOpen = { navigator.open(Page.Review, it.toString()) })
+                                } else {
+                                    ReviewScreen(roomId = roomId, documentId = reviewId, onBack = navigator::back)
                                 }
                             }
                             Page.Writing -> {
