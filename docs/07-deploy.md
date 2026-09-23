@@ -57,6 +57,22 @@ curl https://qichi.你的域名.com/api/v1/health
 
 服务端每次启动都会自动执行 Flyway 迁移，不需要手动建表。
 
+### 服务器上已经有别的服务（共用一台小 VPS）
+
+例如服务器上已经装了 Caddy 占着 80、443，而且只有 1GB 内存：
+
+1. `.env` 里 `COMPOSE_PROFILES=`（不开自带的 caddy 和 converter），`CONVERTER_URL=` 留空。审稿只收 PDF
+2. 把 `deploy/Caddyfile.host-example` 里的两段（换成你的域名）加进服务器的 `/etc/caddy/Caddyfile`，先备份原文件，再 `caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy`
+3. 1GB 内存的服务器上别编译（Kotlin 编译要 1GB 以上内存）：在自己电脑上构建镜像再传过去
+   ```bash
+   # 在自己电脑的仓库根目录
+   docker build -f deploy/server.Dockerfile -t qichi-server:latest .
+   docker save qichi-server:latest | gzip | ssh -p <端口> root@<服务器> 'gunzip | docker load'
+   # 在服务器上
+   cd /opt/qichi/deploy && docker compose up -d --no-build
+   ```
+4. 以后内存加到 2GB 以上时，`.env` 里改成 `COMPOSE_PROFILES=converter`、`CONVERTER_URL=http://converter:3000`，`docker compose up -d` 就能审 Word、Excel、PowerPoint
+
 ## 5. 第一个账号
 
 1. 在 `android/local.properties` 里写上 `qichi.baseUrl=https://qichi.你的域名.com`，然后编译安装 App

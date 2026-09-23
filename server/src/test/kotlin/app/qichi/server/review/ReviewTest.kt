@@ -286,7 +286,7 @@ class ReviewTest {
         val (aqi, _, room) = Api(client).pair()
         val (_, v) = aqi.newReview(room, TestPdf.docx("x"), name = "a.docx")
         bare.jobs.drain()
-        assertEquals("服务器还没有配置文档转换，暂时只能预览 PDF", aqi.version(room, v).previewError)
+        assertEquals("这台服务器只收 PDF：请把文件另存为 PDF 再传", aqi.version(room, v).previewError)
     }
 
     @Test fun `批注：按段落、区域、幻灯片钉位置；校验；正文只有作者能改；两人都能接受；只能删自己的；讨论`() = serverTest(ctx) { client ->

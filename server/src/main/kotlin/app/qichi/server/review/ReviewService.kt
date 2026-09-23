@@ -307,7 +307,7 @@ class ReviewService(
         var tempPdf: java.nio.file.Path? = null
         try {
             val pdf = if (v.format == ReviewFormat.Pdf) source else {
-                val c = converter ?: throw PreviewFailure("服务器还没有配置文档转换，暂时只能预览 PDF")
+                val c = converter ?: throw PreviewFailure("这台服务器只收 PDF：请把文件另存为 PDF 再传")
                 val out = withContext(Dispatchers.IO) { NioFiles.createTempFile("qichi-review-", ".pdf") }
                 tempPdf = out
                 c.toPdf(source, extensionFor(v), out)

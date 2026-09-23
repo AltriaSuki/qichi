@@ -1,12 +1,16 @@
 # 栖迟线上部署：Caddy（HTTPS）+ Ktor 服务端 + PostgreSQL + ntfy（UnifiedPush 推送）+ converter（审稿文档转换）。
 # 用法见 docs/07-deploy.md：
 #   cp .env.example .env && 填写 → docker compose up -d --build
+# caddy、converter 是可选的（.env 里的 COMPOSE_PROFILES 决定开哪些）：
+#   - 服务器上已经有 Caddy / Nginx 时不开 caddy，由它反向代理到 127.0.0.1:8480（服务端）和 127.0.0.1:8481（ntfy）
+#   - 内存只有 1GB 时不开 converter，审稿只收 PDF
 # 数据卷名固定为 qichi_*（备份与恢复脚本依赖这些名字）。
 name: qichi
 
 services:
   caddy:
     image: caddy:2
+    profiles: ["caddy"]
     restart: unless-stopped
     ports:
       - "80:80"
@@ -28,8 +32,9 @@ services:
     image: binwiederhier/ntfy
     restart: unless-stopped
     command: serve
-    expose:
-      - "80"
+    # 只在本机监听：由 Caddy（容器里的或服务器上已有的）对外
+    ports:
+      - "127.0.0.1:${NTFY_HOST_PORT:-8481}:80"
     environment:
       NTFY_BASE_URL: https://${PUSH_DOMAIN:?请在 .env 里填写 PUSH_DOMAIN}
       NTFY_BEHIND_PROXY: "true"
@@ -41,6 +46,7 @@ services:
   # 审稿用的文档转换（Gotenberg，内含 LibreOffice 无界面模式）。只在内部网络，不对外；只开 LibreOffice，关掉浏览器转换。
   converter:
     image: gotenberg/gotenberg:8
+    profiles: ["converter"]
     restart: unless-stopped
     command:
       - gotenberg
@@ -51,13 +57,15 @@ services:
     mem_limit: 1g
 
   server:
+    # 小内存的服务器上别在服务器上编译：本机 docker build 后 docker save | ssh … docker load（见 docs/07-deploy.md）
+    image: qichi-server:${QICHI_IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: deploy/server.Dockerfile
     restart: unless-stopped
-    # 只在内部网络监听，由 Caddy 对外。
-    expose:
-      - "8080"
+    # 只在本机监听，由 Caddy 对外。
+    ports:
+      - "127.0.0.1:${SERVER_HOST_PORT:-8480}:8080"
     environment:
       QICHI_ENV: production
       PORT: "8080"
@@ -76,8 +84,11 @@ services:
       PUSH_PROVIDERS: ${PUSH_PROVIDERS:-unifiedpush}
       # 只往自建的 ntfy 发推送
       UNIFIEDPUSH_ALLOWED_HOSTS: ${PUSH_DOMAIN:?请在 .env 里填写 PUSH_DOMAIN}
-      # 审稿：Word、Excel、PowerPoint 先转成 PDF 再生成预览
-      CONVERTER_URL: http://converter:3000
+      # 审稿：Word、Excel、PowerPoint 先转成 PDF 再生成预览（开了 converter 才填 http://converter:3000）
+      CONVERTER_URL: ${CONVERTER_URL:-}
+      DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-5}
+      # 内存：堆上限 256MB（1GB 的服务器也能跑）；内存充足时可以在 .env 里调大
+      JAVA_OPTS: ${JAVA_OPTS:--Xmx256m -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -Xss512k}
     volumes:
       - files:/data/files
     depends_on:
@@ -87,6 +98,8 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    # 两个人用，按小内存设置
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=30", "-c", "work_mem=4MB", "-c", "maintenance_work_mem=32MB"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-qichi}
       POSTGRES_USER: ${POSTGRES_USER:-qichi}

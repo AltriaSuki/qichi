@@ -1,0 +1,10 @@
+# 服务器上已经装了 Caddy（占着 80、443）时：不开这里的 caddy 容器，把下面两段加进服务器的 /etc/caddy/Caddyfile，
+# 然后 caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy。域名换成你的。
+
+qichi1.duckdns.org {
+	reverse_proxy 127.0.0.1:8480
+}
+
+push.qichi1.duckdns.org {
+	reverse_proxy 127.0.0.1:8481
+}
