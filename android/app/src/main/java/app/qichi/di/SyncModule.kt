@@ -7,6 +7,7 @@ import app.qichi.core.auth.SessionManager
 import app.qichi.core.auth.TokenStore
 import app.qichi.core.data.AttachmentPreparer
 import app.qichi.core.data.ChatRepository
+import app.qichi.core.data.CalendarTransferRepository
 import app.qichi.core.data.DataStoreProfileStore
 import app.qichi.core.data.DraftStore
 import app.qichi.core.data.EventRepository
@@ -137,6 +138,12 @@ object SyncModule {
     @Provides
     @Singleton
     fun planRepository(db: QichiDatabase): PlanRepository = PlanRepository(db)
+
+    @Provides
+    @Singleton
+    fun calendarTransferRepository(
+        @ApplicationContext context: Context, api: ApiClient, sync: SyncEngine,
+    ): CalendarTransferRepository = CalendarTransferRepository(context, api, sync)
 
     /** 登出时清掉本机保存的「我」与当前房间。 */
     @Provides

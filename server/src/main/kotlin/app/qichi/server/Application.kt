@@ -3,6 +3,8 @@ package app.qichi.server
 import app.qichi.server.auth.AuthService
 import app.qichi.server.auth.PasswordHasher
 import app.qichi.server.auth.TokenService
+import app.qichi.server.calendar.CalendarService
+import app.qichi.server.calendar.calendarRoutes
 import app.qichi.server.auth.authRoutes
 import app.qichi.server.ai.AiGateway
 import app.qichi.server.ai.AiService
@@ -113,6 +115,7 @@ fun Application.module(ctx: AppContext) {
             aiRoutes(ctx)
             qnaRoutes(ctx)
             planRoutes(ctx)
+            calendarRoutes(ctx)
         }
     }
 }
@@ -148,6 +151,7 @@ class AppContext(
     val ai = AiService(database, rooms, writer, jobs, aiGateway, config.ai, realtime, clock)
     val qna = QnaService(database, rooms, writes, writer, clock)
     val plans = PlanService(database, rooms, writes)
+    val calendar = CalendarService(database, rooms, writes, writer, clock, config.publicBaseUrl)
 }
 
 class MicrosClock(private val base: Clock) : Clock() {

@@ -18,6 +18,7 @@ hikari = "7.1.0"
 logback = "1.6.3"
 testcontainers = "2.0.5"
 bouncycastle = "1.86"
+ical4j = "4.3.0"
 # Android
 agp = "9.4.1"
 ksp = "2.3.12"
@@ -62,6 +63,7 @@ ktor-server-partial-content = { module = "io.ktor:ktor-server-partial-content" }
 imageio-jpeg = { module = "com.twelvemonkeys.imageio:imageio-jpeg", version.ref = "twelvemonkeys" }
 imageio-webp = { module = "com.twelvemonkeys.imageio:imageio-webp", version.ref = "twelvemonkeys" }
 bouncycastle = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
+ical4j = { module = "org.mnode.ical4j:ical4j", version.ref = "ical4j" }
 ktor-server-test-host = { module = "io.ktor:ktor-server-test-host" }
 ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation" }
 exposed-core = { module = "org.jetbrains.exposed:exposed-core", version.ref = "exposed" }

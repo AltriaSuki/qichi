@@ -60,6 +60,7 @@ object Rooms : Table("rooms") {
     val heroFileId = javaUUID("hero_file_id").nullable()
     val anniversary = date("anniversary").nullable()
     val timezone = text("timezone")
+    val icsToken = text("ics_token").nullable()
     val createdBy = javaUUID("created_by")
     val lastSeq = long("last_seq")
     val seq = long("seq")

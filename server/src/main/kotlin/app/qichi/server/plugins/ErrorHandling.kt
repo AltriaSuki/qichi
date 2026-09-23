@@ -98,7 +98,7 @@ fun Application.installErrorHandling() {
             call.respondProblem(ApiException(ProblemCode.UnsupportedMediaType, "不支持的内容类型"))
         }
         exception<Throwable> { call, e ->
-            log.error("未处理的错误：{} {}", call.request.httpMethod.value, call.request.path(), e)
+            log.error("未处理的错误：{} {}", call.request.httpMethod.value, call.safePath(), e)
             call.respondProblem(ApiException(ProblemCode.InternalError, "服务器出错了"))
         }
 

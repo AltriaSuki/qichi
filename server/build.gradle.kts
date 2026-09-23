@@ -40,6 +40,7 @@ dependencies {
     implementation(libs.imageio.jpeg)
     implementation(libs.imageio.webp)
     implementation(libs.bouncycastle)
+    implementation(libs.ical4j)
     implementation(libs.kotlinx.coroutines.core)
 
     implementation(libs.exposed.core)

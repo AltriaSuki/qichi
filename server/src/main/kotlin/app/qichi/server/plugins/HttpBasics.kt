@@ -34,9 +34,14 @@ fun Application.installCallLogging() {
         format { call ->
             val status = call.response.status()?.value ?: "-"
             val client = call.request.header(CLIENT_HEADER) ?: "-"
-            "${call.request.httpMethod.value} ${call.request.path()} $status ${call.processingTimeMillis()}ms client=$client"
+            "${call.request.httpMethod.value} ${call.safePath()} $status ${call.processingTimeMillis()}ms client=$client"
         }
     }
+}
+
+/** 订阅路径里的随机令牌是凭证，任何请求与错误日志都必须遮掉。 */
+fun ApplicationCall.safePath(): String = request.path().let { path ->
+    if (path.startsWith("/api/v1/ics/")) "/api/v1/ics/{token}.ics" else path
 }
 
 fun Application.installDefaultHeaders() {

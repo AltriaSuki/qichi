@@ -44,6 +44,8 @@ tags:
     description: 待办（P2）
   - name: events
     description: 日程（P2）
+  - name: calendar
+    description: ICS 导入、导出与只读订阅（P4）
   - name: messages
     description: 聊天、未读位置（P3）
   - name: files
@@ -611,6 +613,95 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/EventOk' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/calendar/import:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [calendar]
+      operationId: importCalendar
+      summary: 导入 ICS 日程
+      description: |
+        在线上传至多 2 MiB 的 .ics 文件，只导入 VEVENT。按同一房间的 UID 去重；
+        全天事件的 DTEND 为排他日期，存入日程时换算为含首尾日期。
+        不支持的事件记入 skipped，不影响其它事件。导入的日程按普通日程同步。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '200':
+          description: 导入结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CalendarImportResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+
+  /rooms/{roomId}/calendar/export.ics:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [calendar]
+      operationId: exportCalendar
+      summary: 导出房间日历
+      description: 含未删除的日程、待办截止、计划目标和里程碑。
+      responses:
+        '200':
+          description: ICS 文件
+          content:
+            text/calendar:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/calendar/subscription:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [calendar]
+      operationId: calendarSubscription
+      summary: 生成或重置只读订阅链接
+      description: 首次生成；已有链接时返回原链接，reset 为 true 时使旧链接立即失效。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CalendarSubscriptionRequest' }
+      responses:
+        '200':
+          description: 可分享的订阅链接
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CalendarSubscription' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /ics/{token}.ics:
+    get:
+      tags: [calendar]
+      operationId: readCalendarSubscription
+      summary: 无需登录的只读日历订阅
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string, minLength: 43, maxLength: 43 }
+      responses:
+        '200':
+          description: 实时 ICS 文件
+          content:
+            text/calendar:
+              schema: { type: string, format: binary }
         '404': { $ref: '#/components/responses/NotFound' }
 
   # ───────────────────────── 聊天 ─────────────────────────
@@ -1543,6 +1634,23 @@ components:
       properties:
         status: { type: string, const: ok }
         version: { type: string, example: 0.1.0 }
+
+    CalendarImportResult:
+      type: object
+      required: [imported, skipped]
+      properties:
+        imported: { type: integer, minimum: 0 }
+        skipped: { type: integer, minimum: 0 }
+    CalendarSubscriptionRequest:
+      type: object
+      required: [reset]
+      properties:
+        reset: { type: boolean, default: false }
+    CalendarSubscription:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, format: uri, description: 令牌即凭证，请勿写入日志 }
 
     # ── 账号 ──
     Username:

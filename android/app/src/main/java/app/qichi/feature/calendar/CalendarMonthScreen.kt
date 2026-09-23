@@ -1,5 +1,8 @@
 package app.qichi.feature.calendar
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,12 +21,18 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -62,9 +71,25 @@ fun CalendarMonthScreen(
     onDayClick: (LocalDate) -> Unit,
     onEventsClick: () -> Unit,
     vm: CalendarMonthViewModel = hiltViewModel<CalendarMonthViewModel, CalendarMonthViewModel.Factory>(key = roomId.toString()) { it.create(roomId) },
+    transferVm: CalendarTransferViewModel = hiltViewModel<CalendarTransferViewModel, CalendarTransferViewModel.Factory>(key = "transfer-$roomId") { it.create(roomId) },
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val transfer by transferVm.state.collectAsStateWithLifecycle()
     val colors = QichiTheme.colors
+    val context = LocalContext.current
+    val pickIcs = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(transferVm::importIcs)
+    }
+    val saveIcs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/calendar")) { uri ->
+        transferVm.exportTo(uri)
+    }
+    var confirmingReset by remember { mutableStateOf(false) }
+    LaunchedEffect(transfer.exportReady) {
+        if (transfer.exportReady) {
+            transferVm.clearExportReady()
+            saveIcs.launch("栖迟日历.ics")
+        }
+    }
     Column(Modifier.fillMaxSize().background(colors.background)) {
         BackBar("日历", onBack) {
             TextAction("日程", onEventsClick, color = colors.muted)
@@ -114,6 +139,49 @@ fun CalendarMonthScreen(
                 }
             }
         }
+        transfer.message?.let { message ->
+            Text(message, style = QichiTheme.typography.caption.copy(color = colors.muted),
+                modifier = Modifier.padding(horizontal = Spacing.page))
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = Spacing.page, vertical = Spacing.xs),
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            TextAction("导入", { pickIcs.launch(arrayOf("text/calendar", "application/octet-stream", "*/*")) }, color = colors.muted)
+            Text(" · ", style = QichiTheme.typography.caption.copy(color = colors.faint))
+            TextAction("导出", transferVm::prepareExport, color = colors.muted)
+            Text(" · ", style = QichiTheme.typography.caption.copy(color = colors.faint))
+            TextAction("订阅", { transferVm.subscription() }, color = colors.muted)
+        }
+    }
+    transfer.subscriptionUrl?.let { url ->
+        AlertDialog(
+            onDismissRequest = transferVm::closeSubscription,
+            title = { Text("只读日历订阅", style = QichiTheme.typography.pageTitle) },
+            text = {
+                Column {
+                    Text("把链接添加到日历应用，就能订阅两个人的日程。拿到链接的人也能查看，分享时请留意。",
+                        style = QichiTheme.typography.bodyLarge)
+                    TextAction("重置链接", { confirmingReset = true }, color = colors.accent)
+                }
+            },
+            confirmButton = {
+                TextAction("分享链接", {
+                    val intent = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, url)
+                    context.startActivity(Intent.createChooser(intent, "分享日历订阅链接"))
+                }, color = colors.accent)
+            },
+            dismissButton = { TextAction("关闭", transferVm::closeSubscription, color = colors.muted) },
+        )
+    }
+    if (confirmingReset) {
+        AlertDialog(
+            onDismissRequest = { confirmingReset = false },
+            title = { Text("重置订阅链接？", style = QichiTheme.typography.pageTitle) },
+            text = { Text("旧链接会立即失效，已经订阅的日历需要重新添加。", style = QichiTheme.typography.bodyLarge) },
+            confirmButton = { TextAction("重置", { confirmingReset = false; transferVm.subscription(reset = true) }, color = colors.accent) },
+            dismissButton = { TextAction("取消", { confirmingReset = false }, color = colors.muted) },
+        )
     }
 }
 
