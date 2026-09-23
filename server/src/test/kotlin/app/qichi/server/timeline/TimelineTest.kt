@@ -12,6 +12,9 @@ import app.qichi.shared.api.CreateIdeaRequest
 import app.qichi.shared.api.CreatePlanRequest
 import app.qichi.shared.api.Decision
 import app.qichi.shared.api.FileMeta
+import app.qichi.shared.api.Message
+import app.qichi.shared.api.OnThisDay
+import app.qichi.shared.api.SendMessageRequest
 import app.qichi.shared.api.Patch
 import app.qichi.shared.api.TimelinePage
 import app.qichi.shared.api.TimelinePick
@@ -87,5 +90,20 @@ class TimelineTest {
         // 别的房间的文件、不存在的文件：404；非成员 404
         aqi.put("$base/timeline/picks/${UuidV7.generate()}", emptyMap<String, String>()).assertProblem(HttpStatusCode.NotFound, ProblemCode.NotFound)
         api.outsider(aqi).get("$base/timeline").assertProblem(HttpStatusCode.NotFound, ProblemCode.NotFound)
+    }
+
+    @Test fun `一年前的今天：取那一天（房间时区）聊天里的照片，不含撤回的`() = serverTest(testContext(clock = clock)) { client ->
+        val (aqi, chi, room) = Api(client).pair()
+        val base = "/api/v1/rooms/$room"
+        val file = aqi.upload(room, png()).body<FileMeta>()
+        val kept = aqi.post("$base/messages", SendMessageRequest(UuidV7.generate(), "image", "海边", fileId = file.id)).body<Message>()
+        val other = chi.upload(room, png()).body<FileMeta>()
+        val gone = chi.post("$base/messages", SendMessageRequest(UuidV7.generate(), "image", "", fileId = other.id)).body<Message>()
+        chi.post("$base/messages/${gone.id}/retract")
+        val day = chi.get("$base/on-this-day?date=2026-09-15").body<OnThisDay>()
+        assertEquals(listOf(kept.id), day.photos.map { it.messageId })
+        assertEquals(file.id, day.photos.single().file.id)
+        assertTrue(chi.get("$base/on-this-day?date=2026-09-14").body<OnThisDay>().photos.isEmpty())
+        chi.get("$base/on-this-day?date=x").assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
     }
 }

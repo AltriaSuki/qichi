@@ -1520,6 +1520,21 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /rooms/{roomId}/on-this-day:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [timeline]
+      operationId: getOnThisDay
+      summary: 某一天（房间时区）聊天里发过的照片，「一年前的今天」用（最多 12 张）
+      parameters:
+        - { name: date, in: query, required: true, schema: { $ref: '#/components/schemas/LocalDate' } }
+      responses:
+        '200': { description: 那一天, content: { application/json: { schema: { $ref: '#/components/schemas/OnThisDay' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /rooms/{roomId}/timeline/picks:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -3132,6 +3147,20 @@ components:
         month: { type: integer, minimum: 1, maximum: 12 }
         entries: { type: array, items: { $ref: '#/components/schemas/TimelineEntry' } }
         months: { type: array, items: { $ref: '#/components/schemas/TimelineMonthCount' } }
+    DayPhoto:
+      type: object
+      required: [messageId, file, authorId, at]
+      properties:
+        messageId: { $ref: '#/components/schemas/Uuid' }
+        file: { $ref: '#/components/schemas/FileMeta' }
+        authorId: { $ref: '#/components/schemas/NullableUuid' }
+        at: { $ref: '#/components/schemas/Instant' }
+    OnThisDay:
+      type: object
+      required: [date, photos]
+      properties:
+        date: { $ref: '#/components/schemas/LocalDate' }
+        photos: { type: array, items: { $ref: '#/components/schemas/DayPhoto' } }
     TimelinePick:
       type: object
       required: [fileId, userId, createdAt]

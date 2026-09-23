@@ -16,6 +16,11 @@ import io.ktor.server.routing.route
 
 fun Route.timelineRoutes(ctx: AppContext) {
     authenticate(AUTH_JWT) {
+        get("/rooms/{roomId}/on-this-day") {
+            val date = call.request.queryParameters["date"]?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() }
+                ?: throw app.qichi.server.plugins.ApiException(app.qichi.shared.model.ProblemCode.InvalidRequest, "请求参数不合法", detail = "date 形如 2025-09-23")
+            call.respond(ctx.timeline.onThisDay(call.user.userId, call.uuidParam("roomId"), date))
+        }
         route("/rooms/{roomId}/timeline") {
             get { call.respond(ctx.timeline.month(call.user.userId, call.uuidParam("roomId"), call.intQuery("year"), call.intQuery("month"))) }
             get("/picks") { call.respond(ctx.timeline.picks(call.user.userId, call.uuidParam("roomId"))) }

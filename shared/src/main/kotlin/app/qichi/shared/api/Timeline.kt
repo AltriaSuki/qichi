@@ -36,3 +36,11 @@ data class TimelinePage(
 /** 谁选中了哪张照片。 */
 @Serializable
 data class TimelinePick(val fileId: Id, val userId: Id, val createdAt: Timestamp)
+
+/** 某一天聊天里发过的一张照片（「一年前的今天」用）。 */
+@Serializable
+data class DayPhoto(val messageId: Id, val file: FileMeta, val authorId: Id?, val at: Timestamp)
+
+/** 「一年前的今天」要从服务端取的部分：那天的照片（更早的聊天记录不一定在手机上）。 */
+@Serializable
+data class OnThisDay(val date: Day, val photos: List<DayPhoto>)

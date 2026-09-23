@@ -12,7 +12,15 @@ import app.qichi.server.files.toFileMeta
 import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
 import app.qichi.server.rooms.RoomService
+import app.qichi.shared.api.DayPhoto
+import app.qichi.shared.api.OnThisDay
 import app.qichi.shared.api.TimelineEntry
+import app.qichi.shared.model.MessageKind
+import app.qichi.server.db.Messages
+import org.jetbrains.exposed.v1.core.JoinType
+import org.jetbrains.exposed.v1.core.greaterEq
+import org.jetbrains.exposed.v1.core.less
+import java.time.LocalDate
 import app.qichi.shared.api.TimelineMonthCount
 import app.qichi.shared.api.TimelinePage
 import app.qichi.shared.api.TimelinePick
@@ -86,6 +94,19 @@ class TimelineService(
                 add(TimelineEntry(TimelineEntryKind.Photo, meta.id, meta.createdAt, meta.fileName, null, meta.uploadedBy, meta))
             }
         }
+    }
+
+    /** 某一天（房间时区）聊天里发过的照片，最多 12 张（「一年前的今天」）。 */
+    suspend fun onThisDay(userId: UUID, roomId: UUID, date: LocalDate): OnThisDay = db.tx(readOnly = true) {
+        rooms.requireMember(roomId, userId)
+        val zone = Rooms.select(Rooms.timezone).where { Rooms.id eq roomId }.single()[Rooms.timezone].let { runCatching { ZoneId.of(it) }.getOrDefault(ZoneId.of("Asia/Shanghai")) }
+        val from = date.atStartOfDay(zone).toInstant()
+        val until = date.plusDays(1).atStartOfDay(zone).toInstant()
+        val photos = Messages.join(Files, JoinType.INNER, Messages.fileId, Files.id).selectAll().where {
+            (Messages.roomId eq roomId) and Messages.deletedAt.isNull() and Messages.retractedAt.isNull() and
+                (Messages.kind eq MessageKind.Image.wireName) and (Messages.createdAt greaterEq from) and (Messages.createdAt less until)
+        }.orderBy(Messages.createdAt).limit(12).map { DayPhoto(it[Messages.id], it.toFileMeta(), it[Messages.authorId], it[Messages.createdAt]) }
+        OnThisDay(date, photos)
     }
 
     suspend fun picks(userId: UUID, roomId: UUID): List<TimelinePick> = db.tx(readOnly = true) {
