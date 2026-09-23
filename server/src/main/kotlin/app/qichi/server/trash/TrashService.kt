@@ -8,6 +8,7 @@ import app.qichi.server.db.MoodResponses
 import app.qichi.server.db.Moods
 import app.qichi.server.db.PlanLogs
 import app.qichi.server.db.PlanStages
+import app.qichi.server.db.Ideas
 import app.qichi.server.db.Plans
 import app.qichi.server.db.QichiDatabase
 import app.qichi.server.db.Questions
@@ -26,6 +27,7 @@ import app.qichi.server.moods.toMood
 import app.qichi.server.plugins.forbidden
 import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
+import app.qichi.server.ideas.toIdea
 import app.qichi.server.plans.toPlan
 import app.qichi.server.qna.toQuestion
 import app.qichi.server.rooms.RoomService
@@ -130,6 +132,10 @@ class TrashService(
                     val p = row.toPlan()
                     add(Candidate(TrashType.Plan, p, p.deletedAt!!, p.deletedBy!!))
                 }
+                Ideas.selectAll().deleted(Ideas, roomId, cursor, take).forEach { row ->
+                    val i = row.toIdea()
+                    add(Candidate(TrashType.Idea, i, i.deletedAt!!, i.deletedBy!!))
+                }
             }.sortedWith(compareByDescending<Candidate> { it.deletedAt }.thenByDescending { it.sortKey })
 
             val page = candidates.take(limit)
@@ -213,6 +219,7 @@ class TrashService(
                         .forEach { hardDelete(this, roomId, userId, EntityType.PlanStage, it, PlanStages, now) }
                     hardDelete(this, roomId, userId, EntityType.Plan, id, Plans, now)
                 }
+                TrashType.Idea -> hardDelete(this, roomId, userId, EntityType.Idea, id, Ideas, now)
             }
         }
         files.deleteStored(orphanFiles)
@@ -248,6 +255,7 @@ class TrashService(
         TrashType.Event -> Events.selectAll().where { Events.id eq id }.singleOrNull()?.toEvent()
         TrashType.Question -> Questions.selectAll().where { Questions.id eq id }.singleOrNull()?.toQuestion()
         TrashType.Plan -> Plans.selectAll().where { Plans.id eq id }.singleOrNull()?.toPlan()
+        TrashType.Idea -> Ideas.selectAll().where { Ideas.id eq id }.singleOrNull()?.toIdea()
     }
 
     /** 在查询上加「这个房间、已删除、在游标之后」，按 (deletedAt, id) 降序取 [take] 条。 */
@@ -270,6 +278,7 @@ val TrashType.entityType: EntityType
         TrashType.Event -> EntityType.Event
         TrashType.Question -> EntityType.Question
         TrashType.Plan -> EntityType.Plan
+        TrashType.Idea -> EntityType.Idea
     }
 
 private val TrashType.table: SyncedTable
@@ -280,4 +289,5 @@ private val TrashType.table: SyncedTable
         TrashType.Event -> Events
         TrashType.Question -> Questions
         TrashType.Plan -> Plans
+        TrashType.Idea -> Ideas
     }

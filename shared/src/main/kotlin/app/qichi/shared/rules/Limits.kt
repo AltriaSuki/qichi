@@ -35,6 +35,8 @@ object Limits {
     val PLAN_TITLE_LENGTH: IntRange = 1..200
     val PLAN_STEP_LENGTH: IntRange = 1..1000
     val PLAN_LOG_LENGTH: IntRange = 1..10_000
+    /** 灵感：随手记，一两句到一小段 */
+    val IDEA_BODY_LENGTH: IntRange = 1..2000
 
     const val IMAGE_MAX_BYTES: Long = 20L * 1024 * 1024
     const val FILE_MAX_BYTES: Long = 100L * 1024 * 1024

@@ -54,6 +54,8 @@ tags:
     description: 回收站（P3）
   - name: devices
     description: 推送设备（P3）
+  - name: ideas
+    description: 灵感（P4）
   - name: ai
     description: AI（P4）：请求立即返回 202，结果异步写进对应实体，并通过 WebSocket 发 ai.done
   - name: plans
@@ -1136,6 +1138,50 @@ paths:
         '503': { $ref: '#/components/responses/AiUnavailable' }
 
   # ───────────────────────── 计划 ─────────────────────────
+  /rooms/{roomId}/ideas:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [ideas]
+      operationId: createIdea
+      summary: 记下一条灵感
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateIdeaRequest' } } }
+      responses:
+        '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/Idea' } } } }
+        '201': { description: 已创建, content: { application/json: { schema: { $ref: '#/components/schemas/Idea' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/ideas/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [ideas]
+      operationId: updateIdea
+      summary: 修改灵感（仅作者）
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateIdeaRequest' } } }
+      responses:
+        '200': { description: 修改后的灵感, content: { application/json: { schema: { $ref: '#/components/schemas/Idea' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [ideas]
+      operationId: deleteIdea
+      summary: 删除灵感进回收站（两位成员都可以）
+      responses:
+        '200': { description: 删除后的灵感, content: { application/json: { schema: { $ref: '#/components/schemas/Idea' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /rooms/{roomId}/plans:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -1846,7 +1892,7 @@ components:
     EntityType:
       type: string
       description: 与 `shared/model/EntityType` 一致，后续阶段追加
-      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log]
+      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea]
     ChangeOp:
       type: string
       description: '`upsert` 包括软删除与恢复；只有彻底删除是 `delete`'
@@ -1883,6 +1929,7 @@ components:
             - $ref: '#/components/schemas/PlanStage'
             - $ref: '#/components/schemas/Milestone'
             - $ref: '#/components/schemas/PlanLog'
+            - $ref: '#/components/schemas/Idea'
             - type: 'null'
     SyncResponse:
       type: object
@@ -1896,7 +1943,7 @@ components:
           items: { $ref: '#/components/schemas/Change' }
     Bootstrap:
       type: object
-      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs]
+      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas]
       properties:
         room: { $ref: '#/components/schemas/Room' }
         members:
@@ -1939,6 +1986,7 @@ components:
         planStages: { type: array, items: { $ref: '#/components/schemas/PlanStage' } }
         milestones: { type: array, items: { $ref: '#/components/schemas/Milestone' } }
         planLogs: { type: array, items: { $ref: '#/components/schemas/PlanLog' } }
+        ideas: { type: array, items: { $ref: '#/components/schemas/Idea' } }
     WsHello:
       type: object
       required: [type, userId, rooms]
@@ -2204,6 +2252,26 @@ components:
             planId: { $ref: '#/components/schemas/Uuid' }
             authorId: { $ref: '#/components/schemas/Uuid' }
             body: { type: string, minLength: 1, maxLength: 10000 }
+    Idea:
+      description: 同步实体类型 `idea`：随手记下的想法（P4）
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [authorId, body]
+          properties:
+            authorId: { $ref: '#/components/schemas/Uuid' }
+            body: { type: string, minLength: 1, maxLength: 2000 }
+    CreateIdeaRequest:
+      type: object
+      required: [id, body]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        body: { type: string, minLength: 1, maxLength: 2000 }
+    UpdateIdeaRequest:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 2000 }
     PlanDetail:
       type: object
       required: [plan, stages, milestones, logs]
@@ -2448,7 +2516,7 @@ components:
     TrashType:
       type: string
       description: 第 3 阶段可恢复的类型，后续阶段追加
-      enum: [message, mood, todo, event, question, plan]
+      enum: [message, mood, todo, event, question, plan, idea]
     TrashItem:
       type: object
       required: [type, id, deletedAt, deletedBy, data]
@@ -2464,6 +2532,8 @@ components:
             - $ref: '#/components/schemas/Todo'
             - $ref: '#/components/schemas/Event'
             - $ref: '#/components/schemas/Question'
+            - $ref: '#/components/schemas/Plan'
+            - $ref: '#/components/schemas/Idea'
     TrashPage:
       type: object
       required: [items, nextCursor]

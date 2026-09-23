@@ -230,6 +230,11 @@ object PlanLogs : SyncedTable("plan_logs") {
     val body = text("body")
 }
 
+object Ideas : SyncedTable("ideas") {
+    val authorId = javaUUID("author_id")
+    val body = text("body")
+}
+
 object Devices : Table("devices") {
     val id = javaUUID("id")
     val userId = javaUUID("user_id")

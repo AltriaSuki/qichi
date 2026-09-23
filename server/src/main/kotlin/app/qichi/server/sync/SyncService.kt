@@ -13,6 +13,7 @@ import app.qichi.server.db.Messages
 import app.qichi.server.db.Milestones
 import app.qichi.server.db.PlanLogs
 import app.qichi.server.db.PlanStages
+import app.qichi.server.db.Ideas
 import app.qichi.server.db.Plans
 import app.qichi.server.db.RoomMembers
 import app.qichi.server.db.Todos
@@ -25,6 +26,7 @@ import app.qichi.server.moods.toMood
 import app.qichi.server.moods.toMoodReply
 import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
+import app.qichi.server.ideas.toIdea
 import app.qichi.server.plans.toMilestone
 import app.qichi.server.plans.toPlan
 import app.qichi.server.plans.toPlanLog
@@ -91,6 +93,7 @@ class SyncService(private val db: QichiDatabase) {
                 planStages = PlanStages.selectAll().where { PlanStages.roomId eq roomId }.map { it.toPlanStage() },
                 milestones = Milestones.selectAll().where { Milestones.roomId eq roomId }.map { it.toMilestone() },
                 planLogs = PlanLogs.selectAll().where { PlanLogs.roomId eq roomId }.map { it.toPlanLog() },
+                ideas = Ideas.selectAll().where { Ideas.roomId eq roomId }.map { it.toIdea() },
             )
         }
 
@@ -153,6 +156,7 @@ class SyncService(private val db: QichiDatabase) {
                 EntityType.QnaRound -> QnaRounds.selectAll().where { QnaRounds.id inList ids }.map { it.toQnaRound() }
                 EntityType.Answer -> Answers.selectAll().where { Answers.id inList ids }.map { it.toAnswer() }
                 EntityType.Plan -> Plans.selectAll().where { Plans.id inList ids }.map { it.toPlan() }
+                EntityType.Idea -> Ideas.selectAll().where { Ideas.id inList ids }.map { it.toIdea() }
                 EntityType.PlanStage -> PlanStages.selectAll().where { PlanStages.id inList ids }.map { it.toPlanStage() }
                 EntityType.Milestone -> Milestones.selectAll().where { Milestones.id inList ids }.map { it.toMilestone() }
                 EntityType.PlanLog -> PlanLogs.selectAll().where { PlanLogs.id inList ids }.map { it.toPlanLog() }

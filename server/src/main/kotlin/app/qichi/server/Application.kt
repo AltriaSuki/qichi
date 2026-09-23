@@ -19,6 +19,8 @@ import app.qichi.server.files.FileService
 import app.qichi.server.files.FileStorage
 import app.qichi.server.files.LocalFileStorage
 import app.qichi.server.files.fileRoutes
+import app.qichi.server.ideas.IdeaService
+import app.qichi.server.ideas.ideaRoutes
 import app.qichi.server.jobs.JobQueue
 import app.qichi.server.life.lifeRoutes
 import app.qichi.server.messages.MessageService
@@ -115,6 +117,7 @@ fun Application.module(ctx: AppContext) {
             aiRoutes(ctx)
             qnaRoutes(ctx)
             planRoutes(ctx)
+            ideaRoutes(ctx)
             calendarRoutes(ctx)
         }
     }
@@ -151,6 +154,7 @@ class AppContext(
     val ai = AiService(database, rooms, writer, jobs, aiGateway, config.ai, realtime, clock)
     val qna = QnaService(database, rooms, writes, writer, clock)
     val plans = PlanService(database, rooms, writes)
+    val ideas = IdeaService(database, rooms, writes)
     val calendar = CalendarService(database, rooms, writes, writer, clock, config.publicBaseUrl)
 }
 
