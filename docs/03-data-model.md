@@ -40,7 +40,7 @@
 | `mood_responses` | 对心情的回应（接口与代码里叫 `MoodReply`，避免和 HTTP response 混淆） | `kind`：here（我在这里）/ hug（给你一个拥抱）/ ready（等你准备好） |
 | `todos` | 待办 | `assignee_id`（空 = 两人）、`parent_id`（子任务，只有一层）、`due_date` 或 `due_at`、`recurrence`（RRULE）、`recurrence_prev_id`（由哪一次完成生成，唯一，防止重复生成）、`done_at/by` |
 | `events` | 日程 | 定时：`starts_at`、`ends_at`；全天（`all_day`）：`start_date`、`end_date`（含首尾，按房间时区）；`participant_ids`（空 = 两人）、`ics_uid`（导入去重） |
-| `devices` | 推送设备 | `provider`：fcm / unifiedpush；`token` |
+| `devices` | 推送设备 | `provider`：fcm / unifiedpush（目前只用 unifiedpush）；`token` = 推送地址 |
 
 `entity_type` 取值（与 `shared/model/EntityType` 一致）：
 `room` `member` `message` `read_marker` `mood` `mood_response` `todo` `event`，后续阶段追加。

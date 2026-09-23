@@ -51,11 +51,14 @@ class AppConfigTest {
 
     @Test
     fun `生产模式配置完整时正常读取`() {
-        val config = AppConfig.fromEnv(productionVars + mapOf("PORT" to "9000", "PUSH_PROVIDERS" to "fcm, unifiedpush"))
+        val config = AppConfig.fromEnv(
+            productionVars + mapOf("PORT" to "9000", "PUSH_PROVIDERS" to "unifiedpush", "UNIFIEDPUSH_ALLOWED_HOSTS" to " Push.Qichi1.duckdns.org "),
+        )
         assertTrue(config.isProduction)
         assertEquals(9000, config.port)
         assertEquals("https://qichi.example.com", config.publicBaseUrl)
-        assertEquals(setOf(PushProvider.Fcm, PushProvider.UnifiedPush), config.pushProviders)
+        assertEquals(setOf(PushProvider.UnifiedPush), config.pushProviders)
+        assertEquals(setOf("push.qichi1.duckdns.org"), config.unifiedPushAllowedHosts)
     }
 
     @Test
@@ -68,6 +71,8 @@ class AppConfigTest {
     @Test
     fun `不认识的取值会报错`() {
         assertFailsWith<ConfigException> { AppConfig.fromEnv(mapOf("PUSH_PROVIDERS" to "apns")) }
+        // 两台手机没有谷歌服务，FCM 没有实现
+        assertFailsWith<ConfigException> { AppConfig.fromEnv(mapOf("PUSH_PROVIDERS" to "fcm")) }
         assertFailsWith<ConfigException> { AppConfig.fromEnv(mapOf("PORT" to "abc")) }
         assertFailsWith<ConfigException> { AppConfig.fromEnv(mapOf("QICHI_ENV" to "staging")) }
     }

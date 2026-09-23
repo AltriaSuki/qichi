@@ -46,7 +46,7 @@
 | Markdown | commonmark-java 解析 + 自写 Compose 渲染 | 渲染样式要完全服从设计系统 |
 | EPUB | Readium Kotlin Toolkit | 目录、分页、书签、定位、搜索都现成（第 6 阶段才引入） |
 | 令牌保存 | DataStore + Android Keystore 加密（Tink） | 不用明文 SharedPreferences |
-| 推送 | FCM 或 UnifiedPush（二选一，见 §6） | 取决于手机是否有谷歌服务 |
+| 推送 | UnifiedPush + 自建 ntfy（见 §6、D10） | 两台手机没有谷歌服务 |
 
 ### 服务端（`server/`）
 
@@ -199,7 +199,7 @@ App 在前台时靠 WebSocket 实时收到变更，不需要推送。App 在后�
 | 有谷歌服务（能用 Google Play） | FCM：服务端用服务账号调用 FCM HTTP v1 接口 |
 | 没有谷歌服务（多数国产手机） | UnifiedPush：在 VPS 上自建 ntfy 作为推送服务器，手机装 ntfy App 作为分发器；需要把 ntfy 和栖迟加入电池优化白名单 |
 
-服务端 `push/PushSender` 两种都实现，按设备注册时上报的 `provider` 发送。推送内容只含「有新消息」这类提示和深链，不含正文。
+两台手机没有谷歌服务（2026-09-23 人类确认），**只实现了 UnifiedPush**（见 D10）；`fcm` 保留在枚举里，服务端配置它会报错。推送内容只含「谁 + 做了什么」这类提示和深链，不含正文；按每人的通知偏好和免打扰时段（房间时区）过滤；推送地址失效（404 / 410）时自动删除该设备。
 在推送做好之前（第 3 阶段之前），后台靠 WorkManager 每 15 分钟同步一次。
 
 ## 7. 安全与隐私
@@ -226,3 +226,4 @@ App 在前台时靠 WebSocket 实时收到变更，不需要推送。App 在后�
 | D7 | 中文搜索用 pg_trgm | 数据量小，免装分词插件 |
 | D8 | 推送 FCM / UnifiedPush 双实现 | 手机是否有谷歌服务尚未确定 |
 | D9 | 版本清单放在仓库根目录 `gradle/libs.versions.toml`，shared / server / android 共用（2026-09-21，人类同意） | 以源码方式互相引用的构建必须使用同一个 Kotlin 版本，否则容易编译失败 |
+| D10 | 推送只实现 UnifiedPush + 自建 ntfy，暂不实现 FCM（2026-09-23，人类确认两台手机要代理才能用 Google Play） | FCM 依赖谷歌服务，国内网络下不可靠；以后需要时再按 D8 补上 |

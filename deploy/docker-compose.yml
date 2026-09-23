@@ -1,4 +1,4 @@
-# 栖迟线上部署：Caddy（HTTPS）+ Ktor 服务端 + PostgreSQL。
+# 栖迟线上部署：Caddy（HTTPS）+ Ktor 服务端 + PostgreSQL + ntfy（UnifiedPush 推送）。
 # 用法见 docs/07-deploy.md：
 #   cp .env.example .env && 填写 → docker compose up -d --build
 # 数据卷名固定为 qichi_*（备份与恢复脚本依赖这些名字）。
@@ -14,12 +14,29 @@ services:
       - "443:443/udp"
     environment:
       DOMAIN: ${DOMAIN:?请在 .env 里填写 DOMAIN}
+      PUSH_DOMAIN: ${PUSH_DOMAIN:?请在 .env 里填写 PUSH_DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
       - server
+      - ntfy
+
+  # 自建推送服务器（UnifiedPush 分发器的服务端）。两台手机装 ntfy App，服务器地址填 https://PUSH_DOMAIN。
+  ntfy:
+    image: binwiederhier/ntfy
+    restart: unless-stopped
+    command: serve
+    expose:
+      - "80"
+    environment:
+      NTFY_BASE_URL: https://${PUSH_DOMAIN:?请在 .env 里填写 PUSH_DOMAIN}
+      NTFY_BEHIND_PROXY: "true"
+      NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
+      NTFY_CACHE_DURATION: 24h
+    volumes:
+      - ntfy:/var/cache/ntfy
 
   server:
     build:
@@ -44,12 +61,11 @@ services:
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-}
       AI_MONTHLY_TOKEN_LIMIT: ${AI_MONTHLY_TOKEN_LIMIT:-2000000}
-      PUSH_PROVIDERS: ${PUSH_PROVIDERS:-}
-      # FCM_CREDENTIALS_FILE: /run/secrets/fcm.json
+      PUSH_PROVIDERS: ${PUSH_PROVIDERS:-unifiedpush}
+      # 只往自建的 ntfy 发推送
+      UNIFIEDPUSH_ALLOWED_HOSTS: ${PUSH_DOMAIN:?请在 .env 里填写 PUSH_DOMAIN}
     volumes:
       - files:/data/files
-      # 使用 FCM 时取消注释（见 docs/07-deploy.md 第 9 节）：
-      # - ./secrets/fcm.json:/run/secrets/fcm.json:ro
     depends_on:
       db:
         condition: service_healthy
@@ -74,3 +90,4 @@ volumes:
   caddy_config:
   db:
   files:
+  ntfy:

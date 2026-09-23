@@ -126,26 +126,23 @@ docker compose start server
 
 选择你的 VPS 所在地区能合规访问的模型服务。改完执行 `docker compose up -d` 生效。留空时 App 里的 AI 按钮显示为不可用。
 
-## 9. 推送（第 3 阶段）
+## 9. 推送（UnifiedPush + 自建 ntfy）
 
-先确认两台手机有没有谷歌服务（能否正常打开 Google Play）。
+两台手机没有谷歌服务，所以用 UnifiedPush：VPS 上跑一个 ntfy 当推送服务器，手机上装 ntfy App 负责收推送再转给栖迟。
 
-**有谷歌服务 → FCM**
-1. 在 Firebase 控制台建项目，添加 Android 应用（包名 `app.qichi`），下载 `google-services.json` 放到 `android/app/`（已在 .gitignore 中）
-2. 在「项目设置 → 服务账号」生成私钥 JSON，放到服务器 `deploy/secrets/fcm.json`
-3. 在 `docker-compose.yml` 里取消 `fcm.json` 那行挂载的注释；`.env` 里 `PUSH_PROVIDERS=fcm`
+1. 域名：用 DuckDNS 时 `push.qichi1.duckdns.org` 会自动解析到同一台 VPS，不用另加；其他域名服务商要再加一条 `push.你的域名` 的解析
+2. `.env` 里填 `PUSH_DOMAIN=push.qichi1.duckdns.org`、`PUSH_PROVIDERS=unifiedpush`（`docker-compose.yml` 里已经有 ntfy 服务，`Caddyfile` 里已经有 `PUSH_DOMAIN` 的反向代理，Caddy 会自动给它申请证书）
+3. 服务端只会往 `PUSH_DOMAIN` 发推送（`UNIFIEDPUSH_ALLOWED_HOSTS`），别的地址一律拒绝
+4. 两台手机安装 ntfy App（F-Droid 或 GitHub 下载 APK），在 ntfy 设置里把「默认服务器」改成 `https://push.qichi1.duckdns.org`
+5. 在系统设置里把 ntfy 和栖迟都加入「电池优化白名单 / 允许后台运行 / 自启动」
+6. 打开栖迟 →「我的 → 通知」→ 点「开启推送」，选 ntfy
 
-**没有谷歌服务 → UnifiedPush + 自建 ntfy**
-1. 再加一条解析 `push.你的域名.com`
-2. 在 `docker-compose.yml` 增加 ntfy 服务，在 `Caddyfile` 增加 `push.你的域名.com` 的反向代理（第 3 阶段的推送任务里由 AI 完成）
-3. 两台手机安装 ntfy App，服务器地址填 `https://push.你的域名.com`
-4. 在系统设置里把 ntfy 和栖迟都加入「电池优化白名单 / 允许后台运行 / 自启动」
-5. `.env` 里 `PUSH_PROVIDERS=unifiedpush`
+检查：`curl -d hi https://push.qichi1.duckdns.org/test` 后，在 ntfy App 里订阅 `test` 能收到。
 
 ## 10. 日常检查
 
 ```bash
-docker compose ps                    # 三个服务都应是 running
+docker compose ps                    # 四个服务（caddy、server、db、ntfy）都应是 running
 docker compose logs --since 1h server
 df -h                                # 磁盘空间
 ls -lh /var/backups/qichi | tail     # 最近的备份

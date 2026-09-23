@@ -17,3 +17,13 @@
 		format console
 	}
 }
+
+# 推送服务器（ntfy）。DuckDNS 的子域名（push.xxx.duckdns.org）会自动解析到同一台机器。
+{$PUSH_DOMAIN} {
+	reverse_proxy ntfy:80
+
+	log {
+		output stdout
+		format console
+	}
+}

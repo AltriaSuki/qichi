@@ -19,6 +19,8 @@ data class AppConfig(
     val filesDir: Path,
     val ai: AiConfig,
     val pushProviders: Set<PushProvider>,
+    /** UnifiedPush 只往这些主机发（例如自建的 push.qichi1.duckdns.org）；为空时任何 https 地址都可以 */
+    val unifiedPushAllowedHosts: Set<String> = emptySet(),
 ) {
     enum class Env { Development, Production }
 
@@ -75,6 +77,8 @@ data class AppConfig(
                         null
                     }
                 }.toSet()
+            // 两台手机没有谷歌服务（2026-09-23 决定），只实现了 UnifiedPush
+            if (PushProvider.Fcm in pushProviders) problems += "PUSH_PROVIDERS：fcm 还没有实现，请用 unifiedpush"
 
             val ai = AiConfig(
                 provider = get("AI_PROVIDER"),
@@ -95,6 +99,7 @@ data class AppConfig(
                 filesDir = Path.of(get("FILES_DIR") ?: "./data/files").toAbsolutePath().normalize(),
                 ai = ai,
                 pushProviders = pushProviders,
+                unifiedPushAllowedHosts = get("UNIFIEDPUSH_ALLOWED_HOSTS").orEmpty().split(',').map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet(),
             )
         }
     }

@@ -25,6 +25,13 @@ import app.qichi.server.archive.archiveRoutes
 import app.qichi.server.board.BoardService
 import app.qichi.server.decisions.DecisionService
 import app.qichi.server.export.ExportService
+import app.qichi.server.push.PushSender
+import app.qichi.server.push.PushService
+import app.qichi.server.push.UnifiedPushSender
+import app.qichi.server.devices.DeviceService
+import app.qichi.server.devices.deviceRoutes
+import app.qichi.server.db.CompositeNotifier
+import app.qichi.shared.model.PushProvider
 import app.qichi.server.export.exportRoutes
 import app.qichi.server.summaries.SummaryService
 import app.qichi.server.summaries.summaryRoutes
@@ -144,6 +151,7 @@ fun Application.module(ctx: AppContext) {
             readingRoutes(ctx)
             summaryRoutes(ctx)
             exportRoutes(ctx)
+            deviceRoutes(ctx)
             calendarRoutes(ctx)
         }
     }
@@ -158,11 +166,15 @@ class AppContext(
     hasher: PasswordHasher = PasswordHasher(),
     /** 默认按配置创建；测试里换成假的网关 */
     aiGateway: AiGateway? = AiGateway.fromConfig(config.ai),
+    /** 默认按 PUSH_PROVIDERS 创建；测试里换成假的 */
+    pushSender: PushSender? = if (PushProvider.UnifiedPush in config.pushProviders) UnifiedPushSender(config.unifiedPushAllowedHosts) else null,
 ) {
     /** 截到微秒：PostgreSQL 只存到微秒，这样写入与读回的时间完全相等。 */
     val clock: Clock = MicrosClock(baseClock)
     val realtime = RealtimeHub()
-    val writer = RoomWriter(realtime)
+    val push = PushService(database, pushSender, clock)
+    val writer = RoomWriter(CompositeNotifier(realtime, push))
+    val devices = DeviceService(database, clock)
     val tokens = TokenService(config.jwtSecret, clock)
     val fileStorage: FileStorage = LocalFileStorage(config.filesDir)
     val files = FileService(database, fileStorage, clock)
