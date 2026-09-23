@@ -62,6 +62,7 @@ import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.StageTrack
 import app.qichi.core.ui.TodoRow
+import app.qichi.core.ui.shortDate
 import app.qichi.core.ui.monthRoman
 import app.qichi.core.ui.relativeDay
 import app.qichi.shared.api.Milestone
@@ -72,8 +73,6 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
 
-/** 「3 · ix」这样的日期写法（设计稿里的里程碑、记录）。 */
-internal fun shortDate(date: LocalDate): String = "${date.dayOfMonth} · ${monthRoman(date.monthValue)}"
 
 // ───────────────────────── 列表 ─────────────────────────
 

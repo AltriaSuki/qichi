@@ -44,6 +44,8 @@ import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.icon.QichiIcons
+import app.qichi.core.ui.DateChoice
+import app.qichi.core.ui.shortDate
 import app.qichi.core.ui.relativeDay
 import app.qichi.shared.api.Milestone
 import app.qichi.shared.api.Plan
@@ -242,41 +244,3 @@ private fun OwnerChoice(label: String, selected: UUID?, people: People, allowBot
     }
 }
 
-/** 选日期：不设 / 今天 / 明天 / 选日期。 */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DateChoice(label: String?, selected: LocalDate?, today: LocalDate, onSelect: (LocalDate?) -> Unit) {
-    val colors = QichiTheme.colors
-    val type = QichiTheme.typography
-    var picking by remember { mutableStateOf(false) }
-    Column {
-        if (label != null) {
-            SectionLabel(label) {
-                selected?.let { Text(relativeDay(it, today).first, style = type.caption.copy(color = colors.accent)) }
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            ChoicePill("不设", selected == null, { onSelect(null) }, Modifier.weight(1f))
-            ChoicePill("今天", selected == today, { onSelect(today) }, Modifier.weight(1f))
-            ChoicePill("明天", selected == today.plusDays(1), { onSelect(today.plusDays(1)) }, Modifier.weight(1f))
-            val other = selected != null && selected != today && selected != today.plusDays(1)
-            ChoicePill(if (other) shortDate(selected!!) else "选日期", other, { picking = true }, Modifier.weight(1f))
-        }
-    }
-    if (picking) {
-        val initial = (selected ?: today).atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli()
-        val dateState = rememberDatePickerState(initialSelectedDateMillis = initial)
-        DatePickerDialog(
-            onDismissRequest = { picking = false },
-            confirmButton = {
-                TextAction("确定", {
-                    dateState.selectedDateMillis?.let { onSelect(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()) }
-                    picking = false
-                })
-            },
-            dismissButton = { TextAction("取消", { picking = false }, color = colors.muted) },
-        ) {
-            DatePicker(state = dateState, title = null, headline = null, showModeToggle = false)
-        }
-    }
-}
