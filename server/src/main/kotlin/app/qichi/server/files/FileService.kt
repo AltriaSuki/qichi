@@ -55,8 +55,8 @@ class FileService(
     /** 缩略图同时最多生成两张：大图解码很占内存 */
     private val thumbnailPermits = Semaphore(2)
 
-    /** 目前开放上传的种类；epub、review 在后续阶段开放 */
-    private val uploadable = setOf(FileKind.Image, FileKind.File, FileKind.Avatar, FileKind.Hero)
+    /** 目前开放上传的种类；review 在第 7 阶段开放 */
+    private val uploadable = setOf(FileKind.Image, FileKind.File, FileKind.Avatar, FileKind.Hero, FileKind.Epub)
 
     /**
      * 上传大小上限：知道种类时按种类，还不知道（kind 字段排在文件后面）时先按最大的，
@@ -80,7 +80,7 @@ class FileService(
             val fileName = form.fileName?.let(::cleanFileName).orEmpty()
             validate {
                 check(staged != null, "file", "缺少文件")
-                check(kind != null && kind in uploadable, "kind", "只能是 image、file、avatar、hero")
+                check(kind != null && kind in uploadable, "kind", "只能是 image、file、avatar、hero、epub")
                 check(form.id == null || requestedId != null, "id", "不是合法的 UUID")
                 check(fileName.length in 1..255, "file", "文件名 1–255 个字")
             }
@@ -98,6 +98,11 @@ class FileService(
                 }
                 mimeType = format.mimeType
                 size = withContext(Dispatchers.IO) { Images.dimensions(staged.temp, format) }
+            } else if (kind == FileKind.Epub) {
+                if (!withContext(Dispatchers.IO) { Epub.looksValid(staged.temp) }) {
+                    throw ApiException(ProblemCode.UnsupportedMediaType, "不是 EPUB 电子书", detail = "只支持 .epub 文件")
+                }
+                mimeType = Epub.MIME_TYPE
             } else {
                 mimeType = format?.mimeType ?: cleanMimeType(form.declaredType) ?: "application/octet-stream"
             }
@@ -175,7 +180,8 @@ class FileService(
      * 用于撤回、彻底删除消息。
      */
     fun releaseIfUnused(fileId: UUID): String? {
-        val stillUsed = Messages.select(Messages.id).where { Messages.fileId eq fileId }.limit(1).any()
+        val stillUsed = Messages.select(Messages.id).where { Messages.fileId eq fileId }.limit(1).any() ||
+            app.qichi.server.db.Books.select(app.qichi.server.db.Books.id).where { app.qichi.server.db.Books.fileId eq fileId }.limit(1).any()
         if (stillUsed) return null
         val path = Files.select(Files.storagePath).where { Files.id eq fileId }.singleOrNull()?.get(Files.storagePath) ?: return null
         Files.deleteWhere { Files.id eq fileId }

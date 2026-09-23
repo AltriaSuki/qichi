@@ -334,6 +334,32 @@ object TimelinePicks : Table("timeline_picks") {
     override val primaryKey = PrimaryKey(fileId, userId)
 }
 
+object Books : SyncedTable("books") {
+    val title = text("title")
+    val author = text("author").nullable()
+    val fileId = javaUUID("file_id")
+    val addedBy = javaUUID("added_by")
+    val planTargetDate = date("plan_target_date").nullable()
+    val planNote = text("plan_note").nullable()
+}
+
+object ReadingProgressTable : SyncedTable("reading_progress") {
+    val bookId = javaUUID("book_id")
+    val userId = javaUUID("user_id")
+    val locator = text("locator")
+    val progress = double("progress")
+}
+
+object Highlights : SyncedTable("highlights") {
+    val bookId = javaUUID("book_id")
+    val userId = javaUUID("user_id")
+    val kind = text("kind")
+    val locator = text("locator")
+    val text = text("text")
+    val note = text("note").nullable()
+    val shared = bool("shared")
+}
+
 object Devices : Table("devices") {
     val id = javaUUID("id")
     val userId = javaUUID("user_id")

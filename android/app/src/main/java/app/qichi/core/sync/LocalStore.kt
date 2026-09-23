@@ -12,7 +12,10 @@ import app.qichi.core.data.DraftStore
 import app.qichi.core.database.DocumentVersionRow
 import app.qichi.shared.api.ArchiveItem
 import app.qichi.shared.api.BoardPost
+import app.qichi.shared.api.Book
 import app.qichi.shared.api.Decision
+import app.qichi.shared.api.Highlight
+import app.qichi.shared.api.ReadingProgress
 import app.qichi.shared.api.BoardReaction
 import app.qichi.shared.api.BoardTopic
 import app.qichi.shared.api.Document
@@ -292,6 +295,9 @@ class LocalStore(
             is BoardReaction -> EntityType.BoardReaction
             is ArchiveItem -> EntityType.ArchiveItem
             is Decision -> EntityType.Decision
+            is Book -> EntityType.Book
+            is ReadingProgress -> EntityType.ReadingProgress
+            is Highlight -> EntityType.Highlight
         }
 
         fun encode(type: EntityType, entity: SyncEntity): String =
@@ -356,6 +362,9 @@ class LocalStore(
                 is BoardReaction -> base(entity.roomId, entity.deletedAt != null, entity.authorId, entity.postId, null, entity.createdAt.toEpochMilli())
                 is ArchiveItem -> base(entity.roomId, entity.deletedAt != null, entity.createdBy, entity.sourceMessageId, null, entity.updatedAt.toEpochMilli())
                 is Decision -> base(entity.roomId, entity.deletedAt != null, entity.createdBy, null, null, entity.createdAt.toEpochMilli())
+                is Book -> base(entity.roomId, entity.deletedAt != null, entity.addedBy, null, null, entity.createdAt.toEpochMilli())
+                is ReadingProgress -> base(entity.roomId, entity.deletedAt != null, entity.userId, entity.bookId, null, entity.updatedAt.toEpochMilli())
+                is Highlight -> base(entity.roomId, entity.deletedAt != null, entity.userId, entity.bookId, null, entity.createdAt.toEpochMilli())
             }
         }
     }

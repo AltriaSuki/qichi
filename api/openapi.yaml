@@ -58,6 +58,8 @@ tags:
     description: 灵感（P4）
   - name: documents
     description: 共同写作：文稿与不可变版本（P5）
+  - name: reading
+    description: 阅读：书架、各自进度、书签 / 标注 / 摘录、共同可见的感想、共读计划（P6）
   - name: timeline
     description: 共同时间线：按月回看决定、灵感、计划完成、两人都选中的照片（服务端拼装，需要联网）（P6）
   - name: decisions
@@ -1301,6 +1303,134 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /rooms/{roomId}/books:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [reading]
+      operationId: listBooks
+      summary: 书架（最近加入的在前，不含已删除的）
+      responses:
+        '200':
+          description: 书
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Book' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [reading]
+      operationId: createBook
+      summary: 放上书架（EPUB 先传到 /files，kind = epub）
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateBookRequest' } } }
+      responses:
+        '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/Book' } } } }
+        '201': { description: 已放上书架, content: { application/json: { schema: { $ref: '#/components/schemas/Book' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/books/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [reading]
+      operationId: updateBook
+      summary: 改书名、作者、共读计划
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateBookRequest' } } }
+      responses:
+        '200': { description: 修改后的书, content: { application/json: { schema: { $ref: '#/components/schemas/Book' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [reading]
+      operationId: deleteBook
+      summary: 从书架拿下来（进回收站；彻底删除时进度、书签、标注和文件一起删）
+      responses:
+        '200': { description: 删除后的书, content: { application/json: { schema: { $ref: '#/components/schemas/Book' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/books/{bookId}/progress:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - name: bookId
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Uuid' }
+    put:
+      tags: [reading]
+      operationId: putReadingProgress
+      summary: 保存我的进度（每人每本书一条；已有时沿用已有的 id）
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/PutReadingProgressRequest' } } }
+      responses:
+        '200': { description: 我的进度, content: { application/json: { schema: { $ref: '#/components/schemas/ReadingProgress' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/books/{bookId}/highlights:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - name: bookId
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Uuid' }
+    post:
+      tags: [reading]
+      operationId: createHighlight
+      summary: 加书签、标注或摘录
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateHighlightRequest' } } }
+      responses:
+        '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/Highlight' } } } }
+        '201': { description: 已加上, content: { application/json: { schema: { $ref: '#/components/schemas/Highlight' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/books/{bookId}/highlights/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - name: bookId
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Uuid' }
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [reading]
+      operationId: updateHighlight
+      summary: 改感想、改是否共享（只能改自己的）
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateHighlightRequest' } } }
+      responses:
+        '200': { description: 修改后的标记, content: { application/json: { schema: { $ref: '#/components/schemas/Highlight' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [reading]
+      operationId: deleteHighlight
+      summary: 删掉自己的标记（不进回收站）
+      responses:
+        '200': { description: 删除后的标记, content: { application/json: { schema: { $ref: '#/components/schemas/Highlight' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /rooms/{roomId}/timeline:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -2368,7 +2498,7 @@ components:
     EntityType:
       type: string
       description: 与 `shared/model/EntityType` 一致，后续阶段追加
-      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document, board_topic, board_post, board_reaction, archive_item, decision]
+      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document, board_topic, board_post, board_reaction, archive_item, decision, book, reading_progress, highlight]
     ChangeOp:
       type: string
       description: '`upsert` 包括软删除与恢复；只有彻底删除是 `delete`'
@@ -2412,6 +2542,9 @@ components:
             - $ref: '#/components/schemas/BoardReaction'
             - $ref: '#/components/schemas/ArchiveItem'
             - $ref: '#/components/schemas/Decision'
+            - $ref: '#/components/schemas/Book'
+            - $ref: '#/components/schemas/ReadingProgress'
+            - $ref: '#/components/schemas/Highlight'
             - type: 'null'
     SyncResponse:
       type: object
@@ -2425,7 +2558,7 @@ components:
           items: { $ref: '#/components/schemas/Change' }
     Bootstrap:
       type: object
-      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents, boardTopics, boardPosts, boardReactions, archiveItems, decisions]
+      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents, boardTopics, boardPosts, boardReactions, archiveItems, decisions, books, readingProgress, highlights]
       properties:
         room: { $ref: '#/components/schemas/Room' }
         members:
@@ -2475,6 +2608,9 @@ components:
         boardReactions: { type: array, items: { $ref: '#/components/schemas/BoardReaction' } }
         archiveItems: { type: array, items: { $ref: '#/components/schemas/ArchiveItem' } }
         decisions: { type: array, items: { $ref: '#/components/schemas/Decision' } }
+        books: { type: array, items: { $ref: '#/components/schemas/Book' } }
+        readingProgress: { type: array, items: { $ref: '#/components/schemas/ReadingProgress' } }
+        highlights: { type: array, items: { $ref: '#/components/schemas/Highlight' }, description: 自己的全部，加上对方共享的 }
     WsHello:
       type: object
       required: [type, userId, rooms]
@@ -2760,6 +2896,87 @@ components:
       required: [body]
       properties:
         body: { type: string, minLength: 1, maxLength: 2000 }
+    HighlightKind:
+      type: string
+      enum: [highlight, bookmark, excerpt]
+    Book:
+      description: 同步实体类型 `book`（P6）；正文不进同步，按需下载
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [title, author, fileId, sizeBytes, addedBy, planTargetDate, planNote]
+          properties:
+            title: { type: string, minLength: 1, maxLength: 200 }
+            author: { type: [string, 'null'], maxLength: 200 }
+            fileId: { $ref: '#/components/schemas/Uuid' }
+            sizeBytes: { type: integer, format: int64 }
+            addedBy: { $ref: '#/components/schemas/Uuid' }
+            planTargetDate: { $ref: '#/components/schemas/NullableLocalDate' }
+            planNote: { type: [string, 'null'], maxLength: 500 }
+    ReadingProgress:
+      description: 同步实体类型 `reading_progress`（P6）：每人每本书一条
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [bookId, userId, locator, progress]
+          properties:
+            bookId: { $ref: '#/components/schemas/Uuid' }
+            userId: { $ref: '#/components/schemas/Uuid' }
+            locator: { type: string, maxLength: 8000, description: Readium 定位（JSON 字符串） }
+            progress: { type: number, minimum: 0, maximum: 1 }
+    Highlight:
+      description: 同步实体类型 `highlight`（P6）；对方没共享的不会同步给你
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [bookId, userId, kind, locator, text, note, shared]
+          properties:
+            bookId: { $ref: '#/components/schemas/Uuid' }
+            userId: { $ref: '#/components/schemas/Uuid' }
+            kind: { $ref: '#/components/schemas/HighlightKind' }
+            locator: { type: string, maxLength: 8000 }
+            text: { type: string, maxLength: 5000 }
+            note: { type: [string, 'null'], maxLength: 2000 }
+            shared: { type: boolean }
+    CreateBookRequest:
+      type: object
+      required: [id, fileId, title]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        fileId: { $ref: '#/components/schemas/Uuid' }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        author: { type: [string, 'null'], maxLength: 200 }
+    UpdateBookRequest:
+      type: object
+      description: 只发要改的字段
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        author: { type: [string, 'null'], maxLength: 200 }
+        planTargetDate: { $ref: '#/components/schemas/NullableLocalDate' }
+        planNote: { type: [string, 'null'], maxLength: 500 }
+    PutReadingProgressRequest:
+      type: object
+      required: [id, locator, progress]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        locator: { type: string, maxLength: 8000 }
+        progress: { type: number, minimum: 0, maximum: 1 }
+    CreateHighlightRequest:
+      type: object
+      required: [id, kind, locator]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        kind: { $ref: '#/components/schemas/HighlightKind' }
+        locator: { type: string, maxLength: 8000 }
+        text: { type: string, maxLength: 5000 }
+        note: { type: [string, 'null'], maxLength: 2000 }
+        shared: { type: boolean }
+    UpdateHighlightRequest:
+      type: object
+      description: 只发要改的字段
+      properties:
+        note: { type: [string, 'null'], maxLength: 2000 }
+        shared: { type: boolean }
     TimelineEntryKind:
       type: string
       enum: [decision, idea, plan, photo]
@@ -3263,7 +3480,7 @@ components:
     TrashType:
       type: string
       description: 第 3 阶段可恢复的类型，后续阶段追加
-      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post, archive_item, decision]
+      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post, archive_item, decision, book]
     TrashItem:
       type: object
       required: [type, id, deletedAt, deletedBy, data]
@@ -3286,6 +3503,7 @@ components:
             - $ref: '#/components/schemas/BoardPost'
             - $ref: '#/components/schemas/ArchiveItem'
             - $ref: '#/components/schemas/Decision'
+            - $ref: '#/components/schemas/Book'
     TrashPage:
       type: object
       required: [items, nextCursor]

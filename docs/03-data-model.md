@@ -85,10 +85,9 @@
 | `archive_revisions` | **不可变**、不进同步：`item_id`、`revision`、`author_id`、`title`、`body`、`source_message_id` |
 | `decisions` | 同步实体（`decision`）：`question`、`options` jsonb（字符串数组）、`concerns` jsonb（`[{userId, text}]`，每人一条）、`final_choice`、`decided_at`、`decided_by`、`review_date`、`created_by` |
 | `timeline_picks` | 共同时间线里「双方都选中的照片」：`file_id`、`user_id`，两人都选才显示 |
-| `books` | `title`、`author`、`file_id`（EPUB）、`added_by` |
-| `reading_progress` | `book_id`、`user_id`、`locator` jsonb（Readium 定位）、`progress` 0–1；各自独立 |
-| `highlights` | `book_id`、`user_id`、`locator`、`text`、`note`、`kind`（highlight / bookmark / excerpt）、`shared`（感想是否共同可见） |
-| `reading_plans` | 共读计划：`book_id`、`target_date`、`note` |
+| `books` | 同步实体（`book`）：`title`、`author`、`file_id`（EPUB）、`added_by`、共读计划 `plan_target_date` + `plan_note` |
+| `reading_progress` | 同步实体（`reading_progress`）：`book_id`、`user_id`、`locator`（Readium 定位的 JSON 文本）、`progress` 0–1；每人每本一条，各自独立 |
+| `highlights` | 同步实体（`highlight`）：`book_id`、`user_id`、`locator`、`text`、`note`、`kind`（highlight / bookmark / excerpt）、`shared`（共同可见）；对方没共享的不同步给你 |
 | `summaries` | `kind`（week / month / custom / year）、`range_start`、`range_end`、`body`、`sources` jsonb（来源回链）、`ai_derived`、`locked`（年度回顾为 true，不可撤回） |
 
 时间线不单独存数据，由决定、灵感、计划完成、`timeline_picks` 按时间查询拼出。

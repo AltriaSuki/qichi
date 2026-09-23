@@ -202,9 +202,10 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | GET | `/rooms/{roomId}/timeline?year=&month=` | 共同时间线（服务端拼装，按房间时区的月份；不带年月取最近有内容的月份；附带所有有内容的月份） |
 | GET | `/rooms/{roomId}/timeline/picks` | 两个人各自选中了哪些照片 |
 | PUT · DELETE | `/rooms/{roomId}/timeline/picks/{fileId}` | 选中 / 取消选中照片（两人都选中才上时间线） |
-| GET · POST | `/rooms/{roomId}/books` | 书架；上传 EPUB 先走 `/files` |
-| PUT | `/rooms/{roomId}/books/{bookId}/progress` | 我的进度 |
-| POST · PATCH · DELETE | `/rooms/{roomId}/books/{bookId}/highlights[/{id}]` | 书签、摘录、标注、感想 |
+| GET · POST | `/rooms/{roomId}/books` | 书架；上传 EPUB 先走 `/files`（kind = epub，服务端只检查是不是 EPUB） |
+| PATCH · DELETE | `/rooms/{roomId}/books/{id}` | 改书名、作者、共读计划 / 拿下书架（进回收站） |
+| PUT | `/rooms/{roomId}/books/{bookId}/progress` | 我的进度（每人每本一条） |
+| POST · PATCH · DELETE | `/rooms/{roomId}/books/{bookId}/highlights[/{id}]` | 书签、摘录、标注、感想（只能改删自己的；对方没共享的不会同步给你） |
 | POST | `/rooms/{roomId}/ai/read-explain` | 选中段落请 AI 解释或对比 → 202 |
 | GET · POST | `/rooms/{roomId}/summaries` | 总结列表 / 生成（→ 202）；年度回顾由服务端定时生成 |
 

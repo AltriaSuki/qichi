@@ -15,6 +15,9 @@ import app.qichi.server.db.BoardReactions
 import app.qichi.server.db.BoardTopics
 import app.qichi.server.db.ArchiveItems
 import app.qichi.server.db.Decisions
+import app.qichi.server.db.Books
+import app.qichi.server.db.Highlights
+import app.qichi.server.db.ReadingProgressTable
 import app.qichi.server.db.Plans
 import app.qichi.server.db.QichiDatabase
 import app.qichi.server.db.Questions
@@ -39,6 +42,8 @@ import app.qichi.server.board.toBoardPost
 import app.qichi.server.board.toBoardTopic
 import app.qichi.server.archive.toArchiveItem
 import app.qichi.server.decisions.toDecision
+import app.qichi.server.reading.bookQuery
+import app.qichi.server.reading.toBook
 import app.qichi.server.plans.toPlan
 import app.qichi.server.qna.toQuestion
 import app.qichi.server.rooms.RoomService
@@ -167,6 +172,10 @@ class TrashService(
                     val d = row.toDecision()
                     add(Candidate(TrashType.Decision, d, d.deletedAt!!, d.deletedBy!!))
                 }
+                bookQuery().deleted(Books, roomId, cursor, take).forEach { row ->
+                    val b = row.toBook()
+                    add(Candidate(TrashType.Book, b, b.deletedAt!!, b.deletedBy!!))
+                }
             }.sortedWith(compareByDescending<Candidate> { it.deletedAt }.thenByDescending { it.sortKey })
 
             val page = candidates.take(limit)
@@ -266,6 +275,15 @@ class TrashService(
                 // 修订随条目级联删除
                 TrashType.ArchiveItem -> hardDelete(this, roomId, userId, EntityType.ArchiveItem, id, ArchiveItems, now)
                 TrashType.Decision -> hardDelete(this, roomId, userId, EntityType.Decision, id, Decisions, now)
+                TrashType.Book -> {
+                    Highlights.select(Highlights.id).where { Highlights.bookId eq id }.map { it[Highlights.id] }
+                        .forEach { hardDelete(this, roomId, userId, EntityType.Highlight, it, Highlights, now) }
+                    ReadingProgressTable.select(ReadingProgressTable.id).where { ReadingProgressTable.bookId eq id }.map { it[ReadingProgressTable.id] }
+                        .forEach { hardDelete(this, roomId, userId, EntityType.ReadingProgress, it, ReadingProgressTable, now) }
+                    val fileId = Books.select(Books.fileId).where { Books.id eq id }.single()[Books.fileId]
+                    hardDelete(this, roomId, userId, EntityType.Book, id, Books, now)
+                    files.releaseIfUnused(fileId)?.let(orphanFiles::add)
+                }
             }
         }
         files.deleteStored(orphanFiles)
@@ -317,6 +335,7 @@ class TrashService(
         TrashType.BoardPost -> BoardPosts.selectAll().where { BoardPosts.id eq id }.singleOrNull()?.toBoardPost()
         TrashType.ArchiveItem -> ArchiveItems.selectAll().where { ArchiveItems.id eq id }.singleOrNull()?.toArchiveItem()
         TrashType.Decision -> Decisions.selectAll().where { Decisions.id eq id }.singleOrNull()?.toDecision()
+        TrashType.Book -> bookQuery().where { Books.id eq id }.singleOrNull()?.toBook()
     }
 
     /** 在查询上加「这个房间、已删除、在游标之后」，按 (deletedAt, id) 降序取 [take] 条。 */
@@ -345,6 +364,7 @@ val TrashType.entityType: EntityType
         TrashType.BoardPost -> EntityType.BoardPost
         TrashType.ArchiveItem -> EntityType.ArchiveItem
         TrashType.Decision -> EntityType.Decision
+        TrashType.Book -> EntityType.Book
     }
 
 private val TrashType.table: SyncedTable
@@ -361,4 +381,5 @@ private val TrashType.table: SyncedTable
         TrashType.BoardPost -> BoardPosts
         TrashType.ArchiveItem -> ArchiveItems
         TrashType.Decision -> Decisions
+        TrashType.Book -> Books
     }

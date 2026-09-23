@@ -82,6 +82,9 @@ class SyncEngine(
                 addAll(snapshot.boardReactions)
                 addAll(snapshot.archiveItems)
                 addAll(snapshot.decisions)
+                addAll(snapshot.books)
+                addAll(snapshot.readingProgress)
+                addAll(snapshot.highlights)
                 addAll(snapshot.messages)
             }
             all.forEach { store.applyServer(it) }

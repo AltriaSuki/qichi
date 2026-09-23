@@ -70,6 +70,19 @@ object Limits {
     const val DECISION_CONCERN_MAX: Int = 1_000
     val DECISION_CHOICE_LENGTH: IntRange = 1..200
 
+    /** 阅读：书名、作者、共读计划的备注 */
+    val BOOK_TITLE_LENGTH: IntRange = 1..200
+    const val BOOK_AUTHOR_MAX: Int = 200
+    const val BOOK_PLAN_NOTE_MAX: Int = 500
+
+    /** 阅读：定位 JSON、选中的原文、感想 */
+    const val LOCATOR_MAX: Int = 8_000
+    const val HIGHLIGHT_TEXT_MAX: Int = 5_000
+    const val HIGHLIGHT_NOTE_MAX: Int = 2_000
+
+    /** 书籍离线缓存默认上限（docs/05-sync-offline.md） */
+    const val BOOK_CACHE_DEFAULT_BYTES: Long = 500L * 1024 * 1024
+
     const val IMAGE_MAX_BYTES: Long = 20L * 1024 * 1024
     const val FILE_MAX_BYTES: Long = 100L * 1024 * 1024
     val THUMBNAIL_WIDTHS: Set<Int> = setOf(200, 400, 800)

@@ -20,6 +20,9 @@ import app.qichi.server.db.BoardReactions
 import app.qichi.server.db.BoardTopics
 import app.qichi.server.db.ArchiveItems
 import app.qichi.server.db.Decisions
+import app.qichi.server.db.Books
+import app.qichi.server.db.Highlights
+import app.qichi.server.db.ReadingProgressTable
 import app.qichi.server.db.Plans
 import app.qichi.server.db.RoomMembers
 import app.qichi.server.db.Todos
@@ -39,6 +42,11 @@ import app.qichi.server.board.toBoardReaction
 import app.qichi.server.board.toBoardTopic
 import app.qichi.server.archive.toArchiveItem
 import app.qichi.server.decisions.toDecision
+import app.qichi.server.reading.bookQuery
+import app.qichi.server.reading.toBook
+import app.qichi.server.reading.toHighlight
+import app.qichi.server.reading.toReadingProgress
+import app.qichi.server.reading.visibleTo
 import app.qichi.server.plans.toMilestone
 import app.qichi.server.plans.toPlan
 import app.qichi.server.plans.toPlanLog
@@ -112,6 +120,9 @@ class SyncService(private val db: QichiDatabase) {
                 boardReactions = BoardReactions.selectAll().where { BoardReactions.roomId eq roomId }.map { it.toBoardReaction() },
                 archiveItems = ArchiveItems.selectAll().where { ArchiveItems.roomId eq roomId }.map { it.toArchiveItem() },
                 decisions = Decisions.selectAll().where { Decisions.roomId eq roomId }.map { it.toDecision() },
+                books = bookQuery().where { Books.roomId eq roomId }.map { it.toBook() },
+                readingProgress = ReadingProgressTable.selectAll().where { ReadingProgressTable.roomId eq roomId }.map { it.toReadingProgress() },
+                highlights = Highlights.selectAll().where { Highlights.roomId eq roomId }.map { it.toHighlight() }.filter { it.visibleTo(userId) },
             )
         }
 
@@ -145,7 +156,9 @@ class SyncService(private val db: QichiDatabase) {
                     row.type == EntityType.ReadMarker && entity is app.qichi.shared.api.ReadMarker && entity.userId != userId -> null
                     row.type == EntityType.Answer && entity is app.qichi.shared.api.Answer && entity.authorId != userId &&
                         QnaRounds.selectAll().where { QnaRounds.id eq entity.roundId }.singleOrNull()?.get(QnaRounds.revealedAt) == null -> null
-                    row.op == ChangeOp.Delete || entity == null -> Change(row.seq, row.type, row.id, ChangeOp.Delete, null)
+                    // 对方没共享的标记：对我来说等于不存在（从共享改回私有时，我这边删掉）
+                    row.op == ChangeOp.Delete || entity == null ||
+                        (entity is app.qichi.shared.api.Highlight && !entity.visibleTo(userId)) -> Change(row.seq, row.type, row.id, ChangeOp.Delete, null)
                     else -> Change(row.seq, row.type, row.id, ChangeOp.Upsert, EntityCodec.encode(row.type, entity))
                 }
             }
@@ -181,6 +194,9 @@ class SyncService(private val db: QichiDatabase) {
                 EntityType.BoardReaction -> BoardReactions.selectAll().where { BoardReactions.id inList ids }.map { it.toBoardReaction() }
                 EntityType.ArchiveItem -> ArchiveItems.selectAll().where { ArchiveItems.id inList ids }.map { it.toArchiveItem() }
                 EntityType.Decision -> Decisions.selectAll().where { Decisions.id inList ids }.map { it.toDecision() }
+                EntityType.Book -> bookQuery().where { Books.id inList ids }.map { it.toBook() }
+                EntityType.ReadingProgress -> ReadingProgressTable.selectAll().where { ReadingProgressTable.id inList ids }.map { it.toReadingProgress() }
+                EntityType.Highlight -> Highlights.selectAll().where { Highlights.id inList ids }.map { it.toHighlight() }
                 EntityType.PlanStage -> PlanStages.selectAll().where { PlanStages.id inList ids }.map { it.toPlanStage() }
                 EntityType.Milestone -> Milestones.selectAll().where { Milestones.id inList ids }.map { it.toMilestone() }
                 EntityType.PlanLog -> PlanLogs.selectAll().where { PlanLogs.id inList ids }.map { it.toPlanLog() }

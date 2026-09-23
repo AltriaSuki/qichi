@@ -32,6 +32,9 @@ enum class EntityType {
     @SerialName("board_reaction") BoardReaction,
     @SerialName("archive_item") ArchiveItem,
     @SerialName("decision") Decision,
+    @SerialName("book") Book,
+    @SerialName("reading_progress") ReadingProgress,
+    @SerialName("highlight") Highlight,
 }
 
 /** 变化类型：软删除与恢复都是 upsert，只有彻底删除是 delete。 */
@@ -58,6 +61,14 @@ enum class MoodLabel {
     @SerialName("down") Down,
     @SerialName("angry") Angry,
     @SerialName("hurt") Hurt,
+}
+
+/** 书里的标记：标注（划线）、书签、摘录。 */
+@Serializable
+enum class HighlightKind {
+    @SerialName("highlight") Highlight,
+    @SerialName("bookmark") Bookmark,
+    @SerialName("excerpt") Excerpt,
 }
 
 /** 时间线上的事：决定、灵感、计划完成、照片。 */
@@ -130,6 +141,7 @@ enum class TrashType {
     @SerialName("board_post") BoardPost,
     @SerialName("archive_item") ArchiveItem,
     @SerialName("decision") Decision,
+    @SerialName("book") Book,
 }
 
 @Serializable
