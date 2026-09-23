@@ -4,6 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -41,11 +45,13 @@ import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
 import app.qichi.core.designsystem.component.ComfortFlag
 import app.qichi.core.designsystem.component.FogSeaHero
+import app.qichi.core.designsystem.component.MistCard
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.PersonMarks
 import app.qichi.core.designsystem.component.Pill
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.tsp
+import app.qichi.core.ui.StageTrack
 import app.qichi.core.ui.TodoRow
 import app.qichi.core.ui.displayName
 import app.qichi.core.ui.feelingWord
@@ -73,7 +79,7 @@ private fun weekdayName(d: DayOfWeek) = when (d) {
 }
 
 /**
- * 今天页，按 Main.dc.html：星期与两人标记、日期大字、主视觉，下面是心情、待办、安排、一年前。
+ * 今天页，按 Main.dc.html：星期与两人标记、日期大字、主视觉，下面是心情、一问、待办、安排、进行中、一年前。
  * 没有数据的区块整块不显示，不放空状态说明。
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -81,6 +87,7 @@ private fun weekdayName(d: DayOfWeek) = when (d) {
 fun TodayScreen(
     roomId: UUID,
     onOpen: (Page) -> Unit,
+    onOpenPlan: (UUID) -> Unit,
     viewModel: TodayViewModel = hiltViewModel<TodayViewModel, TodayViewModel.Factory>(key = roomId.toString()) { it.create(roomId) },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -203,6 +210,50 @@ fun TodayScreen(
                 }
             }
 
+            // ── 一问 ──
+            val question = state.question
+            val round = state.round
+            if (question != null && round != null) {
+                val me = people.myUserId
+                val label = when {
+                    round.revealedAt != null -> "看回答"
+                    me != null && me in round.confirmedBy -> "我的回答"
+                    else -> "去回答"
+                }
+                MistCard(
+                    modifier = Modifier
+                        .padding(horizontal = Spacing.m)
+                        .clickable(role = Role.Button, onClickLabel = label) { onOpen(Page.Qna) },
+                    contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 26.dp, bottom = Spacing.m),
+                ) {
+                    Box {
+                        Text(
+                            "\u201C",
+                            style = type.numeral.copy(fontSize = 72.tsp, lineHeight = 72.tsp, fontStyle = FontStyle.Normal, color = colors.accent),
+                            modifier = Modifier.offset(x = (-6).dp, y = (-20).dp),
+                        )
+                        Text(
+                            question.text,
+                            style = type.body.copy(fontSize = 21.tsp, lineHeight = 39.tsp, fontWeight = FontWeight.W300, letterSpacing = 0.04.em, color = colors.ink),
+                            modifier = Modifier.padding(top = 30.dp),
+                        )
+                    }
+                    Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                        val both = listOfNotNull(people.me, people.partner)
+                        both.forEachIndexed { i, m ->
+                            if (i > 0) Box(Modifier.width(18.dp).height(1.dp).background(colors.line2))
+                            PersonMark(people.markChar(m.userId), people.person(m.userId), size = 20.dp, hollow = m.userId !in round.confirmedBy)
+                        }
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            label,
+                            style = type.body.copy(fontSize = 14.tsp, letterSpacing = 0.1.em, color = colors.accent),
+                            modifier = Modifier.heightIn(min = 44.dp).wrapContentHeight(Alignment.CenterVertically),
+                        )
+                    }
+                }
+            }
+
             // ── 待办 ──
             if (state.todos.isNotEmpty()) {
                 Column(Modifier.padding(horizontal = Spacing.page)) {
@@ -257,6 +308,37 @@ fun TodayScreen(
                             } else {
                                 val both = listOfNotNull(people.me, people.partner).map { people.markChar(it.userId) to people.person(it.userId) }
                                 if (both.size == 2) PersonMarks(both)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── 进行中 ──
+            if (state.plans.isNotEmpty()) {
+                Column(Modifier.padding(horizontal = Spacing.page)) {
+                    SectionLabel("进行中")
+                    state.plans.forEachIndexed { i, item ->
+                        val plan = item.plan
+                        Column(
+                            Modifier
+                                .padding(top = if (i > 0) Spacing.xl else 0.dp)
+                                .clickable(role = Role.Button) { onOpenPlan(plan.id) },
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                                Text(
+                                    plan.title,
+                                    style = type.body.copy(fontSize = 22.tsp, lineHeight = 30.tsp, fontWeight = FontWeight.W300, letterSpacing = 0.1.em, color = colors.ink),
+                                    modifier = Modifier.weight(1f),
+                                )
+                                PersonMark(people.markChar(plan.ownerId), people.person(plan.ownerId), size = 20.dp)
+                            }
+                            if (item.stages.isNotEmpty()) StageTrack(item.stages, item.currentStage, onToggle = null)
+                            plan.nextStep?.let { step ->
+                                Row(Modifier.padding(top = 18.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                    Text("下一步", style = type.caption.copy(letterSpacing = 0.24.em, color = colors.accent), modifier = Modifier.padding(top = 3.dp))
+                                    Text(step, style = type.body.copy(fontSize = 15.tsp, fontWeight = FontWeight.W300, color = colors.ink))
+                                }
                             }
                         }
                     }

@@ -117,7 +117,7 @@ fun QichiApp(
                 popExitTransition = popExit,
             ) {
                 navigation<TodayGraph>(startDestination = TodayHome) {
-                    composable<TodayHome> { TodayScreen(roomId = LocalRoomId.current, onOpen = { navigator.open(it) }) }
+                    composable<TodayHome> { TodayScreen(roomId = LocalRoomId.current, onOpen = { navigator.open(it) }, onOpenPlan = { navigator.open(Page.Plan, it.toString()) }) }
                 }
                 navigation<ChatGraph>(startDestination = ChatHome()) {
                     composable<ChatHome> { ChatScreen(roomId = LocalRoomId.current) }
@@ -131,7 +131,8 @@ fun QichiApp(
                         LaunchedEffect(hub) {
                             hub.saved.collect { android.widget.Toast.makeText(context, "记下了，在「灵感」里", android.widget.Toast.LENGTH_SHORT).show() }
                         }
-                        TogetherHubScreen(group = group, onGroupChange = { group = it }, onOpen = { navigator.open(it) }, onAddIdea = hub::addIdea)
+                        val counts by hub.counts.collectAsStateWithLifecycle()
+                        TogetherHubScreen(group = group, onGroupChange = { group = it }, onOpen = { navigator.open(it) }, counts = counts, onAddIdea = hub::addIdea)
                     }
                     composable<TogetherPage> { entry ->
                         val route = entry.toRoute<TogetherPage>()

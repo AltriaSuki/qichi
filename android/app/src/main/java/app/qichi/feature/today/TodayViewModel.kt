@@ -6,18 +6,27 @@ import app.qichi.core.auth.SessionManager
 import app.qichi.core.data.EventRepository
 import app.qichi.core.data.MoodRepository
 import app.qichi.core.data.People
+import app.qichi.core.data.PlanRepository
+import app.qichi.core.data.QnaRepository
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.data.TodoRepository
 import app.qichi.core.data.days
 import app.qichi.core.network.FileUrls
 import app.qichi.core.sync.Local
+import app.qichi.core.ui.currentStage
 import app.qichi.core.ui.todayIn
 import app.qichi.core.ui.zoneOf
 import app.qichi.shared.api.Event
 import app.qichi.shared.api.Mood
 import app.qichi.shared.api.MoodReply
+import app.qichi.shared.api.Plan
+import app.qichi.shared.api.PlanStage
+import app.qichi.shared.api.QnaRound
+import app.qichi.shared.api.Question
 import app.qichi.shared.api.Todo
 import app.qichi.shared.model.MoodReplyKind
+import app.qichi.shared.model.PlanStatus
+import kotlinx.coroutines.CancellationException
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
@@ -46,10 +55,20 @@ data class TodayState(
     val todos: List<Local<Todo>> = emptyList(),
     /** 今天的日程 */
     val events: List<Local<Event>> = emptyList(),
+    /** 今天的一问（轮次还没拉到时为空） */
+    val round: QnaRound? = null,
+    val question: Question? = null,
+    /** 进行中的计划，最多三个 */
+    val plans: List<TodayPlan> = emptyList(),
     /** 去年今天的心情（本阶段「一年前」只显示心情） */
     val yearAgoMoods: List<Mood> = emptyList(),
 ) {
     val yearAgo: LocalDate get() = today.minusYears(1)
+}
+
+/** 今天页「进行中」里的一个计划。 */
+data class TodayPlan(val plan: Plan, val stages: List<PlanStage>) {
+    val currentStage: PlanStage? get() = currentStage(stages)
 }
 
 /** 今天页：当天的固定切片。按房间时区算「今天」，每分钟检查一次日期有没有变。 */
@@ -60,6 +79,8 @@ class TodayViewModel @AssistedInject constructor(
     private val moods: MoodRepository,
     private val todos: TodoRepository,
     events: EventRepository,
+    private val qna: QnaRepository,
+    plans: PlanRepository,
     session: SessionManager,
     val urls: FileUrls,
 ) : ViewModel() {
@@ -75,13 +96,32 @@ class TodayViewModel @AssistedInject constructor(
         People(room, members, session.currentUserId)
     }
 
+    private data class More(
+        val todos: List<Local<Todo>>,
+        val events: List<Local<Event>>,
+        val rounds: List<QnaRound>,
+        val questions: List<Question>,
+        val plans: List<Plan>,
+        val stages: List<PlanStage>,
+    )
+
+    private val more = combine(
+        combine(todos.observeTodos(roomId), events.observeEvents(roomId)) { t, e -> t to e },
+        qna.observeRounds(roomId),
+        qna.observeQuestions(roomId),
+        plans.observePlans(roomId),
+        plans.observeStages(roomId),
+    ) { (t, e), r, q, p, st -> More(t, e, r.map { it.value }, q.map { it.value }, p.map { it.value }, st.map { it.value }) }
+
     val state: StateFlow<TodayState> = combine(
         people,
         moods.observeMoods(roomId),
         moods.observeReplies(roomId),
-        combine(todos.observeTodos(roomId), events.observeEvents(roomId)) { t, e -> t to e },
+        more,
         minuteTicker,
-    ) { p, allMoods, replies, (allTodos, allEvents), now ->
+    ) { p, allMoods, replies, more, now ->
+        val allTodos = more.todos
+        val allEvents = more.events
         val zone = zoneOf(p.room?.timezone)
         val today = todayIn(zone, now)
         val me = p.myUserId
@@ -101,11 +141,29 @@ class TodayViewModel @AssistedInject constructor(
             events = allEvents
                 .filter { today in it.value.days(zone) }
                 .sortedWith(compareBy<Local<Event>>({ !it.value.allDay }, { it.value.startsAt ?: Instant.MIN })),
+            round = more.rounds.firstOrNull { it.roundDate == today },
+            question = more.rounds.firstOrNull { it.roundDate == today }?.let { r -> more.questions.firstOrNull { it.id == r.questionId } },
+            plans = more.plans.filter { it.status != PlanStatus.Done }
+                .sortedWith(compareBy({ it.targetDate == null }, { it.targetDate }, { it.createdAt }))
+                .take(3)
+                .map { plan -> TodayPlan(plan, more.stages.filter { it.planId == plan.id }.sortedWith(compareBy({ it.sortOrder }, { it.createdAt }))) },
             yearAgoMoods = allMoods.map { it.value }
                 .filter { it.createdAt.atZone(zone).toLocalDate() == today.minusYears(1) }
                 .sortedBy { it.createdAt },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TodayState())
+
+    init {
+        // 今天的轮次由服务端懒创建：拉一次写进本机；离线就用上次的
+        viewModelScope.launch {
+            try {
+                qna.refreshToday(roomId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
+    }
 
     fun toggleTodo(todo: Todo, done: Boolean) = viewModelScope.launch {
         if (done) todos.complete(todo) else todos.reopen(todo)
