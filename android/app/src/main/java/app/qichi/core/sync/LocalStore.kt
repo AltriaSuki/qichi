@@ -240,6 +240,10 @@ class LocalStore(
                 restoredFromVersion = v.restoredFromVersion, createdAt = v.createdAt.toEpochMilli(), body = v.body,
             ),
         )
+        // 文稿的最新版本号先在本机跟上（稍后的拉取会用服务端的完整状态覆盖），编辑器不会闪回旧版本
+        get<Document>(EntityType.Document, v.documentId)?.value?.takeIf { it.latestVersion < v.version }?.let {
+            applyOptimistic(it.copy(latestVersion = v.version, latestAuthorId = v.authorId, charCount = v.charCount, updatedAt = v.createdAt))
+        }
         val key = DraftStore.documentKey(v.documentId)
         val draft = db.drafts().get(roomId.toString(), key) ?: return@transaction
         if (draft.baseVersion != v.baseVersion) return@transaction

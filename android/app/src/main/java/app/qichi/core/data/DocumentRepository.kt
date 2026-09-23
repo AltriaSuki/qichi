@@ -94,6 +94,12 @@ class DocumentRepository(
         }
     }
 
+    /** 有未保存内容的文稿（列表上标一个小点）。 */
+    fun observeDraftIds(roomId: UUID): Flow<Set<UUID>> =
+        db.drafts().observePrefix(roomId.toString(), "doc:").map { rows ->
+            rows.mapNotNull { runCatching { UUID.fromString(it.key.removePrefix("doc:")) }.getOrNull() }.toSet()
+        }
+
     /** 放弃未保存的内容，回到最新版本。 */
     suspend fun discardDraft(roomId: UUID, documentId: UUID) = drafts.delete(roomId, DraftStore.documentKey(documentId))
 

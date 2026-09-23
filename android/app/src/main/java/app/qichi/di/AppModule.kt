@@ -9,6 +9,8 @@ import app.qichi.core.auth.SessionManager
 import app.qichi.core.auth.TokenStore
 import app.qichi.core.data.DataStoreDisplaySettingsStore
 import app.qichi.core.data.DisplaySettingsStore
+import app.qichi.core.data.DataStoreWritingSettingsStore
+import app.qichi.core.data.WritingSettingsStore
 import app.qichi.core.network.AndroidNetworkMonitor
 import app.qichi.core.network.ApiClient
 import app.qichi.core.network.NetworkMonitor
@@ -59,6 +61,10 @@ object AppModule {
     @Provides
     @Singleton
     fun displaySettingsStore(@ApplicationContext context: Context): DisplaySettingsStore = DataStoreDisplaySettingsStore(context)
+
+    @Provides
+    @Singleton
+    fun writingSettingsStore(@ApplicationContext context: Context): WritingSettingsStore = DataStoreWritingSettingsStore(context)
 
     @Provides
     @Singleton

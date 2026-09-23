@@ -186,6 +186,9 @@ interface DraftDao {
     @Upsert
     suspend fun upsert(row: DraftRow)
 
+    @Query("SELECT * FROM drafts WHERE roomId = :roomId AND `key` LIKE :prefix || '%'")
+    fun observePrefix(roomId: String, prefix: String): Flow<List<DraftRow>>
+
     @Query("DELETE FROM drafts WHERE roomId = :roomId AND `key` = :key")
     suspend fun delete(roomId: String, key: String)
 

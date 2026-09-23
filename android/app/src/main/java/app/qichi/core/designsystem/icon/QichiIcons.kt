@@ -31,6 +31,18 @@ object QichiIcons {
     }
     val ChevronLeft: ImageVector by lazy { stroke("chevron-left", "M15 5l-7 7 7 7") }
     val ChevronRight: ImageVector by lazy { stroke("chevron-right", "M9 5l7 7-7 7") }
+    /** 预览（眼睛） */
+    val Eye: ImageVector by lazy {
+        stroke("eye", "M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6zM9.5 12a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0")
+    }
+    /** 编辑（笔） */
+    val Pen: ImageVector by lazy { stroke("pen", "M4 20l1-4L16 5l3 3L8 19zM14 7l3 3") }
+    /** 专注（四角） */
+    val Focus: ImageVector by lazy { stroke("focus", "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5") }
+    /** 字号与行距 */
+    val TextSize: ImageVector by lazy { stroke("text-size", "M3 19l5-13 5 13M5 14.5h6M14 19l3.5-8 3.5 8M15.2 16.5h4.6") }
+    /** 大纲 */
+    val Outline: ImageVector by lazy { stroke("outline", "M4 6h16M8 12h12M8 18h12M4 12h.01M4 18h.01") }
 
     private fun stroke(name: String, pathData: String, width: Float = 1.2f): ImageVector =
         ImageVector.Builder(
