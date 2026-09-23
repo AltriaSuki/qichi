@@ -54,6 +54,7 @@ data class Bootstrap(
     val milestones: List<Milestone> = emptyList(),
     val planLogs: List<PlanLog> = emptyList(),
     val ideas: List<Idea> = emptyList(),
+    val documents: List<Document> = emptyList(),
 )
 
 /** 实体类型 ⇄ 数据类的对应关系，两端共用。 */
@@ -76,6 +77,7 @@ object EntityCodec {
         EntityType.Milestone -> Milestone.serializer()
         EntityType.PlanLog -> PlanLog.serializer()
         EntityType.Idea -> Idea.serializer()
+        EntityType.Document -> Document.serializer()
     } as KSerializer<Any>
 
     fun decode(type: EntityType, data: JsonElement): Any = QichiJson.decodeFromJsonElement(serializer(type), data)

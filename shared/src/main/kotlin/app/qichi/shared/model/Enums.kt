@@ -26,6 +26,7 @@ enum class EntityType {
     @SerialName("milestone") Milestone,
     @SerialName("plan_log") PlanLog,
     @SerialName("idea") Idea,
+    @SerialName("document") Document,
 }
 
 /** 变化类型：软删除与恢复都是 upsert，只有彻底删除是 delete。 */
@@ -91,6 +92,7 @@ enum class TrashType {
     @SerialName("question") Question,
     @SerialName("plan") Plan,
     @SerialName("idea") Idea,
+    @SerialName("document") Document,
 }
 
 @Serializable

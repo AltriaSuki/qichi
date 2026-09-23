@@ -8,6 +8,7 @@ import app.qichi.core.database.SyncState
 import app.qichi.shared.api.Answer
 import app.qichi.shared.api.EntityCodec
 import app.qichi.shared.api.Event
+import app.qichi.shared.api.Document
 import app.qichi.shared.api.Idea
 import app.qichi.shared.api.Member
 import app.qichi.shared.api.Message
@@ -245,6 +246,7 @@ class LocalStore(
             is Milestone -> EntityType.Milestone
             is PlanLog -> EntityType.PlanLog
             is Idea -> EntityType.Idea
+            is Document -> EntityType.Document
         }
 
         fun encode(type: EntityType, entity: SyncEntity): String =
@@ -302,6 +304,8 @@ class LocalStore(
                     entity.targetDate?.atStartOfDay()?.toInstant(ZoneOffset.UTC)?.toEpochMilli())
                 is PlanLog -> base(entity.roomId, entity.deletedAt != null, entity.authorId, entity.planId, null, entity.createdAt.toEpochMilli())
                 is Idea -> base(entity.roomId, entity.deletedAt != null, entity.authorId, null, null, entity.createdAt.toEpochMilli())
+                // 文稿列表按最近更新排序
+                is Document -> base(entity.roomId, entity.deletedAt != null, entity.createdBy, null, null, entity.updatedAt.toEpochMilli())
             }
         }
     }

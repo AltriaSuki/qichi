@@ -56,6 +56,8 @@ tags:
     description: 推送设备（P3）
   - name: ideas
     description: 灵感（P4）
+  - name: documents
+    description: 共同写作：文稿与不可变版本（P5）
   - name: ai
     description: AI（P4）：请求立即返回 202，结果异步写进对应实体，并通过 WebSocket 发 ai.done
   - name: plans
@@ -1182,6 +1184,115 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /rooms/{roomId}/documents:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [documents]
+      operationId: listDocuments
+      summary: 文稿列表（最近更新的在前，不含已删除的）
+      responses:
+        '200':
+          description: 文稿
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Document' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [documents]
+      operationId: createDocument
+      summary: 新建文稿（还没有版本，latestVersion = 0）
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateDocumentRequest' } } }
+      responses:
+        '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/Document' } } } }
+        '201': { description: 已创建, content: { application/json: { schema: { $ref: '#/components/schemas/Document' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/documents/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [documents]
+      operationId: updateDocument
+      summary: 改标题（两位成员都可以；标题不进版本）
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateDocumentRequest' } } }
+      responses:
+        '200': { description: 修改后的文稿, content: { application/json: { schema: { $ref: '#/components/schemas/Document' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [documents]
+      operationId: deleteDocument
+      summary: 删除文稿进回收站（连同所有版本；彻底删除时版本一起删掉）
+      responses:
+        '200': { description: 删除后的文稿, content: { application/json: { schema: { $ref: '#/components/schemas/Document' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/documents/{id}/versions:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [documents]
+      operationId: listDocumentVersions
+      summary: 版本列表（不含正文，版本号从大到小）
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: 一页版本
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentVersionPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [documents]
+      operationId: saveDocumentVersion
+      summary: 保存新版本
+      description: |
+        `baseVersion` 必须等于文稿当前的 `latestVersion`，否则 409 `conflict_version`，响应里的 `latestVersion` 是当前最新版本号，
+        客户端据此进入「重基线」。同一个 `id` 重试返回已保存的版本（200）。旧版另存为新版时带 `restoredFromVersion`。
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/SaveDocumentVersionRequest' } } }
+      responses:
+        '200': { description: 同 id 已保存过, content: { application/json: { schema: { $ref: '#/components/schemas/DocumentVersion' } } } }
+        '201': { description: 已保存为新版本, content: { application/json: { schema: { $ref: '#/components/schemas/DocumentVersion' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/documents/{id}/versions/{version}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+      - name: version
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      tags: [documents]
+      operationId: getDocumentVersion
+      summary: 某个版本的正文
+      responses:
+        '200': { description: 版本, content: { application/json: { schema: { $ref: '#/components/schemas/DocumentVersion' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /rooms/{roomId}/plans:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -1892,7 +2003,7 @@ components:
     EntityType:
       type: string
       description: 与 `shared/model/EntityType` 一致，后续阶段追加
-      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea]
+      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document]
     ChangeOp:
       type: string
       description: '`upsert` 包括软删除与恢复；只有彻底删除是 `delete`'
@@ -1930,6 +2041,7 @@ components:
             - $ref: '#/components/schemas/Milestone'
             - $ref: '#/components/schemas/PlanLog'
             - $ref: '#/components/schemas/Idea'
+            - $ref: '#/components/schemas/Document'
             - type: 'null'
     SyncResponse:
       type: object
@@ -1943,7 +2055,7 @@ components:
           items: { $ref: '#/components/schemas/Change' }
     Bootstrap:
       type: object
-      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas]
+      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents]
       properties:
         room: { $ref: '#/components/schemas/Room' }
         members:
@@ -1987,6 +2099,7 @@ components:
         milestones: { type: array, items: { $ref: '#/components/schemas/Milestone' } }
         planLogs: { type: array, items: { $ref: '#/components/schemas/PlanLog' } }
         ideas: { type: array, items: { $ref: '#/components/schemas/Idea' } }
+        documents: { type: array, items: { $ref: '#/components/schemas/Document' } }
     WsHello:
       type: object
       required: [type, userId, rooms]
@@ -2272,6 +2385,63 @@ components:
       required: [body]
       properties:
         body: { type: string, minLength: 1, maxLength: 2000 }
+    Document:
+      description: 同步实体类型 `document`：共同写作的文稿（P5）。正文不在同步里，按版本另取
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [title, createdBy, latestVersion, latestAuthorId, charCount]
+          properties:
+            title: { type: string, minLength: 1, maxLength: 100 }
+            createdBy: { $ref: '#/components/schemas/Uuid' }
+            latestVersion: { type: integer, minimum: 0, description: 0 表示还没有保存过版本 }
+            latestAuthorId: { $ref: '#/components/schemas/NullableUuid' }
+            charCount: { type: integer, minimum: 0, description: 最新版本的中文字数 }
+    CreateDocumentRequest:
+      type: object
+      required: [id, title]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        title: { type: string, minLength: 1, maxLength: 100 }
+    UpdateDocumentRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 100 }
+    DocumentVersionInfo:
+      type: object
+      required: [id, documentId, version, baseVersion, authorId, charCount, restoredFromVersion, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        documentId: { $ref: '#/components/schemas/Uuid' }
+        version: { type: integer, minimum: 1 }
+        baseVersion: { type: integer, minimum: 0 }
+        authorId: { $ref: '#/components/schemas/Uuid' }
+        charCount: { type: integer, minimum: 0 }
+        restoredFromVersion: { type: [integer, 'null'] }
+        createdAt: { $ref: '#/components/schemas/Instant' }
+    DocumentVersion:
+      description: 不可变的文稿版本
+      allOf:
+        - $ref: '#/components/schemas/DocumentVersionInfo'
+        - type: object
+          required: [body]
+          properties:
+            body: { type: string, maxLength: 200000, description: Markdown }
+    DocumentVersionPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/DocumentVersionInfo' } }
+        nextCursor: { type: [string, 'null'] }
+    SaveDocumentVersionRequest:
+      type: object
+      required: [id, baseVersion, body]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        baseVersion: { type: integer, minimum: 0 }
+        body: { type: string, maxLength: 200000 }
+        restoredFromVersion: { type: [integer, 'null'] }
     PlanDetail:
       type: object
       required: [plan, stages, milestones, logs]
@@ -2516,7 +2686,7 @@ components:
     TrashType:
       type: string
       description: 第 3 阶段可恢复的类型，后续阶段追加
-      enum: [message, mood, todo, event, question, plan, idea]
+      enum: [message, mood, todo, event, question, plan, idea, document]
     TrashItem:
       type: object
       required: [type, id, deletedAt, deletedBy, data]
@@ -2534,6 +2704,7 @@ components:
             - $ref: '#/components/schemas/Question'
             - $ref: '#/components/schemas/Plan'
             - $ref: '#/components/schemas/Idea'
+            - $ref: '#/components/schemas/Document'
     TrashPage:
       type: object
       required: [items, nextCursor]

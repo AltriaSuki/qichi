@@ -10,6 +10,7 @@ import app.qichi.core.sync.SyncScheduler
 import app.qichi.shared.api.EntityCodec
 import app.qichi.shared.api.Event
 import app.qichi.shared.api.Message
+import app.qichi.shared.api.Document
 import app.qichi.shared.api.Idea
 import app.qichi.shared.api.Plan
 import app.qichi.shared.api.Question
@@ -62,6 +63,7 @@ class TrashRepository(
                     is Question -> TrashEntry(TrashType.Question, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     is Plan -> TrashEntry(TrashType.Plan, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     is Idea -> TrashEntry(TrashType.Idea, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
+                    is Document -> TrashEntry(TrashType.Document, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     else -> null
                 }
             }.sortedByDescending { it.deletedAt }
@@ -93,6 +95,7 @@ class TrashRepository(
             is Question -> e.copy(deletedAt = null, deletedBy = null)
             is Plan -> e.copy(deletedAt = null, deletedBy = null)
             is Idea -> e.copy(deletedAt = null, deletedBy = null)
+            is Document -> e.copy(deletedAt = null, deletedBy = null)
             else -> return
         }
         db.transaction {
@@ -151,4 +154,5 @@ val TrashType.entityType: EntityType
         TrashType.Question -> EntityType.Question
         TrashType.Plan -> EntityType.Plan
         TrashType.Idea -> EntityType.Idea
+        TrashType.Document -> EntityType.Document
     }

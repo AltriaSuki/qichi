@@ -235,6 +235,28 @@ object Ideas : SyncedTable("ideas") {
     val body = text("body")
 }
 
+object Documents : SyncedTable("documents") {
+    val title = text("title")
+    val createdBy = javaUUID("created_by")
+    val latestVersion = integer("latest_version")
+    val latestAuthorId = javaUUID("latest_author_id").nullable()
+    val charCount = integer("char_count")
+}
+
+/** 不可变：只插入，不更新。 */
+object DocumentVersions : Table("document_versions") {
+    val id = javaUUID("id")
+    val documentId = javaUUID("document_id")
+    val version = integer("version")
+    val baseVersion = integer("base_version")
+    val authorId = javaUUID("author_id")
+    val body = text("body")
+    val charCount = integer("char_count")
+    val restoredFromVersion = integer("restored_from_version").nullable()
+    val createdAt = timestamp("created_at")
+    override val primaryKey = PrimaryKey(id)
+}
+
 object Devices : Table("devices") {
     val id = javaUUID("id")
     val userId = javaUUID("user_id")

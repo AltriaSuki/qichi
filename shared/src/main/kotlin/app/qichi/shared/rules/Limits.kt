@@ -38,6 +38,12 @@ object Limits {
     /** 灵感：随手记，一两句到一小段 */
     val IDEA_BODY_LENGTH: IntRange = 1..2000
 
+    /** 共同写作：文稿标题 */
+    val DOCUMENT_TITLE_LENGTH: IntRange = 1..100
+
+    /** 共同写作：一个版本的正文最多这么多个字符（约十万字，够写很长的信） */
+    const val DOCUMENT_BODY_MAX: Int = 200_000
+
     const val IMAGE_MAX_BYTES: Long = 20L * 1024 * 1024
     const val FILE_MAX_BYTES: Long = 100L * 1024 * 1024
     val THUMBNAIL_WIDTHS: Set<Int> = setOf(200, 400, 800)

@@ -70,7 +70,7 @@
 
 | 表 | 关键字段 |
 |---|---|
-| `documents` | `title`、`created_by`、`latest_version` |
+| `documents` | 同步实体（`document`）：`title`、`created_by`、`latest_version`（0 = 还没有版本）、`latest_author_id`、`char_count`（最新版本的字数）；正文不进同步 |
 | `document_versions` | **不可变**：`document_id`、`version`（从 1 递增）、`base_version`、`author_id`、`body`（Markdown）、`char_count`、`restored_from_version`（旧版另存为新版时） |
 | `board_topics` | 留言主题：`title`、`author_id`、`pinned_at` |
 | `board_posts` | `topic_id`、`author_id`、`body`、`quote_post_id` + `quote_excerpt`、`revision`、`revised_at` |
