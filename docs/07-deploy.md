@@ -75,7 +75,9 @@ curl https://qichi.你的域名.com/api/v1/health
 
 ## 5. 第一个账号
 
-1. 在 `android/local.properties` 里写上 `qichi.baseUrl=https://qichi.你的域名.com`，然后编译安装 App
+1. 编译正式版 App：`cd android && ./gradlew :app:assembleRelease -Pqichi.baseUrl=https://qichi.你的域名.com`，
+   APK 在 `android/app/build/outputs/apk/release/`。正式版签名用 `android/local.properties` 里的 `qichi.release.storeFile / password / alias`
+   （钥匙文件放在仓库外，**务必另外备份**：丢了以后就不能覆盖安装新版本，只能卸载重装）
 2. 打开 App 注册：系统里还没有用户时，第一个人不需要邀请码
 3. 建房间 → 在「我的 → 成员与邀请」生成邀请码 → 发给对方
 4. 对方安装 App，用邀请码注册，自动进入同一个房间
@@ -126,7 +128,7 @@ docker compose start server
 |---|---|---|---|
 | 2026-09-23 | 开发电脑（本机开发库） | 按上面的命令形式备份（`pg_dump --format=custom` + 打包文件目录）；恢复到一个全新的 Postgres 容器，解压文件，另起一个服务端连上去 | 登录正常；房间快照里各类内容数量与原库完全一致（最后序号 3213）；书的文件逐字节一致 |
 
-首次部署到 VPS（P0-06）后，在 VPS 上再完整演练一次，并补一行记录。
+| 2026-09-24 | VPS（qichi1.duckdns.org，首次部署当天） | 用 backup.sh 备份；恢复到一个临时 Postgres 容器（不动线上库），比对后删除临时库 | 表 45 张、迁移版本 17 与线上一致；那时还没有账号，只验证了结构完整。有了真实数据后再按内容比对演练一次 |
 
 ## 8. AI 配置（第 4 阶段起）
 

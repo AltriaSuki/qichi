@@ -15,7 +15,8 @@ val localProperties = Properties().apply {
     if (file.exists()) file.inputStream().use(::load)
 }
 // 默认连本机开发服务端：模拟器里先执行 adb reverse tcp:8080 tcp:8080（见 SETUP-ARCH.md）
-val baseUrl: String = localProperties.getProperty("qichi.baseUrl") ?: "http://127.0.0.1:8080"
+// 打正式包时可以临时指定：./gradlew :app:assembleRelease -Pqichi.baseUrl=https://qichi1.duckdns.org
+val baseUrl: String = (findProperty("qichi.baseUrl") as String?) ?: localProperties.getProperty("qichi.baseUrl") ?: "http://127.0.0.1:8080"
 
 android {
     namespace = "app.qichi"
@@ -31,8 +32,20 @@ android {
         buildConfigField("String", "BASE_URL", "\"${baseUrl.trimEnd('/')}\"")
     }
 
+    // 正式版签名：local.properties 里有 qichi.release.* 时才配（钥匙和密码都不进仓库）
+    val releaseStore = localProperties.getProperty("qichi.release.storeFile")
+    if (releaseStore != null) {
+        signingConfigs.create("release") {
+            storeFile = file(releaseStore)
+            storePassword = localProperties.getProperty("qichi.release.password")
+            keyAlias = localProperties.getProperty("qichi.release.alias")
+            keyPassword = localProperties.getProperty("qichi.release.password")
+        }
+    }
+
     buildTypes {
         release {
+            if (releaseStore != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
