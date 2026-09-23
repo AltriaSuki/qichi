@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.data.DecisionRepository
 import app.qichi.core.data.EventRepository
+import app.qichi.core.data.IdeaRepository
+import app.qichi.core.data.TimelineRepository
 import app.qichi.core.data.MoodRepository
 import app.qichi.core.data.People
 import app.qichi.core.data.PlanRepository
@@ -17,7 +19,9 @@ import app.qichi.core.sync.Local
 import app.qichi.core.ui.currentStage
 import app.qichi.core.ui.todayIn
 import app.qichi.core.ui.zoneOf
+import app.qichi.shared.api.DayPhoto
 import app.qichi.shared.api.Decision
+import app.qichi.shared.api.Idea
 import app.qichi.shared.api.Event
 import app.qichi.shared.api.Mood
 import app.qichi.shared.api.MoodReply
@@ -36,7 +40,10 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -64,8 +71,11 @@ data class TodayState(
     val plans: List<TodayPlan> = emptyList(),
     /** 已经定下、复查日期到了的决定 */
     val reviews: List<Decision> = emptyList(),
-    /** 去年今天的心情（本阶段「一年前」只显示心情） */
+    /** 一年前的今天：心情、灵感、定下的决定（本机就有），以及那天聊天里的照片（在线时取） */
     val yearAgoMoods: List<Mood> = emptyList(),
+    val yearAgoIdeas: List<Idea> = emptyList(),
+    val yearAgoDecisions: List<Decision> = emptyList(),
+    val yearAgoPhotos: List<DayPhoto> = emptyList(),
 ) {
     val yearAgo: LocalDate get() = today.minusYears(1)
 }
@@ -86,6 +96,8 @@ class TodayViewModel @AssistedInject constructor(
     private val qna: QnaRepository,
     plans: PlanRepository,
     decisions: DecisionRepository,
+    ideas: IdeaRepository,
+    private val timeline: TimelineRepository,
     session: SessionManager,
     val urls: FileUrls,
 ) : ViewModel() {
@@ -109,6 +121,7 @@ class TodayViewModel @AssistedInject constructor(
         val plans: List<Plan>,
         val stages: List<PlanStage>,
         val decisions: List<Decision> = emptyList(),
+        val ideas: List<Idea> = emptyList(),
     )
 
     private val more = combine(
@@ -116,16 +129,18 @@ class TodayViewModel @AssistedInject constructor(
         qna.observeRounds(roomId),
         qna.observeQuestions(roomId),
         plans.observePlans(roomId),
-        combine(plans.observeStages(roomId), decisions.observeDecisions(roomId)) { st, d -> st to d },
-    ) { (t, e), r, q, p, (st, d) -> More(t, e, r.map { it.value }, q.map { it.value }, p.map { it.value }, st.map { it.value }, d.map { it.value }) }
+        combine(plans.observeStages(roomId), decisions.observeDecisions(roomId), ideas.observeIdeas(roomId)) { st, d, i -> Triple(st, d, i) },
+    ) { (t, e), r, q, p, (st, d, i) -> More(t, e, r.map { it.value }, q.map { it.value }, p.map { it.value }, st.map { it.value }, d.map { it.value }, i.map { it.value }) }
+
+    private val yearAgoPhotos = MutableStateFlow<Pair<LocalDate, List<DayPhoto>>?>(null)
 
     val state: StateFlow<TodayState> = combine(
         people,
         moods.observeMoods(roomId),
         moods.observeReplies(roomId),
-        more,
+        combine(more, yearAgoPhotos) { m, ph -> m to ph },
         minuteTicker,
-    ) { p, allMoods, replies, more, now ->
+    ) { p, allMoods, replies, (more, photos), now ->
         val allTodos = more.todos
         val allEvents = more.events
         val zone = zoneOf(p.room?.timezone)
@@ -155,6 +170,9 @@ class TodayViewModel @AssistedInject constructor(
                 .map { plan -> TodayPlan(plan, more.stages.filter { it.planId == plan.id }.sortedWith(compareBy({ it.sortOrder }, { it.createdAt }))) },
             reviews = more.decisions.filter { d -> d.finalChoice != null && d.reviewDate?.let { !it.isAfter(today) } == true }
                 .sortedBy { it.reviewDate },
+            yearAgoIdeas = more.ideas.filter { it.createdAt.atZone(zone).toLocalDate() == today.minusYears(1) }.sortedBy { it.createdAt },
+            yearAgoDecisions = more.decisions.filter { d -> d.decidedAt?.atZone(zone)?.toLocalDate() == today.minusYears(1) },
+            yearAgoPhotos = photos?.takeIf { it.first == today.minusYears(1) }?.second.orEmpty(),
             yearAgoMoods = allMoods.map { it.value }
                 .filter { it.createdAt.atZone(zone).toLocalDate() == today.minusYears(1) }
                 .sortedBy { it.createdAt },
@@ -162,6 +180,17 @@ class TodayViewModel @AssistedInject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TodayState())
 
     init {
+        // 一年前那天的照片：日期变了（或第一次打开）就在线取一次；离线时不显示
+        viewModelScope.launch {
+            state.map { it.yearAgo }.distinctUntilChanged().collect { day ->
+                try {
+                    yearAgoPhotos.value = day to timeline.photosOn(roomId, day)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+            }
+        }
         // 今天的轮次由服务端懒创建：拉一次写进本机；离线就用上次的
         viewModelScope.launch {
             try {

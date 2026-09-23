@@ -129,8 +129,9 @@ fun QichiApp(
                 popExitTransition = popExit,
             ) {
                 navigation<TodayGraph>(startDestination = TodayHome) {
-                    composable<TodayHome> { TodayScreen(roomId = LocalRoomId.current, onOpen = { navigator.open(it) }, onOpenPlan = { navigator.open(Page.Plan, it.toString()) },
-                        onOpenDecision = { navigator.open(Page.Decisions, it.toString()) }) }
+                    composable<TodayHome> { val todayRoom = LocalRoomId.current; TodayScreen(roomId = todayRoom, onOpen = { navigator.open(it) }, onOpenPlan = { navigator.open(Page.Plan, it.toString()) },
+                        onOpenDecision = { navigator.open(Page.Decisions, it.toString()) },
+                        onOpenMessage = { navigator.handle(DeepLink.ToTab(todayRoom.toString(), TopTab.Chat, it.toString())) }) }
                 }
                 navigation<ChatGraph>(startDestination = ChatHome()) {
                     composable<ChatHome> { entry ->

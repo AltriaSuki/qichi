@@ -4,7 +4,10 @@ import app.qichi.core.database.QichiDatabase
 import app.qichi.core.network.ApiClient
 import app.qichi.core.network.get
 import app.qichi.core.sync.LocalStore
+import app.qichi.shared.api.DayPhoto
 import app.qichi.shared.api.FileMeta
+import app.qichi.shared.api.OnThisDay
+import java.time.LocalDate
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.TimelinePage
 import app.qichi.shared.api.TimelinePick
@@ -26,6 +29,17 @@ class TimelineRepository(
     /** [month] 为空时取最近一个有内容的月份。 */
     suspend fun month(roomId: UUID, month: YearMonth?): TimelinePage =
         api.get("rooms/$roomId/timeline" + (month?.let { "?year=${it.year}&month=${it.monthValue}" } ?: ""))
+
+    private val dayCache = java.util.concurrent.ConcurrentHashMap<String, List<DayPhoto>>()
+
+    /** 某一天聊天里的照片（「一年前的今天」）；取过的记在内存里，同一天不重复请求。离线时抛出网络错误。 */
+    suspend fun photosOn(roomId: UUID, date: LocalDate): List<DayPhoto> {
+        val key = "$roomId/$date"
+        dayCache[key]?.let { return it }
+        val photos = api.get<OnThisDay>("rooms/$roomId/on-this-day?date=$date").photos
+        dayCache[key] = photos
+        return photos
+    }
 
     suspend fun picks(roomId: UUID): List<TimelinePick> = api.get("rooms/$roomId/timeline/picks")
 

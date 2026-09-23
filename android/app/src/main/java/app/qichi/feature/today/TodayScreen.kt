@@ -1,6 +1,10 @@
 package app.qichi.feature.today
 
 import androidx.compose.foundation.background
+import app.qichi.core.designsystem.QichiShapes
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -89,6 +93,7 @@ fun TodayScreen(
     onOpen: (Page) -> Unit,
     onOpenPlan: (UUID) -> Unit,
     onOpenDecision: (UUID) -> Unit = {},
+    onOpenMessage: (UUID) -> Unit = {},
     viewModel: TodayViewModel = hiltViewModel<TodayViewModel, TodayViewModel.Factory>(key = roomId.toString()) { it.create(roomId) },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -359,8 +364,8 @@ fun TodayScreen(
                 }
             }
 
-            // ── 一年前（本阶段只有心情）──
-            if (state.yearAgoMoods.isNotEmpty()) {
+            // ── 一年前的今天：心情、灵感、定下的决定、照片 ──
+            if (state.yearAgoMoods.isNotEmpty() || state.yearAgoIdeas.isNotEmpty() || state.yearAgoDecisions.isNotEmpty() || state.yearAgoPhotos.isNotEmpty()) {
                 Column(Modifier.padding(horizontal = Spacing.page)) {
                     SectionLabel("一年前")
                     val d = state.yearAgo
@@ -372,6 +377,29 @@ fun TodayScreen(
                                 mood.note ?: feelingWord(mood.label, mood.intensity),
                                 style = type.body.copy(fontSize = 18.tsp, letterSpacing = 0.04.em, color = colors.ink),
                             )
+                        }
+                    }
+                    state.yearAgoIdeas.forEach { idea ->
+                        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            PersonMark(people.markChar(idea.authorId), people.person(idea.authorId), size = 18.dp)
+                            Text(idea.body, style = type.body.copy(fontSize = 18.tsp, letterSpacing = 0.04.em, color = colors.ink), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    state.yearAgoDecisions.forEach { d ->
+                        Text("定下：${d.question} → ${d.finalChoice}", style = type.body.copy(color = colors.muted), maxLines = 2, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 6.dp).clickable(role = Role.Button) { onOpenDecision(d.id) })
+                    }
+                    if (state.yearAgoPhotos.isNotEmpty()) {
+                        Row(Modifier.padding(top = Spacing.s).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                            state.yearAgoPhotos.forEach { photo ->
+                                AsyncImage(
+                                    model = ImageRequest.Builder(LocalContext.current).data(viewModel.urls.thumbnail(photo.file.id, 400)).crossfade(!QichiTheme.reduceMotion).build(),
+                                    contentDescription = "一年前的照片",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.size(96.dp).clip(QichiShapes.card).background(colors.surface)
+                                        .clickable(role = Role.Button, onClickLabel = "在聊天里看") { onOpenMessage(photo.messageId) },
+                                )
+                            }
                         }
                     }
                 }
