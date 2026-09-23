@@ -58,6 +58,8 @@ tags:
     description: 灵感（P4）
   - name: documents
     description: 共同写作：文稿与不可变版本（P5）
+  - name: summaries
+    description: 总结与年度回顾（AI 派生，带来源回链）（P6）
   - name: reading
     description: 阅读：书架、各自进度、书签 / 标注 / 摘录、共同可见的感想、共读计划（P6）
   - name: timeline
@@ -1303,6 +1305,54 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /rooms/{roomId}/summaries:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    get:
+      tags: [summaries]
+      operationId: listSummaries
+      summary: 总结列表（新的在前，不含已删除的）
+      responses:
+        '200':
+          description: 总结
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Summary' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [summaries, ai]
+      operationId: createSummary
+      summary: 生成一份总结 → 202（结果是一条 id = jobId 的总结）；年度回顾不能手动生成
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateSummaryRequest' } } }
+      responses:
+        '202':
+          description: 已接受
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiJobAccepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/AiQuotaExceeded' }
+        '503': { $ref: '#/components/responses/AiUnavailable' }
+
+  /rooms/{roomId}/summaries/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [summaries]
+      operationId: deleteSummary
+      summary: 删除进回收站（年度回顾不能删，403）
+      responses:
+        '200': { description: 删除后的总结, content: { application/json: { schema: { $ref: '#/components/schemas/Summary' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /rooms/{roomId}/ai/read-explain:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -2521,7 +2571,7 @@ components:
     EntityType:
       type: string
       description: 与 `shared/model/EntityType` 一致，后续阶段追加
-      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document, board_topic, board_post, board_reaction, archive_item, decision, book, reading_progress, highlight]
+      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document, board_topic, board_post, board_reaction, archive_item, decision, book, reading_progress, highlight, summary]
     ChangeOp:
       type: string
       description: '`upsert` 包括软删除与恢复；只有彻底删除是 `delete`'
@@ -2568,6 +2618,7 @@ components:
             - $ref: '#/components/schemas/Book'
             - $ref: '#/components/schemas/ReadingProgress'
             - $ref: '#/components/schemas/Highlight'
+            - $ref: '#/components/schemas/Summary'
             - type: 'null'
     SyncResponse:
       type: object
@@ -2581,7 +2632,7 @@ components:
           items: { $ref: '#/components/schemas/Change' }
     Bootstrap:
       type: object
-      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents, boardTopics, boardPosts, boardReactions, archiveItems, decisions, books, readingProgress, highlights]
+      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents, boardTopics, boardPosts, boardReactions, archiveItems, decisions, books, readingProgress, highlights, summaries]
       properties:
         room: { $ref: '#/components/schemas/Room' }
         members:
@@ -2634,6 +2685,7 @@ components:
         books: { type: array, items: { $ref: '#/components/schemas/Book' } }
         readingProgress: { type: array, items: { $ref: '#/components/schemas/ReadingProgress' } }
         highlights: { type: array, items: { $ref: '#/components/schemas/Highlight' }, description: 自己的全部，加上对方共享的 }
+        summaries: { type: array, items: { $ref: '#/components/schemas/Summary' } }
     WsHello:
       type: object
       required: [type, userId, rooms]
@@ -2919,6 +2971,42 @@ components:
       required: [body]
       properties:
         body: { type: string, minLength: 1, maxLength: 2000 }
+    SummaryKind:
+      type: string
+      enum: [week, month, custom, year]
+    SummarySource:
+      type: object
+      required: [number, type, id, label, at]
+      properties:
+        number: { type: integer, minimum: 1, description: '对应正文里的 [n]' }
+        type: { type: string, description: 同步实体类型，如 message、decision、idea、plan、archive_item、mood }
+        id: { $ref: '#/components/schemas/Uuid' }
+        label: { type: string }
+        at: { $ref: '#/components/schemas/Instant' }
+    Summary:
+      description: 同步实体类型 `summary`（P6）：AI 派生的回顾，正文用 [n] 引用来源
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [kind, rangeStart, rangeEnd, body, sources, aiDerived, locked, requestedBy]
+          properties:
+            kind: { $ref: '#/components/schemas/SummaryKind' }
+            rangeStart: { $ref: '#/components/schemas/LocalDate' }
+            rangeEnd: { $ref: '#/components/schemas/LocalDate' }
+            body: { type: string }
+            sources: { type: array, items: { $ref: '#/components/schemas/SummarySource' } }
+            aiDerived: { type: boolean }
+            locked: { type: boolean, description: 年度回顾为 true，不能删除 }
+            requestedBy: { $ref: '#/components/schemas/NullableUuid' }
+    CreateSummaryRequest:
+      type: object
+      required: [jobId, kind]
+      properties:
+        jobId: { $ref: '#/components/schemas/Uuid' }
+        kind: { $ref: '#/components/schemas/SummaryKind' }
+        anchor: { $ref: '#/components/schemas/NullableLocalDate' }
+        rangeStart: { $ref: '#/components/schemas/NullableLocalDate' }
+        rangeEnd: { $ref: '#/components/schemas/NullableLocalDate' }
     HighlightKind:
       type: string
       description: ai 由服务端写入（阅读里的 AI 解释 / 对比），客户端不能直接创建
@@ -3518,7 +3606,7 @@ components:
     TrashType:
       type: string
       description: 第 3 阶段可恢复的类型，后续阶段追加
-      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post, archive_item, decision, book]
+      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post, archive_item, decision, book, summary]
     TrashItem:
       type: object
       required: [type, id, deletedAt, deletedBy, data]
@@ -3542,6 +3630,7 @@ components:
             - $ref: '#/components/schemas/ArchiveItem'
             - $ref: '#/components/schemas/Decision'
             - $ref: '#/components/schemas/Book'
+            - $ref: '#/components/schemas/Summary'
     TrashPage:
       type: object
       required: [items, nextCursor]

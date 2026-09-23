@@ -1,5 +1,16 @@
 package app.qichi.server.ai
 
+import app.qichi.server.db.Jobs
+import app.qichi.server.db.Rooms
+import app.qichi.server.db.Summaries
+import app.qichi.server.summaries.SummaryData
+import app.qichi.shared.api.CreateSummaryRequest
+import app.qichi.shared.model.SummaryKind
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
+import org.jetbrains.exposed.v1.core.inList
 import app.qichi.server.db.Books
 import app.qichi.server.db.Highlights
 import app.qichi.server.reading.toHighlight
@@ -89,6 +100,8 @@ class AiService(
         queue.register(JOB_CHAT) { job -> answerInChat(job) }
         queue.register(JOB_QUESTION) { job -> suggestQuestion(job) }
         queue.register(JOB_READ) { job -> explainReading(job) }
+        queue.register(JOB_SUMMARY) { job -> summarize(job) }
+        queue.register(JOB_YEARLY_CHECK) { _ -> yearlyCheck() }
     }
 
     /** 问 AI（聊天里）。同一 jobId 再次请求：失败的重新排队，其余返回当前状态。 */
@@ -305,6 +318,184 @@ class AiService(
         realtime.aiDone(roomId, jobId, AiJobStatus.Done.wireName)
     }
 
+    // ── 总结与年度回顾（P6-06） ──
+
+    private fun roomZone(roomId: UUID): ZoneId =
+        Rooms.select(Rooms.timezone).where { Rooms.id eq roomId }.single()[Rooms.timezone].let { runCatching { ZoneId.of(it) }.getOrDefault(ZoneId.of("Asia/Shanghai")) }
+
+    /** 周：anchor 所在的周一到周日；月：那个月；自定义：给的范围（最长 366 天）。年度回顾不能手动生成。 */
+    suspend fun createSummary(userId: UUID, roomId: UUID, req: CreateSummaryRequest): AiJobAccepted {
+        validate {
+            check(req.kind != SummaryKind.Year, "kind", "年度回顾由服务端每年 1 月 1 日生成")
+            if (req.kind == SummaryKind.Custom) {
+                check(req.rangeStart != null && req.rangeEnd != null && !req.rangeStart!!.isAfter(req.rangeEnd), "rangeStart", "开始日期不能晚于结束日期")
+                check(req.rangeStart == null || req.rangeEnd == null || ChronoUnit.DAYS.between(req.rangeStart, req.rangeEnd) <= 366, "rangeEnd", "最长一年")
+            }
+        }
+        return db.tx {
+            rooms.requireMember(roomId, userId)
+            if (gateway == null) throw unavailable()
+            RoomRepository.lockRoom(roomId)
+            val today = clock.instant().atZone(roomZone(roomId)).toLocalDate()
+            val anchor = req.anchor ?: today
+            val (start, end) = when (req.kind) {
+                SummaryKind.Week -> anchor.with(DayOfWeek.MONDAY).let { it to it.plusDays(6) }
+                SummaryKind.Month -> anchor.withDayOfMonth(1).let { it to it.plusMonths(1).minusDays(1) }
+                else -> req.rangeStart!! to req.rangeEnd!!
+            }
+            val existing = AiJobs.selectAll().where { AiJobs.id eq req.jobId }.singleOrNull()
+            if (existing != null) {
+                if (existing[AiJobs.roomId] != roomId || existing[AiJobs.requestedBy] != userId || existing[AiJobs.kind] != AiJobKind.Summary.wireName) {
+                    throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
+                }
+                val status = fromWire<AiJobStatus>(existing[AiJobs.status])
+                if (status != AiJobStatus.Failed) return@tx AiJobAccepted(req.jobId, status)
+                checkQuota()
+                AiJobs.update({ AiJobs.id eq req.jobId }) {
+                    it[AiJobs.status] = AiJobStatus.Queued.wireName
+                    it[error] = null
+                    it[finishedAt] = null
+                    it[updatedAt] = clock.instant()
+                }
+            } else {
+                checkQuota()
+                insertSummaryJob(req.jobId, roomId, userId, AiJobKind.Summary, req.kind, start, end)
+            }
+            queue.enqueue(this, JOB_SUMMARY, buildJsonObject { put("aiJobId", req.jobId.toString()) }, maxAttempts = CHAT_ATTEMPTS)
+            AiJobAccepted(req.jobId, AiJobStatus.Queued)
+        }
+    }
+
+    private fun insertSummaryJob(jobId: UUID, roomId: UUID, userId: UUID?, jobKind: AiJobKind, kind: SummaryKind, start: LocalDate, end: LocalDate) {
+        val now = clock.instant()
+        AiJobs.insert {
+            it[id] = jobId
+            it[AiJobs.roomId] = roomId
+            it[requestedBy] = userId
+            it[AiJobs.kind] = jobKind.wireName
+            it[status] = AiJobStatus.Queued.wireName
+            it[request] = buildJsonObject {
+                put("kind", kind.wireName)
+                put("start", start.toString())
+                put("end", end.toString())
+            }
+            it[inputTokens] = 0
+            it[outputTokens] = 0
+            it[createdAt] = now
+            it[updatedAt] = now
+        }
+    }
+
+    private suspend fun summarize(job: QueuedJob) {
+        val jobId = UUID.fromString(job.payload["aiJobId"]!!.jsonPrimitive.content)
+        val row = db.tx { AiJobs.selectAll().where { AiJobs.id eq jobId }.singleOrNull() } ?: return
+        if (row[AiJobs.status] == AiJobStatus.Done.wireName) return
+        val roomId = row[AiJobs.roomId]
+        val askerId = row[AiJobs.requestedBy]
+        val req = row[AiJobs.request]
+        val kind = fromWire<SummaryKind>(req["kind"]!!.jsonPrimitive.content)
+        val start = LocalDate.parse(req["start"]!!.jsonPrimitive.content)
+        val end = LocalDate.parse(req["end"]!!.jsonPrimitive.content)
+        markRunning(jobId)
+        val gateway = gateway ?: return fail(jobId, roomId, "AI 服务没有开启")
+
+        val (names, lines) = db.tx(readOnly = true) {
+            val names = RoomRepository.activeMembers(roomId).associate { it.userId to it.displayName }
+            names to SummaryData.gather(roomId, start, end, roomZone(roomId), names)
+        }
+        val rangeText = "${start.year}年${start.monthValue}月${start.dayOfMonth}日—${end.year}年${end.monthValue}月${end.dayOfMonth}日"
+        var body = "这段时间（$rangeText）没有记下什么。"
+        var model: String? = null
+        var tokensIn = 0
+        var tokensOut = 0
+        if (lines.isNotEmpty()) {
+            val rendered = prompts.render("summary", mapOf(
+                "range" to rangeText,
+                "kind" to when (kind) { SummaryKind.Week -> "一周"; SummaryKind.Month -> "一个月"; SummaryKind.Year -> "一整年"; SummaryKind.Custom -> "一段时间" },
+                "people" to names.values.joinToString("、"),
+                "sources" to lines.joinToString("\n") { it.line },
+                "length" to (if (kind == SummaryKind.Year) "1200" else "500"),
+            ))
+            val result = try {
+                gateway.complete(AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)), maxTokens = if (kind == SummaryKind.Year) 2000 else 1000))
+            } catch (e: AiProviderException) {
+                log.warn("生成总结失败（第 {} 次）：{}", job.attempts, e.message)
+                if (e.retryable && !job.isLastAttempt) throw e
+                return fail(jobId, roomId, "没有得到总结")
+            }
+            body = result.text.trim()
+            model = result.model
+            tokensIn = result.inputTokens
+            tokensOut = result.outputTokens
+        }
+        val sources = SummaryData.cited(body, lines)
+        db.tx {
+            val now = clock.instant()
+            val seq = writer.change(this, roomId, EntityType.Summary, jobId, askerId, now)
+            Summaries.insert {
+                it[id] = jobId
+                it[Summaries.roomId] = roomId
+                it[Summaries.seq] = seq
+                it[createdAt] = now
+                it[updatedAt] = now
+                it[Summaries.kind] = kind.wireName
+                it[rangeStart] = start
+                it[rangeEnd] = end
+                it[Summaries.body] = body
+                it[Summaries.sources] = sources
+                it[aiDerived] = true
+                it[locked] = kind == SummaryKind.Year
+                it[requestedBy] = askerId
+            }
+            AiJobs.update({ AiJobs.id eq jobId }) {
+                it[status] = AiJobStatus.Done.wireName
+                it[AiJobs.model] = model
+                it[inputTokens] = tokensIn
+                it[outputTokens] = tokensOut
+                it[resultRef] = "summary:$jobId"
+                it[error] = null
+                it[finishedAt] = now
+                it[updatedAt] = now
+            }
+        }
+        realtime.aiDone(roomId, jobId, AiJobStatus.Done.wireName)
+    }
+
+    /** 启动时调用：保证队列里有一个「年度检查」任务。 */
+    suspend fun ensureYearlyCheck() = db.tx {
+        val queued = Jobs.select(Jobs.id).where { (Jobs.kind eq JOB_YEARLY_CHECK) and (Jobs.status inList listOf("queued", "running")) }.any()
+        if (!queued) queue.enqueue(this, JOB_YEARLY_CHECK, buildJsonObject { }, maxAttempts = 1)
+    }
+
+    /**
+     * 年度检查（每 6 小时一次）：过了 1 月 1 日（按房间时区），上一年有内容、还没有年度回顾的房间，生成一份（锁定、不可删除）。
+     * 同一个房间同一年的任务 id 固定，不会重复。
+     */
+    private suspend fun yearlyCheck() {
+        try {
+            if (gateway != null) {
+                db.tx {
+                    val roomIds = Rooms.select(Rooms.id, Rooms.createdAt).map { it[Rooms.id] to it[Rooms.createdAt] }
+                    for ((roomId, createdAt) in roomIds) {
+                        val zone = roomZone(roomId)
+                        val year = clock.instant().atZone(zone).year - 1
+                        val start = LocalDate.of(year, 1, 1)
+                        val end = LocalDate.of(year, 12, 31)
+                        if (!createdAt.isBefore(end.plusDays(1).atStartOfDay(zone).toInstant())) continue
+                        val jobId = UUID.nameUUIDFromBytes("qichi:yearly:$roomId:$year".toByteArray())
+                        if (AiJobs.select(AiJobs.id).where { AiJobs.id eq jobId }.any()) continue
+                        val names = RoomRepository.activeMembers(roomId).associate { it.userId to it.displayName }
+                        if (SummaryData.gather(roomId, start, end, zone, names).isEmpty()) continue
+                        insertSummaryJob(jobId, roomId, null, AiJobKind.YearlyReview, SummaryKind.Year, start, end)
+                        queue.enqueue(this, JOB_SUMMARY, buildJsonObject { put("aiJobId", jobId.toString()) }, maxAttempts = 3)
+                    }
+                }
+            }
+        } finally {
+            db.tx { queue.enqueue(this, JOB_YEARLY_CHECK, buildJsonObject { }, maxAttempts = 1, delay = YEARLY_CHECK_EVERY) }
+        }
+    }
+
     private suspend fun suggestQuestion(job: QueuedJob) {
         val jobId = UUID.fromString(job.payload["aiJobId"]!!.jsonPrimitive.content)
         val row = db.tx { AiJobs.selectAll().where { AiJobs.id eq jobId }.singleOrNull() } ?: return
@@ -513,6 +704,9 @@ class AiService(
         const val JOB_CHAT = "ai.chat"
         const val JOB_QUESTION = "ai.question_suggest"
         const val JOB_READ = "ai.read_explain"
+        const val JOB_SUMMARY = "ai.summary"
+        const val JOB_YEARLY_CHECK = "ai.yearly_check"
+        private val YEARLY_CHECK_EVERY: java.time.Duration = java.time.Duration.ofHours(6)
         private const val READ_TEXT_MAX = 2000
         private const val READ_CONTEXT_MAX = 500
         private const val COMPARE_NOTES = 20

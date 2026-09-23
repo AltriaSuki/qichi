@@ -207,7 +207,7 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | PUT | `/rooms/{roomId}/books/{bookId}/progress` | 我的进度（每人每本一条） |
 | POST · PATCH · DELETE | `/rooms/{roomId}/books/{bookId}/highlights[/{id}]` | 书签、摘录、标注、感想（只能改删自己的；对方没共享的不会同步给你） |
 | POST | `/rooms/{roomId}/ai/read-explain` | 选中段落请 AI 解释（`mode = explain`）或和两人在这本书里的标注、摘录对照（`compare`）→ 202；结果是一条 `kind = ai` 的标记，只有自己看得到 |
-| GET · POST | `/rooms/{roomId}/summaries` | 总结列表 / 生成（→ 202）；年度回顾由服务端定时生成 |
+| GET · POST · DELETE | `/rooms/{roomId}/summaries[/{id}]` | 总结列表 / 生成周、月、自定义范围（→ 202，结果是 id = jobId 的总结，正文用 [n] 引用来源）/ 删除（年度回顾锁定，403）；年度回顾由服务端的「年度检查」任务每 6 小时检查一次，过了 1 月 1 日自动生成上一年的 |
 
 ### 审稿（P7）
 

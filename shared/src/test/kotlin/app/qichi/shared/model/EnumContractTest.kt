@@ -50,6 +50,7 @@ class EnumContractTest {
     @Test fun timelineEntryKind() = assertMatches<TimelineEntryKind>("TimelineEntryKind")
     @Test fun highlightKind() = assertMatches<HighlightKind>("HighlightKind")
     @Test fun readExplainMode() = assertMatches<ReadExplainMode>("ReadExplainMode")
+    @Test fun summaryKind() = assertMatches<SummaryKind>("SummaryKind")
 
     @Test
     fun `JSON 序列化使用小写字符串`() {

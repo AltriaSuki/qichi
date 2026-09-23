@@ -2,6 +2,7 @@ package app.qichi.server.db
 
 import app.qichi.shared.api.DecisionConcern
 import app.qichi.shared.api.QichiJson
+import app.qichi.shared.api.SummarySource
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonObject
@@ -358,6 +359,17 @@ object Highlights : SyncedTable("highlights") {
     val text = text("text")
     val note = text("note").nullable()
     val shared = bool("shared")
+}
+
+object Summaries : SyncedTable("summaries") {
+    val kind = text("kind")
+    val rangeStart = date("range_start")
+    val rangeEnd = date("range_end")
+    val body = text("body")
+    val sources = jsonb("sources", QichiJson, ListSerializer(SummarySource.serializer()))
+    val aiDerived = bool("ai_derived")
+    val locked = bool("locked")
+    val requestedBy = javaUUID("requested_by").nullable()
 }
 
 object Devices : Table("devices") {

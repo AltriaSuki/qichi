@@ -14,6 +14,7 @@ import app.qichi.shared.api.ArchiveItem
 import app.qichi.shared.api.BoardPost
 import app.qichi.shared.api.Book
 import app.qichi.shared.api.Decision
+import app.qichi.shared.api.Summary
 import app.qichi.shared.api.BoardTopic
 import app.qichi.shared.api.Document
 import app.qichi.shared.api.Idea
@@ -74,6 +75,7 @@ class TrashRepository(
                     is ArchiveItem -> TrashEntry(TrashType.ArchiveItem, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     is Decision -> TrashEntry(TrashType.Decision, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     is Book -> TrashEntry(TrashType.Book, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
+                    is Summary -> TrashEntry(TrashType.Summary, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     else -> null
                 }
             }.sortedByDescending { it.deletedAt }
@@ -111,6 +113,7 @@ class TrashRepository(
             is ArchiveItem -> e.copy(deletedAt = null, deletedBy = null)
             is Decision -> e.copy(deletedAt = null, deletedBy = null)
             is Book -> e.copy(deletedAt = null, deletedBy = null)
+            is Summary -> e.copy(deletedAt = null, deletedBy = null)
             else -> return
         }
         db.transaction {
@@ -175,4 +178,5 @@ val TrashType.entityType: EntityType
         TrashType.ArchiveItem -> EntityType.ArchiveItem
         TrashType.Decision -> EntityType.Decision
         TrashType.Book -> EntityType.Book
+        TrashType.Summary -> EntityType.Summary
     }

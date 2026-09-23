@@ -191,6 +191,7 @@ private fun typeLabel(type: TrashType): String = when (type) {
     TrashType.ArchiveItem -> "档案"
     TrashType.Decision -> "决定"
     TrashType.Book -> "书"
+    TrashType.Summary -> "总结"
 }
 
 private fun summary(entry: TrashEntry, people: People): String = when (val e = entry.entity) {
@@ -210,5 +211,6 @@ private fun summary(entry: TrashEntry, people: People): String = when (val e = e
     is app.qichi.shared.api.ArchiveItem -> e.title
     is app.qichi.shared.api.Decision -> e.question
     is app.qichi.shared.api.Book -> e.title
+    is app.qichi.shared.api.Summary -> "${e.rangeStart} — ${e.rangeEnd}"
     else -> ""
 }

@@ -85,6 +85,7 @@ class SyncEngine(
                 addAll(snapshot.books)
                 addAll(snapshot.readingProgress)
                 addAll(snapshot.highlights)
+                addAll(snapshot.summaries)
                 addAll(snapshot.messages)
             }
             all.forEach { store.applyServer(it) }

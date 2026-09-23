@@ -14,6 +14,7 @@ import app.qichi.shared.api.ArchiveItem
 import app.qichi.shared.api.BoardPost
 import app.qichi.shared.api.Book
 import app.qichi.shared.api.Decision
+import app.qichi.shared.api.Summary
 import app.qichi.shared.api.Highlight
 import app.qichi.shared.api.ReadingProgress
 import app.qichi.shared.api.BoardReaction
@@ -309,6 +310,7 @@ class LocalStore(
             is Book -> EntityType.Book
             is ReadingProgress -> EntityType.ReadingProgress
             is Highlight -> EntityType.Highlight
+            is Summary -> EntityType.Summary
         }
 
         fun encode(type: EntityType, entity: SyncEntity): String =
@@ -376,6 +378,7 @@ class LocalStore(
                 is Book -> base(entity.roomId, entity.deletedAt != null, entity.addedBy, null, null, entity.createdAt.toEpochMilli())
                 is ReadingProgress -> base(entity.roomId, entity.deletedAt != null, entity.userId, entity.bookId, null, entity.updatedAt.toEpochMilli())
                 is Highlight -> base(entity.roomId, entity.deletedAt != null, entity.userId, entity.bookId, null, entity.createdAt.toEpochMilli())
+                is Summary -> base(entity.roomId, entity.deletedAt != null, entity.requestedBy, null, null, entity.createdAt.toEpochMilli())
             }
         }
     }

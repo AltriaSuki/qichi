@@ -21,6 +21,7 @@ import app.qichi.server.db.BoardTopics
 import app.qichi.server.db.ArchiveItems
 import app.qichi.server.db.Decisions
 import app.qichi.server.db.Books
+import app.qichi.server.db.Summaries
 import app.qichi.server.db.Highlights
 import app.qichi.server.db.ReadingProgressTable
 import app.qichi.server.db.Plans
@@ -43,6 +44,7 @@ import app.qichi.server.board.toBoardTopic
 import app.qichi.server.archive.toArchiveItem
 import app.qichi.server.decisions.toDecision
 import app.qichi.server.reading.bookQuery
+import app.qichi.server.summaries.toSummary
 import app.qichi.server.reading.toBook
 import app.qichi.server.reading.toHighlight
 import app.qichi.server.reading.toReadingProgress
@@ -123,6 +125,7 @@ class SyncService(private val db: QichiDatabase) {
                 books = bookQuery().where { Books.roomId eq roomId }.map { it.toBook() },
                 readingProgress = ReadingProgressTable.selectAll().where { ReadingProgressTable.roomId eq roomId }.map { it.toReadingProgress() },
                 highlights = Highlights.selectAll().where { Highlights.roomId eq roomId }.map { it.toHighlight() }.filter { it.visibleTo(userId) },
+                summaries = Summaries.selectAll().where { Summaries.roomId eq roomId }.map { it.toSummary() },
             )
         }
 
@@ -197,6 +200,7 @@ class SyncService(private val db: QichiDatabase) {
                 EntityType.Book -> bookQuery().where { Books.id inList ids }.map { it.toBook() }
                 EntityType.ReadingProgress -> ReadingProgressTable.selectAll().where { ReadingProgressTable.id inList ids }.map { it.toReadingProgress() }
                 EntityType.Highlight -> Highlights.selectAll().where { Highlights.id inList ids }.map { it.toHighlight() }
+                EntityType.Summary -> Summaries.selectAll().where { Summaries.id inList ids }.map { it.toSummary() }
                 EntityType.PlanStage -> PlanStages.selectAll().where { PlanStages.id inList ids }.map { it.toPlanStage() }
                 EntityType.Milestone -> Milestones.selectAll().where { Milestones.id inList ids }.map { it.toMilestone() }
                 EntityType.PlanLog -> PlanLogs.selectAll().where { PlanLogs.id inList ids }.map { it.toPlanLog() }

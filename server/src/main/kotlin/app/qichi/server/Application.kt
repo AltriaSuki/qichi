@@ -1,5 +1,6 @@
 package app.qichi.server
 
+import kotlinx.coroutines.launch
 import app.qichi.server.auth.AuthService
 import app.qichi.server.auth.PasswordHasher
 import app.qichi.server.auth.TokenService
@@ -23,6 +24,8 @@ import app.qichi.server.archive.ArchiveService
 import app.qichi.server.archive.archiveRoutes
 import app.qichi.server.board.BoardService
 import app.qichi.server.decisions.DecisionService
+import app.qichi.server.summaries.SummaryService
+import app.qichi.server.summaries.summaryRoutes
 import app.qichi.server.reading.ReadingService
 import app.qichi.server.reading.readingRoutes
 import app.qichi.server.timeline.TimelineService
@@ -101,6 +104,7 @@ fun main() {
         module(ctx)
         // 后台任务（AI 等）随服务一起启动和停止
         ctx.jobs.start(this)
+        launch { runCatching { ctx.ai.ensureYearlyCheck() }.onFailure { log.warn("没能排上年度检查", it) } }
         monitor.subscribe(ApplicationStopped) { database.close() }
     }.start(wait = true)
 }
@@ -136,6 +140,7 @@ fun Application.module(ctx: AppContext) {
             decisionRoutes(ctx)
             timelineRoutes(ctx)
             readingRoutes(ctx)
+            summaryRoutes(ctx)
             calendarRoutes(ctx)
         }
     }
@@ -179,6 +184,7 @@ class AppContext(
     val decisions = DecisionService(database, rooms, writes)
     val timeline = TimelineService(database, rooms, clock)
     val reading = ReadingService(database, rooms, writes)
+    val summaries = SummaryService(database, rooms, writes)
     val calendar = CalendarService(database, rooms, writes, writer, clock, config.publicBaseUrl)
 }
 

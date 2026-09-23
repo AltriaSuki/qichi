@@ -88,7 +88,7 @@
 | `books` | 同步实体（`book`）：`title`、`author`、`file_id`（EPUB）、`added_by`、共读计划 `plan_target_date` + `plan_note` |
 | `reading_progress` | 同步实体（`reading_progress`）：`book_id`、`user_id`、`locator`（Readium 定位的 JSON 文本）、`progress` 0–1；每人每本一条，各自独立 |
 | `highlights` | 同步实体（`highlight`）：`book_id`、`user_id`、`locator`、`text`、`note`、`kind`（highlight / bookmark / excerpt / ai：AI 的解释或对比，note 是回答，由服务端写入）、`shared`（共同可见）；对方没共享的不同步给你 |
-| `summaries` | `kind`（week / month / custom / year）、`range_start`、`range_end`、`body`、`sources` jsonb（来源回链）、`ai_derived`、`locked`（年度回顾为 true，不可撤回） |
+| `summaries` | 同步实体（`summary`）：`kind`（week / month / custom / year）、`range_start`、`range_end`、`body`（Markdown，用 [n] 引用）、`sources` jsonb（`[{number, type, id, label, at}]`，只存被引用的）、`ai_derived`、`locked`（年度回顾为 true，不可删除）、`requested_by`（年度回顾为空）；每个房间每年一份年度回顾 |
 
 时间线不单独存数据，由决定、灵感、计划完成、`timeline_picks` 按时间查询拼出。
 

@@ -35,6 +35,7 @@ enum class EntityType {
     @SerialName("book") Book,
     @SerialName("reading_progress") ReadingProgress,
     @SerialName("highlight") Highlight,
+    @SerialName("summary") Summary,
 }
 
 /** 变化类型：软删除与恢复都是 upsert，只有彻底删除是 delete。 */
@@ -61,6 +62,15 @@ enum class MoodLabel {
     @SerialName("down") Down,
     @SerialName("angry") Angry,
     @SerialName("hurt") Hurt,
+}
+
+/** 总结的范围：周、月、自定义、年度回顾。 */
+@Serializable
+enum class SummaryKind {
+    @SerialName("week") Week,
+    @SerialName("month") Month,
+    @SerialName("custom") Custom,
+    @SerialName("year") Year,
 }
 
 /** 书里的标记：标注（划线）、书签、摘录，以及 AI 对一段文字的解释或对比（由服务端写入，note 是 AI 的回答）。 */
@@ -150,6 +160,7 @@ enum class TrashType {
     @SerialName("archive_item") ArchiveItem,
     @SerialName("decision") Decision,
     @SerialName("book") Book,
+    @SerialName("summary") Summary,
 }
 
 @Serializable
