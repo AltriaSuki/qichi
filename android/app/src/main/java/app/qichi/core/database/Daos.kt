@@ -46,6 +46,14 @@ interface EntityDao {
     @Query("SELECT * FROM entities WHERE roomId = :roomId AND type = :type AND deleted = 0 ORDER BY sortTime, localTime")
     suspend fun listByType(roomId: String, type: String): List<EntityRow>
 
+    /** 「我写下的内容」：某人在房间里各种内容各有多少（不含回收站里的）。 */
+    @Query("SELECT type, COUNT(*) AS count FROM entities WHERE roomId = :roomId AND ownerId = :ownerId AND deleted = 0 AND type IN (:types) GROUP BY type")
+    fun observeCountsByOwner(roomId: String, ownerId: String, types: List<String>): Flow<List<TypeCount>>
+
+    /** 「我写下的内容」：最近写下的几条（按时间倒序）。 */
+    @Query("SELECT * FROM entities WHERE roomId = :roomId AND ownerId = :ownerId AND deleted = 0 AND type IN (:types) ORDER BY sortTime DESC LIMIT :limit")
+    fun observeRecentByOwner(roomId: String, ownerId: String, types: List<String>, limit: Int): Flow<List<EntityRow>>
+
     /** 某个父实体下某种实体的所有行（含回收站里的）。 */
     @Query("SELECT * FROM entities WHERE type = :type AND parentId = :parentId")
     suspend fun byParent(type: String, parentId: String): List<EntityRow>
@@ -235,3 +243,6 @@ interface DocumentVersionDao {
     @Query("DELETE FROM document_versions WHERE documentId = :documentId")
     suspend fun deleteFor(documentId: String)
 }
+
+/** 某种实体的条数。 */
+data class TypeCount(val type: String, val count: Int)

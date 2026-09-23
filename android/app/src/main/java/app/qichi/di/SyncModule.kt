@@ -14,6 +14,7 @@ import app.qichi.core.data.DecisionRepository
 import app.qichi.core.data.TimelineRepository
 import app.qichi.core.data.BookCache
 import app.qichi.core.data.SummaryRepository
+import app.qichi.core.data.AccountRepository
 import app.qichi.core.data.ReadingRepository
 import app.qichi.core.reading.EpubOpener
 import app.qichi.core.data.BoardRepository
@@ -154,6 +155,11 @@ object SyncModule {
     @Singleton
     fun ideaRepository(db: QichiDatabase, store: LocalStore, scheduler: SyncScheduler, session: SessionManager): IdeaRepository =
         IdeaRepository(db, store, scheduler, session)
+
+    @Provides
+    @Singleton
+    fun accountRepository(db: QichiDatabase, api: ApiClient, session: SessionManager, rooms: RoomRepository): AccountRepository =
+        AccountRepository(db, api, session, rooms)
 
     @Provides
     @Singleton

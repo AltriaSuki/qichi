@@ -42,6 +42,9 @@ import app.qichi.feature.chat.ChatScreen
 import app.qichi.feature.chat.UnreadViewModel
 import app.qichi.feature.ideas.IdeasScreen
 import app.qichi.feature.me.AiUsageScreen
+import app.qichi.feature.me.MyContentScreen
+import app.qichi.feature.me.NotificationsScreen
+import app.qichi.feature.me.SecurityScreen
 import app.qichi.feature.me.DisplayScreen
 import app.qichi.feature.me.MeScreen
 import app.qichi.feature.me.ProfileScreen
@@ -270,6 +273,13 @@ fun QichiApp(
                             Page.Display -> DisplayScreen(onBack = navigator::back)
                             Page.Trash -> TrashScreen(roomId = LocalRoomId.current, onBack = navigator::back)
                             Page.AiUsage -> AiUsageScreen(onBack = navigator::back)
+                            Page.MyContent -> {
+                                val meRoom = LocalRoomId.current
+                                MyContentScreen(roomId = meRoom, onBack = navigator::back, onOpen = { navigator.open(it) },
+                                    onOpenChat = { navigator.selectTab(TopTab.Chat) })
+                            }
+                            Page.Security -> SecurityScreen(onBack = navigator::back)
+                            Page.Notifications -> NotificationsScreen(onBack = navigator::back)
                             Page.RoomSettings -> RoomSettingsScreen(roomId = LocalRoomId.current, onBack = navigator::back)
                             else -> PagePlaceholder(route.page.title, onBack = navigator::back)
                         }
