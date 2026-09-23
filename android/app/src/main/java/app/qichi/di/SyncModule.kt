@@ -165,9 +165,9 @@ object SyncModule {
     @Provides
     @Singleton
     fun readingRepository(
-        @ApplicationContext context: Context, db: QichiDatabase, store: LocalStore, files: FileRepository, cache: BookCache,
+        @ApplicationContext context: Context, db: QichiDatabase, store: LocalStore, files: FileRepository, api: ApiClient, cache: BookCache,
         epubs: EpubOpener, scheduler: SyncScheduler, session: SessionManager,
-    ): ReadingRepository = ReadingRepository(context, db, store, files, cache, epubs, scheduler, session)
+    ): ReadingRepository = ReadingRepository(context, db, store, files, api, cache, epubs, scheduler, session)
 
     @Provides
     @Singleton

@@ -51,7 +51,7 @@ class ReadingRepositoryTest {
         val api = SyncFixtures.api(FakeServer().engine)
         val session = SessionManager(api, InMemoryTokenStore(SyncFixtures.tokens()), emptySet(), "test", TestScope(testScheduler))
         testScheduler.advanceUntilIdle()
-        reading = ReadingRepository(context, db, store, FileRepository(api), BookCache(context, api), EpubOpener(context), SyncScheduler(context), session)
+        reading = ReadingRepository(context, db, store, FileRepository(api), api, BookCache(context, api), EpubOpener(context), SyncScheduler(context), session)
     }
 
     @After

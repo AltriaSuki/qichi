@@ -11,7 +11,12 @@ import app.qichi.core.sync.Local
 import app.qichi.core.sync.LocalStore
 import app.qichi.core.sync.OutboxOp
 import app.qichi.core.sync.SyncScheduler
+import app.qichi.core.network.ApiClient
+import app.qichi.core.network.post
+import app.qichi.shared.api.AiJobAccepted
+import app.qichi.shared.api.AiReadExplainRequest
 import app.qichi.shared.api.Book
+import app.qichi.shared.model.ReadExplainMode
 import app.qichi.shared.api.CreateBookRequest
 import app.qichi.shared.api.CreateHighlightRequest
 import app.qichi.shared.api.Highlight
@@ -44,6 +49,7 @@ class ReadingRepository(
     private val db: QichiDatabase,
     private val store: LocalStore,
     private val files: FileRepository,
+    private val api: ApiClient,
     private val cache: BookCache,
     private val epubs: EpubOpener,
     private val scheduler: SyncScheduler,
@@ -127,6 +133,12 @@ class ReadingRepository(
         }
         scheduler.kickOutbox()
     }
+
+    // ── 阅读里的 AI（P6-05，需要联网，不进发件箱） ──
+
+    /** 请 AI 解释或对比选中的段落；结果是一条 id = [jobId] 的 AI 标记，同步回来后显示。 */
+    suspend fun askAi(book: Book, jobId: UUID, mode: ReadExplainMode, locatorJson: String, text: String, before: String, after: String): AiJobAccepted =
+        api.post("rooms/${book.roomId}/ai/read-explain", AiReadExplainRequest(jobId, book.id, mode, text.trim().take(2000), locatorJson, before.takeLast(500), after.take(500)))
 
     // ── 书签、标注、摘录 ──
 

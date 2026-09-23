@@ -38,7 +38,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import android.widget.Toast
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -64,6 +66,7 @@ import app.qichi.core.designsystem.tsp
 import app.qichi.core.sync.Local
 import app.qichi.shared.api.Highlight
 import app.qichi.shared.model.HighlightKind
+import app.qichi.shared.model.ReadExplainMode
 import app.qichi.shared.rules.Limits
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -82,6 +85,7 @@ private val HighlightKind.label: String
         HighlightKind.Highlight -> "标注"
         HighlightKind.Bookmark -> "书签"
         HighlightKind.Excerpt -> "摘录"
+        HighlightKind.Ai -> "AI 解读"
     }
 
 /**
@@ -101,12 +105,14 @@ fun ReaderScreen(
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var navigator by remember { mutableStateOf<EpubNavigatorFragment?>(null) }
     var locator by remember { mutableStateOf<Locator?>(null) }
     var sheet by rememberSaveable { mutableStateOf<ReaderSheet?>(null) }
     var openHighlight by remember { mutableStateOf<UUID?>(null) }
 
     LaunchedEffect(state.loaded, state.book) { if (state.loaded && state.book == null) onBack() }
+    LaunchedEffect(vm) { vm.openHighlight.collect { openHighlight = it } }
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
         // ── 返回条 ──
@@ -140,6 +146,12 @@ fun ReaderScreen(
                             SelectionAction(2, "摘录") { nav -> scope.launch { nav.currentSelection()?.let { sel ->
                                 vm.addHighlight(HighlightKind.Excerpt, sel.locator, sel.locator.text.highlight.orEmpty()) { openHighlight = it.id }
                             }; nav.clearSelection() } },
+                            SelectionAction(3, "解释") { nav -> scope.launch { nav.currentSelection()?.let { sel ->
+                                vm.askAi(ReadExplainMode.Explain, sel.locator)?.let { reason -> Toast.makeText(context, reason, Toast.LENGTH_SHORT).show() }
+                            }; nav.clearSelection() } },
+                            SelectionAction(4, "对比") { nav -> scope.launch { nav.currentSelection()?.let { sel ->
+                                vm.askAi(ReadExplainMode.Compare, sel.locator)?.let { reason -> Toast.makeText(context, reason, Toast.LENGTH_SHORT).show() }
+                            }; nav.clearSelection() } },
                         ) + extraSelectionActions(vm)
                     }
                     EpubHost(pub, vm.initialLocator, prefs, actions, onReady = { navigator = it }, modifier = Modifier.fillMaxSize())
@@ -152,6 +164,22 @@ fun ReaderScreen(
                     state.downloading?.takeIf { it > 0f }?.let { "正在下载 ${(it * 100).toInt()}%" } ?: "正在打开…",
                     style = type.caption.copy(color = colors.faint), modifier = Modifier.align(Alignment.Center),
                 )
+            }
+        }
+
+        // ── AI 正在看 / 没得到回答 ──
+        if (state.aiPending != null || state.aiFailed) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = Spacing.page, vertical = Spacing.xxs),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+            ) {
+                Text("AI", style = type.numeral.copy(fontSize = 17.tsp, color = colors.personB))
+                Text(if (state.aiFailed) "没有得到回答" else "正在看这段……", style = type.caption.copy(color = colors.muted), modifier = Modifier.weight(1f))
+                if (state.aiFailed) {
+                    TextAction("重试", vm::retryAi)
+                    TextAction("算了", vm::dismissAi, color = colors.muted)
+                }
             }
         }
 
@@ -170,7 +198,11 @@ fun ReaderScreen(
         val me = state.people.myUserId
         val decorations = state.highlights.map { it.value }.filter { it.kind != HighlightKind.Bookmark }.mapNotNull { h ->
             val l = vm.parseLocator(h.locator) ?: return@mapNotNull null
-            val tint = if (h.userId == me) colors.accent else colors.personB
+            val tint = when {
+                h.kind == HighlightKind.Ai -> colors.faint
+                h.userId == me -> colors.accent
+                else -> colors.personB
+            }
             Decoration(h.id.toString(), l, Decoration.Style.Highlight(tint.copy(alpha = 0.35f).toArgb(), isActive = h.note != null))
         }
         nav.applyDecorations(decorations, "highlights")
@@ -342,10 +374,20 @@ private fun HighlightSheet(h: Highlight, people: People, vm: ReaderViewModel, on
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             PersonMark(people.markChar(h.userId), people.person(h.userId), size = 18.dp)
-            Text("${people.name(h.userId)}的${h.kind.label}", style = type.caption.copy(color = colors.muted))
+            Text(if (h.kind == HighlightKind.Ai) "${people.name(h.userId)}请 AI 看的这段 · AI 生成，仅供参考" else "${people.name(h.userId)}的${h.kind.label}",
+                style = type.caption.copy(color = colors.muted))
         }
         Text("「${h.text}」", style = type.bodyLarge.copy(color = colors.ink))
-        if (mine) {
+        if (h.kind == HighlightKind.Ai) {
+            h.note?.let { Text(it, style = type.body.copy(color = colors.ink)) }
+            if (mine) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("共同可见", style = type.body.copy(color = colors.ink), modifier = Modifier.weight(1f))
+                    Switch(shared, { shared = it; vm.updateHighlight(h, h.note, it) }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent))
+                }
+                TextAction("删除", { deleting = true }, color = colors.muted)
+            }
+        } else if (mine) {
             QichiTextField(note, { note = it.take(Limits.HIGHLIGHT_NOTE_MAX) }, label = "感想（可以不写）", singleLine = false)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {

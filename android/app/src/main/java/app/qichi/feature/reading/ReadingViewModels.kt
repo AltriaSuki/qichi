@@ -10,13 +10,21 @@ import app.qichi.core.data.ReadingRepository
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.reading.EpubException
 import app.qichi.core.reading.EpubOpener
+import app.qichi.core.network.NetworkMonitor
 import app.qichi.core.sync.Local
+import app.qichi.core.sync.RealtimeClient
 import app.qichi.core.ui.todayIn
 import app.qichi.core.ui.zoneOf
 import app.qichi.shared.api.Book
 import app.qichi.shared.api.Highlight
 import app.qichi.shared.api.ReadingProgress
+import app.qichi.shared.model.AiJobStatus
 import app.qichi.shared.model.HighlightKind
+import app.qichi.shared.model.ReadExplainMode
+import app.qichi.shared.model.wireName
+import app.qichi.shared.util.UuidV7
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
@@ -152,7 +160,14 @@ data class ReaderState(
     /** 我的全部，加上对方共享的 */
     val highlights: List<Local<Highlight>> = emptyList(),
     val toc: List<TocItem> = emptyList(),
+    val online: Boolean = true,
+    val aiEnabled: Boolean = false,
+    /** 正在等 AI 回答的请求 */
+    val aiPending: UUID? = null,
+    val aiFailed: Boolean = false,
 )
+
+private data class AiAsk(val pending: UUID? = null, val failed: Boolean = false, val lastMode: ReadExplainMode? = null, val lastLocator: Locator? = null)
 
 private data class Opened(
     val ready: Boolean = false,
@@ -170,10 +185,18 @@ class ReaderViewModel @AssistedInject constructor(
     private val cache: BookCache,
     private val epubs: EpubOpener,
     rooms: RoomRepository,
+    network: NetworkMonitor,
+    realtime: RealtimeClient,
     session: SessionManager,
 ) : ViewModel() {
     private val people = combine(rooms.observeRoom(roomId), rooms.observeMembers(roomId)) { room, members -> People(room, members, session.currentUserId) }
     private val opened = MutableStateFlow(Opened())
+    private val ai = MutableStateFlow(AiAsk())
+    private val environment = combine(network.isOnline, rooms.me, ai) { online, me, a -> Triple(online, me?.aiEnabled == true, a) }
+
+    private val _openHighlight = MutableSharedFlow<UUID>(extraBufferCapacity = 1)
+    /** AI 的回答同步回来了：页面打开这条标记 */
+    val openHighlight: SharedFlow<UUID> = _openHighlight
 
     /** 打开的书；页面拿它创建 Readium 的阅读页 */
     var publication: Publication? = null
@@ -187,8 +210,8 @@ class ReaderViewModel @AssistedInject constructor(
     private val current = MutableStateFlow<Locator?>(null)
 
     val state: StateFlow<ReaderState> = combine(
-        people, reading.observeBooks(roomId), reading.observeProgress(roomId), reading.observeHighlights(roomId), opened,
-    ) { p, books, progress, highlights, o ->
+        combine(people, environment) { p, e -> p to e }, reading.observeBooks(roomId), reading.observeProgress(roomId), reading.observeHighlights(roomId), opened,
+    ) { (p, env), books, progress, highlights, o ->
         val zone = zoneOf(p.room?.timezone)
         ReaderState(
             people = p, zone = zone, today = todayIn(zone),
@@ -199,11 +222,30 @@ class ReaderViewModel @AssistedInject constructor(
             partner = progress.firstOrNull { it.bookId == bookId && it.userId != p.myUserId },
             highlights = highlights.filter { it.value.bookId == bookId }.sortedBy { it.value.createdAt },
             toc = o.toc,
+            online = env.first,
+            aiEnabled = env.second,
+            aiPending = env.third.pending,
+            aiFailed = env.third.failed,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, ReaderState())
 
     init {
         viewModelScope.launch { load() }
+        // 等的 AI 回答同步到本机：打开它
+        viewModelScope.launch {
+            state.collect { s ->
+                val pending = s.aiPending ?: return@collect
+                if (s.highlights.any { it.value.id == pending }) {
+                    ai.update { it.copy(pending = null) }
+                    _openHighlight.tryEmit(pending)
+                }
+            }
+        }
+        viewModelScope.launch {
+            realtime.aiDone.collect { e ->
+                if (e.jobId == ai.value.pending && e.status == AiJobStatus.Failed.wireName) ai.update { it.copy(pending = null, failed = true) }
+            }
+        }
         // 翻页停下 1.5 秒再保存进度（不在每次翻页都写）
         viewModelScope.launch {
             current.filterNotNull().debounce(1_500).collect { locator ->
@@ -267,6 +309,41 @@ class ReaderViewModel @AssistedInject constructor(
             } == true
         }
     }
+
+    /** 请 AI 解释或对比选中的段落（需要联网、AI 已开启）。返回不能请求的原因，能请求时为空。 */
+    fun askAi(mode: ReadExplainMode, locator: Locator): String? {
+        val s = state.value
+        val book = s.book ?: return null
+        when {
+            !s.online -> return "需要联网"
+            !s.aiEnabled -> return "AI 还没有开启"
+            s.aiPending != null -> return "AI 还在看上一段"
+        }
+        val text = locator.text.highlight?.trim().orEmpty()
+        if (text.isEmpty()) return "先选中一段文字"
+        val jobId = UuidV7.generate()
+        ai.value = AiAsk(pending = jobId, lastMode = mode, lastLocator = locator)
+        viewModelScope.launch {
+            try {
+                reading.askAi(book, jobId, mode, locator.toJSON().toString(), text, locator.text.before.orEmpty(), locator.text.after.orEmpty())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                ai.update { if (it.pending == jobId) it.copy(pending = null, failed = true) else it }
+            }
+        }
+        return null
+    }
+
+    fun retryAi() {
+        val a = ai.value
+        val mode = a.lastMode ?: return
+        val locator = a.lastLocator ?: return
+        ai.update { it.copy(failed = false) }
+        askAi(mode, locator)
+    }
+
+    fun dismissAi() = ai.update { AiAsk() }
 
     fun updateHighlight(h: Highlight, note: String?, shared: Boolean) = viewModelScope.launch { reading.updateHighlight(h, note, shared) }
     fun deleteHighlight(h: Highlight) = viewModelScope.launch { reading.deleteHighlight(h) }
