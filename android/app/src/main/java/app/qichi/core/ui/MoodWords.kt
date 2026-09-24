@@ -1,5 +1,7 @@
 package app.qichi.core.ui
 
+import androidx.compose.ui.graphics.vector.ImageVector
+import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.shared.model.MoodLabel
 import app.qichi.shared.model.MoodReplyKind
 
@@ -14,6 +16,19 @@ val MoodLabel.displayName: String
         MoodLabel.Down -> "低落"
         MoodLabel.Angry -> "生气"
         MoodLabel.Hurt -> "委屈"
+    }
+
+/** 心情标签的图标（设计稿 New-Mood 的 EMO 表）。 */
+val MoodLabel.icon: ImageVector
+    get() = when (this) {
+        MoodLabel.Calm -> QichiIcons.Wave
+        MoodLabel.Happy -> QichiIcons.Sun
+        MoodLabel.Hopeful -> QichiIcons.Spark
+        MoodLabel.Tired -> QichiIcons.Moon
+        MoodLabel.Anxious -> QichiIcons.Scribble
+        MoodLabel.Down -> QichiIcons.Rain
+        MoodLabel.Angry -> QichiIcons.Flame
+        MoodLabel.Hurt -> QichiIcons.Drop
     }
 
 /**

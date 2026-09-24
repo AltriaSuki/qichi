@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
@@ -31,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +45,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -50,14 +53,19 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import app.qichi.core.designsystem.QichiTheme
+import app.qichi.core.designsystem.Spacing
 import app.qichi.core.designsystem.component.IconAction
+import app.qichi.core.designsystem.component.PrimaryButton
+import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.TextAction
+import app.qichi.core.designsystem.component.decor.Polaroid
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.network.FileUrls
 import app.qichi.core.ui.formatBytes
 import app.qichi.shared.api.FileMeta
 import app.qichi.shared.model.FileKind
+import app.qichi.shared.rules.Limits
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
@@ -227,3 +235,48 @@ internal fun openWithOtherApp(context: Context, file: File, mimeType: String) {
         Toast.makeText(context, "手机上没有能打开这种文件的应用", Toast.LENGTH_SHORT).show()
     }
 }
+
+/**
+ * 选好照片后：先看一眼拍立得的样子、写一句说明（可以不写，最多 [Limits.PHOTO_CAPTION_MAX] 字），再发送（P10-04）。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun PhotoCaptionSheet(upload: Upload, onSend: (String) -> Unit, onCancel: () -> Unit) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    var caption by rememberSaveable(upload.id) { mutableStateOf("") }
+    val attachment = upload.attachment
+    ModalBottomSheet(onDismissRequest = onCancel, containerColor = colors.background) {
+        Column(
+            Modifier.fillMaxWidth().padding(start = Spacing.xl, end = Spacing.xl, bottom = Spacing.xl),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            val (w, h) = imageBubbleSize(attachment.width, attachment.height)
+            Polaroid(Modifier.padding(vertical = Spacing.m), caption = caption.ifBlank { null }, rotation = -2f) {
+                AsyncImage(
+                    model = attachment.previewUri,
+                    contentDescription = "要发的照片",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(w, h).background(colors.surface),
+                )
+            }
+            QichiTextField(
+                caption,
+                { text -> caption = if (text.codePointCount(0, text.length) <= Limits.PHOTO_CAPTION_MAX) text else caption },
+                label = "照片说明",
+                placeholder = "写一句（可以不写）",
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            )
+            Row(Modifier.fillMaxWidth().padding(top = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${caption.codePointCount(0, caption.length)} / ${Limits.PHOTO_CAPTION_MAX}",
+                    style = type.numeral.copy(fontSize = 12.tsp, color = colors.muted),
+                    modifier = Modifier.weight(1f),
+                )
+                TextAction("取消", onCancel, color = colors.muted)
+                PrimaryButton("发送", { onSend(caption) })
+            }
+        }
+    }
+}
+

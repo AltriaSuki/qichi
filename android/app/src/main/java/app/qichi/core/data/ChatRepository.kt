@@ -137,12 +137,14 @@ class ChatRepository(
     }
 
     /** 带着已上传的文件发一条图片或文件消息（之后和文字消息一样走发件箱）。 */
-    suspend fun sendAttachment(roomId: UUID, file: FileMeta, replyTo: Message? = null): Message {
+    /** @param caption 照片下面的一句说明（只对图片，最多 [Limits.PHOTO_CAPTION_MAX] 字，P10-04） */
+    suspend fun sendAttachment(roomId: UUID, file: FileMeta, replyTo: Message? = null, caption: String = ""): Message {
         val kind = if (file.kind == FileKind.Image) MessageKind.Image else MessageKind.File
+        val body = if (kind == MessageKind.Image) MessageRules.photoCaption(caption) else ""
         val now = clock.instant()
         val message = Message(
             id = UuidV7.generate(), roomId = roomId, seq = 0, createdAt = now, updatedAt = now,
-            deletedAt = null, deletedBy = null, authorId = me, kind = kind, body = "", file = file,
+            deletedAt = null, deletedBy = null, authorId = me, kind = kind, body = body, file = file,
             replyToId = replyTo?.id,
             replyAuthorId = replyTo?.authorId,
             replyExcerpt = replyTo?.let { MessageRules.replyExcerpt(it.kind, it.body, it.file?.fileName, it.retractedAt != null) },
@@ -151,7 +153,7 @@ class ChatRepository(
         )
         store.writeLocal(
             roomId, message,
-            OutboxOp.post("rooms/$roomId/messages", SendMessageRequest(message.id, kind.wireName, fileId = file.id, replyToId = replyTo?.id)),
+            OutboxOp.post("rooms/$roomId/messages", SendMessageRequest(message.id, kind.wireName, body = body.ifEmpty { null }, fileId = file.id, replyToId = replyTo?.id)),
         )
         scheduler.kickOutbox()
         return message
@@ -224,6 +226,9 @@ class ChatRepository(
     }
 
     suspend fun aiJob(roomId: UUID, jobId: UUID): AiJob = api.get("rooms/$roomId/ai/jobs/$jobId")
+
+    /** 停下正在回答的 AI（只有提问的人，需要联网）：已写出的部分会作为「已停下」的 AI 消息同步下来（P10-04）。 */
+    suspend fun stopAi(roomId: UUID, jobId: UUID): AiJobAccepted = api.post("rooms/$roomId/ai/jobs/$jobId/stop", Unit)
 
     /** 这条消息已经在本机了（AI 回答同步下来） */
     fun observeHasMessage(id: UUID): Flow<Boolean> =

@@ -24,9 +24,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -44,16 +44,20 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -65,18 +69,14 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import app.qichi.core.ui.sourceLabel
-import app.qichi.core.ui.sourceKind
-import app.qichi.shared.api.AiAction
-import app.qichi.shared.api.SummarySource
-import app.qichi.core.designsystem.Spacing
 import androidx.compose.ui.text.withLink
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.TextLinkStyles
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -88,30 +88,48 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemContentType
 import androidx.paging.compose.itemKey
 import app.qichi.core.data.People
+import app.qichi.core.designsystem.QichiShapes
 import app.qichi.core.designsystem.QichiTheme
+import app.qichi.core.designsystem.Sizes
+import app.qichi.core.designsystem.Spacing
+import app.qichi.core.designsystem.component.AiMark
 import app.qichi.core.designsystem.component.ConfirmDialog
 import app.qichi.core.designsystem.component.IconAction
 import app.qichi.core.designsystem.component.PersonMark
+import app.qichi.core.designsystem.component.RefChip
 import app.qichi.core.designsystem.component.TextAction
+import app.qichi.core.designsystem.component.ThinkingDots
+import app.qichi.core.designsystem.component.decor.HandNote
+import app.qichi.core.designsystem.component.decor.Polaroid
+import app.qichi.core.designsystem.component.decor.Sprig
+import app.qichi.core.designsystem.component.decor.Tape
+import app.qichi.core.designsystem.component.topBarInset
 import app.qichi.core.designsystem.icon.QichiIcons
+import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.network.FileUrls
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.chatDay
+import app.qichi.core.ui.feelingWord
+import app.qichi.core.ui.sourceKind
+import app.qichi.core.ui.sourceLabel
+import app.qichi.shared.api.AiAction
 import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
+import app.qichi.shared.api.Mood
+import app.qichi.shared.api.SummarySource
 import app.qichi.shared.model.MessageKind
 import app.qichi.shared.rules.MessageRules
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Duration
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlin.math.abs
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** 同一个人 5 分钟内连着发的算一组：组内间距小，只在最后一条下面写时间。 */
 private val GROUP_WINDOW: Duration = Duration.ofMinutes(5)
@@ -262,24 +280,30 @@ fun ChatScreen(
             .background(colors.background)
             .imePadding(),
     ) {
-        ChatHeader(people = people, onSearch = viewModel::openSearch)
+        ChatHeader(people = people, partnerMood = state.partnerMood, onSearch = viewModel::openSearch)
         BoxWithConstraints(
             Modifier
                 .weight(1f)
                 .fillMaxWidth(),
         ) {
-            val maxBubble = (maxWidth - 44.dp) * 0.76f
+            // 聊天背景角落的绿萝（装饰，不压字：在列表下面）
+            Sprig(Modifier.align(Alignment.TopEnd).offset(x = 18.dp, y = 18.dp).rotate(12f), width = 150.dp, flip = true, alpha = .55f)
+            val maxBubble = (maxWidth - 40.dp) * 0.78f
             val zone = remember { ZoneId.systemDefault() }
             val today = remember { LocalDate.now(zone) }
             LazyColumn(
                 state = listState,
                 reverseLayout = true,
-                contentPadding = PaddingValues(start = 22.dp, end = 22.dp, top = 16.dp, bottom = 16.dp),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 12.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 // 等 AI 回答的提问在最下面（倒序列表的最前面）
                 items(pendingAi.asReversed(), key = { "ai-${it.jobId}" }) { pending ->
-                    PendingAiItem(pending, onRetry = { viewModel.retryAi(pending.jobId) }, onDismiss = { viewModel.dismissAi(pending.jobId) })
+                    PendingAiItem(
+                        pending, askerName = people.name(people.myUserId),
+                        onRetry = { viewModel.retryAi(pending.jobId) }, onDismiss = { viewModel.dismissAi(pending.jobId) },
+                        onStop = { viewModel.stopAi(pending.jobId) },
+                    )
                 }
                 // 正在上传的附件，最新的最靠下
                 items(uploads.asReversed(), key = { "upload-${it.id}" }) { upload ->
@@ -370,6 +394,8 @@ fun ChatScreen(
         )
     }
     viewing?.let { file -> ImageViewer(file, viewModel.urls, onDismiss = { viewing = null }) }
+    val captioning by viewModel.captioning.collectAsStateWithLifecycle()
+    captioning?.let { upload -> PhotoCaptionSheet(upload, onSend = viewModel::sendPhoto, onCancel = viewModel::cancelPhoto) }
 
     menuFor?.let { target ->
         MessageActions(
@@ -408,30 +434,34 @@ fun ChatScreen(
     }
 }
 
+/**
+ * 聊天页顶栏（主页的收起形态，按 New-Chat）：对方圆标 + 名字，名字下一句手写的今天心情；右边搜索。
+ * 房间里还只有自己时写「聊天」。
+ */
 @Composable
-/** 聊天页顶部（按 Chat.dc.html）：对方的圆标和名字；房间里还只有自己时写「聊天」。 */
-private fun ChatHeader(people: People, onSearch: () -> Unit) {
+private fun ChatHeader(people: People, partnerMood: Mood?, onSearch: () -> Unit) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val partner = people.partner
     Row(
         Modifier
             .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(start = 28.dp, top = 30.dp, end = 12.dp, bottom = 12.dp)
-            .heightIn(min = 44.dp),
+            .padding(start = Spacing.xl, top = topBarInset(), end = Spacing.sm, bottom = Spacing.xs)
+            .heightIn(min = Sizes.touchTarget),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
     ) {
-        if (partner != null) PersonMark(people.markChar(partner.userId), people.person(partner.userId), size = 32.dp)
-        Text(
-            partner?.displayName ?: "聊天",
-            style = type.pageTitle.copy(fontSize = 21.tsp, lineHeight = 27.tsp, letterSpacing = 0.26.em, color = colors.ink),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false).semantics { heading() },
-        )
-        Box(Modifier.weight(1f))
+        if (partner != null) PersonMark(people.markChar(partner.userId), people.person(partner.userId), size = 30.dp)
+        Column(Modifier.weight(1f)) {
+            Text(
+                partner?.displayName ?: "聊天",
+                style = type.barTitle.copy(color = colors.ink),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.semantics { heading() },
+            )
+            if (partnerMood != null) HandNote("今天" + feelingWord(partnerMood.label, partnerMood.intensity), fontSizeSp = 16f, rotation = -2f)
+        }
         IconAction(QichiIcons.Search, contentDescription = "搜索", onClick = onSearch)
     }
 }
@@ -507,18 +537,30 @@ private fun MessageBody(
     attachments: AttachmentActions,
 ) {
     val m = local.value
+    val colors = QichiTheme.colors
     when {
         m.retractedAt != null -> Notice(if (m.retractedBy == people.myUserId) "你撤回了一条消息" else "${people.name(m.retractedBy)}撤回了一条消息")
         m.kind == MessageKind.System -> Notice(m.body)
-        m.kind == MessageKind.Ai -> AiBlock(prompt = m.aiPrompt, modifier = Modifier.combinedClickable(onClick = {}, onLongClickLabel = "更多操作", onLongClick = onLongPress)) {
+        m.kind == MessageKind.Ai -> AiBlock(
+            prompt = m.aiPrompt, asker = aiAsker(m, people),
+            modifier = Modifier.combinedClickable(onClick = {}, onLongClickLabel = "更多操作", onLongClick = onLongPress),
+        ) {
             AiAnswer(m, onOpenSource)
             AiActionCards(aiActions, people, zone, actionHandlers)
         }
         else -> {
             val file = m.file
             when {
-                file != null && m.kind == MessageKind.Image -> AttachmentRow(local, mine) { shape, _ ->
-                    ImageBubble(file, shape, attachments.urls, onOpen = { attachments.onOpenImage(file) }, onLongPress = onLongPress)
+                file != null && m.kind == MessageKind.Image -> AttachmentRow(local, mine) { _, _ ->
+                    // 照片是拍立得：相框下面手写说明，微微倾斜，对方发的贴一条雾蓝胶带
+                    Polaroid(
+                        Modifier.padding(start = if (mine) 0.dp else 6.dp, end = if (mine) 6.dp else 0.dp, top = 6.dp, bottom = 2.dp),
+                        caption = m.body.ifBlank { null },
+                        rotation = if (mine) 2f else -3f,
+                        tape = { Tape(Modifier.align(Alignment.TopCenter).offset(y = (-9).dp), color = if (mine) colors.personA else colors.personB, width = 52.dp, rotation = 4f) },
+                    ) {
+                        ImageBubble(file, RectangleShape, attachments.urls, onOpen = { attachments.onOpenImage(file) }, onLongPress = onLongPress)
+                    }
                 }
                 file != null -> AttachmentRow(local, mine) { shape, background ->
                     FileBubble(
@@ -555,12 +597,12 @@ private fun AttachmentRow(local: Local<Message>, mine: Boolean, content: @Compos
         verticalAlignment = Alignment.Bottom,
     ) {
         if (local.isPending) PendingClock()
-        content(shape, Modifier.background(if (mine) colors.personA.copy(alpha = 0.13f) else colors.surface))
+        content(shape, if (mine) Modifier.background(colors.personA.copy(alpha = 0.16f)) else Modifier.background(colors.card))
     }
 }
 
 private fun bubbleShape(mine: Boolean): Shape =
-    if (mine) RoundedCornerShape(20.dp, 4.dp, 20.dp, 20.dp) else RoundedCornerShape(4.dp, 20.dp, 20.dp, 20.dp)
+    if (mine) RoundedCornerShape(18.dp, 4.dp, 18.dp, 18.dp) else RoundedCornerShape(4.dp, 18.dp, 18.dp, 18.dp)
 
 @Composable
 private fun PendingClock() {
@@ -603,12 +645,13 @@ private fun TextBubble(
         Column(
             Modifier
                 .widthIn(max = maxBubble)
+                .then(if (!mine && !unsent) Modifier.lift(colors, shape) else Modifier)
                 .clip(shape)
                 .then(
                     when {
-                        unsent -> Modifier.border(1.dp, if (local.isFailed) colors.accent else colors.personA, shape)
-                        mine -> Modifier.background(colors.personA.copy(alpha = 0.13f))
-                        else -> Modifier.background(colors.surface)
+                        unsent -> Modifier.border(1.3.dp, if (local.isFailed) colors.accent else colors.personA, shape)
+                        mine -> Modifier.background(colors.personA.copy(alpha = 0.16f))
+                        else -> Modifier.background(colors.card)
                     },
                 )
                 .combinedClickable(
@@ -619,10 +662,10 @@ private fun TextBubble(
                         onLongPress()
                     },
                 )
-                .padding(horizontal = 16.dp, vertical = 11.dp),
+                .padding(horizontal = 15.dp, vertical = 10.dp),
         ) {
             if (m.replyToId != null || m.replyExcerpt != null) ReplyQuote(m, people, onClick = m.replyToId?.let { id -> { onQuoteClick(id) } })
-            Text(m.body, style = type.body.copy(color = colors.ink))
+            Text(m.body, style = type.body.copy(lineHeight = 24.75.tsp, color = colors.ink))
         }
     }
 }
@@ -637,13 +680,13 @@ private fun ReplyQuote(m: Message, people: People, onClick: (() -> Unit)?) {
             .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClickLabel = "跳到原消息", onClick = onClick) else Modifier)
             .drawBehind {
                 val y = size.height - 0.5.dp.toPx()
-                drawLine(line, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
+                drawLine(line, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())))
             }
             .padding(bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (m.replyAuthorId != null) PersonMark(people.markChar(m.replyAuthorId), people.person(m.replyAuthorId), size = 14.dp)
+        if (m.replyAuthorId != null) PersonMark(people.markChar(m.replyAuthorId), people.person(m.replyAuthorId), size = 16.dp)
         Text(
             m.replyExcerpt ?: "原消息已撤回",
             style = QichiTheme.typography.caption.copy(fontSize = 12.tsp, color = colors.muted),
@@ -657,10 +700,10 @@ private fun ReplyQuote(m: Message, people: People, onClick: (() -> Unit)?) {
 private fun TimeLabel(m: Message, mine: Boolean, zone: ZoneId) {
     Text(
         TIME.format(m.createdAt.atZone(zone)),
-        style = QichiTheme.typography.numeral.copy(fontSize = 15.tsp, color = QichiTheme.colors.muted),
+        style = QichiTheme.typography.numeral.copy(fontSize = 11.tsp, color = QichiTheme.colors.muted),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 6.dp, end = 6.dp, top = 6.dp),
+            .padding(start = 4.dp, end = 4.dp, top = 6.dp),
         textAlign = if (mine) TextAlign.End else TextAlign.Start,
     )
 }
@@ -689,27 +732,30 @@ private fun Notice(text: String) {
     )
 }
 
-/** AI 的回答：居中的「AI」、提问、回答正文（设计稿 Chat.dc.html）。 */
+/** 谁问的 AI（旧版服务端的回答没有这一项时为空，只写「问：」）。 */
+private fun aiAsker(m: Message, people: People): String? = m.aiAskedBy?.let { people.name(it) }
+
+/** AI 的回答（按 New-Chat）：左边「✦AI」+ 小字「谁问：问题」，下面是整宽的回答正文。 */
 @Composable
-private fun AiBlock(prompt: String?, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+private fun AiBlock(prompt: String?, modifier: Modifier = Modifier, asker: String? = null, content: @Composable () -> Unit) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     Column(
         modifier
             .fillMaxWidth()
-            .padding(horizontal = 18.dp, vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .padding(horizontal = 2.dp, vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text("AI", style = type.numeral.copy(fontSize = 18.tsp, color = colors.personB))
-        if (!prompt.isNullOrBlank()) {
-            Text(
-                prompt,
-                style = type.caption.copy(fontSize = 12.tsp, letterSpacing = 0.06.em, color = colors.muted),
-                textAlign = TextAlign.Center,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
-            )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AiMark()
+            if (!prompt.isNullOrBlank()) {
+                Text(
+                    (asker?.let { "${it}问：" } ?: "问：") + prompt,
+                    style = type.caption.copy(fontSize = 12.tsp, color = colors.muted),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         content()
     }
@@ -724,7 +770,12 @@ private fun AiAnswer(m: Message, onOpenSource: (SummarySource) -> Unit) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val byNumber = remember(m.aiSources) { m.aiSources.associateBy { it.number } }
-    val linkStyle = TextLinkStyles(SpanStyle(color = colors.accent))
+    val linkStyle = TextLinkStyles(
+        SpanStyle(
+            color = colors.personB, background = colors.personB.copy(alpha = .14f),
+            fontFamily = type.numeral.fontFamily, fontSize = 11.tsp, fontWeight = FontWeight.W500,
+        ),
+    )
     val text = remember(m.body, byNumber, linkStyle) {
         buildAnnotatedString {
             var last = 0
@@ -734,14 +785,23 @@ private fun AiAnswer(m: Message, onOpenSource: (SummarySource) -> Unit) {
                 if (src == null) {
                     append(match.value)
                 } else {
-                    withLink(LinkAnnotation.Clickable("source-${src.number}", linkStyle) { onOpenSource(src) }) { append(match.value) }
+                    // [n] 显示成「 n 」小标签（前后细空格撑出圆角的样子）
+                    // 前面留一个窄空格（不带底色），连着的几个编号才不会粘成一块
+                    append("\u202F")
+                    withLink(LinkAnnotation.Clickable("source-${src.number}", linkStyle) { onOpenSource(src) }) { append("\u2009${src.number}\u2009") }
                 }
                 last = match.range.last + 1
             }
             append(m.body.substring(last))
         }
     }
-    Text(text, style = aiAnswerStyle(), modifier = Modifier.fillMaxWidth())
+    if (m.body.isNotEmpty()) Text(text, style = aiAnswerStyle(), modifier = Modifier.fillMaxWidth())
+    if (m.aiStopped) {
+        Text(
+            if (m.body.isEmpty()) "已停下，还没写出内容" else "已停下",
+            style = type.caption.copy(fontSize = 12.tsp, color = colors.muted),
+        )
+    }
     if (m.aiSources.isNotEmpty()) {
         var open by rememberSaveable(m.id) { mutableStateOf(false) }
         TextAction(
@@ -755,7 +815,7 @@ private fun AiAnswer(m: Message, onOpenSource: (SummarySource) -> Unit) {
                     Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "打开原来的记录") { onOpenSource(src) }.padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(Spacing.s),
                 ) {
-                    Text("[${src.number}]", style = type.numeral.copy(fontSize = 14.tsp, color = colors.accent), modifier = Modifier.widthIn(min = 32.dp))
+                    Box(Modifier.widthIn(min = 32.dp)) { RefChip(src.number) }
                     Text(sourceKind(src.type), style = type.caption.copy(color = colors.faint))
                     Text(sourceLabel(src), style = type.caption.copy(color = colors.ink), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 }
@@ -767,25 +827,69 @@ private fun AiAnswer(m: Message, onOpenSource: (SummarySource) -> Unit) {
 private val citationPattern = Regex("\\[(\\d{1,3})]")
 
 @Composable
-private fun aiAnswerStyle() = QichiTheme.typography.body.copy(fontSize = 14.5.tsp, lineHeight = 28.tsp, color = QichiTheme.colors.ink)
+private fun aiAnswerStyle() = QichiTheme.typography.body.copy(fontSize = 15.tsp, lineHeight = 26.25.tsp, color = QichiTheme.colors.ink)
 
-/** 还在等的 AI 提问：「正在想…」；失败时「没有得到回答 · 重试」。 */
+/**
+ * 还在等的 AI 提问（按 New-Chat-Streaming）：雾蓝淡底的浮起卡片，右上两颗小星；
+ * 边写边显示，下面「三个点 · 正在写」和「停下」。失败时「没有得到回答 · 重试」。
+ */
 @Composable
-private fun PendingAiItem(pending: PendingAi, onRetry: () -> Unit, onDismiss: () -> Unit) {
+private fun PendingAiItem(pending: PendingAi, askerName: String, onRetry: () -> Unit, onDismiss: () -> Unit, onStop: () -> Unit) {
     val colors = QichiTheme.colors
-    Box(Modifier.padding(top = 16.dp)) {
-        AiBlock(prompt = pending.prompt) {
-            if (pending.failed) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("没有得到回答", style = QichiTheme.typography.caption.copy(color = colors.accent))
+    val type = QichiTheme.typography
+    val shape = RoundedCornerShape(16.dp)
+    Box(
+        Modifier
+            .padding(top = 16.dp)
+            .fillMaxWidth()
+            .lift(colors, shape)
+            .clip(shape)
+            .background(colors.card)
+            .background(colors.personB.copy(alpha = .08f))
+            .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 12.dp),
+    ) {
+        Row(Modifier.align(Alignment.TopEnd).alpha(.6f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(QichiIcons.Spark, contentDescription = null, tint = colors.personB, modifier = Modifier.size(12.dp))
+            Icon(QichiIcons.Spark, contentDescription = null, tint = colors.personB, modifier = Modifier.size(18.dp))
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            AiBlock(prompt = pending.prompt, asker = askerName, modifier = Modifier.padding(end = 40.dp)) {}
+            when {
+                pending.failed -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("没有得到回答", style = type.caption.copy(color = colors.accent))
                     TextAction("重试", onClick = onRetry)
                     TextAction("算了", onClick = onDismiss, color = colors.muted)
                 }
-            } else if (!pending.partial.isNullOrEmpty()) {
-                // 边生成边显示（P8-03）：引用编号和提议卡片等正式回答同步下来再出现
-                Text(pending.partial, style = aiAnswerStyle(), modifier = Modifier.fillMaxWidth())
-            } else {
-                Text("正在想…", style = aiAnswerStyle().copy(color = colors.muted))
+                else -> {
+                    // 边生成边显示（P8-03）：引用编号和提议卡片等正式回答同步下来再出现
+                    if (!pending.partial.isNullOrEmpty()) Text(pending.partial, style = aiAnswerStyle(), modifier = Modifier.fillMaxWidth())
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ThinkingDots()
+                        Text(
+                            when {
+                                pending.stopping -> "正在停下"
+                                pending.partial.isNullOrEmpty() -> "正在想"
+                                else -> "正在写"
+                            },
+                            style = type.caption.copy(fontSize = 12.tsp, color = colors.muted),
+                            modifier = Modifier.weight(1f),
+                        )
+                        Row(
+                            Modifier
+                                .heightIn(min = 40.dp)
+                                .clip(QichiShapes.pill)
+                                .background(colors.surface)
+                                .border(1.dp, colors.ink.copy(alpha = .08f), QichiShapes.pill)
+                                .clickable(enabled = !pending.stopping, role = Role.Button, onClickLabel = "停下 AI 的回答", onClick = onStop)
+                                .padding(horizontal = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(QichiIcons.Stop, contentDescription = null, tint = if (pending.stopping) colors.faint else colors.ink, modifier = Modifier.size(14.dp))
+                            Text("停下", style = type.button.copy(fontSize = 14.tsp, letterSpacing = 0.em, color = if (pending.stopping) colors.faint else colors.ink))
+                        }
+                    }
+                }
             }
         }
     }
@@ -798,11 +902,11 @@ private fun NewMessagesDivider() {
     Row(
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Box(Modifier.weight(1f).height(1.dp).background(colors.accent.copy(alpha = 0.35f)))
-        Text("新消息", style = QichiTheme.typography.caption.copy(fontSize = 12.tsp, letterSpacing = 0.3.em, color = colors.accent))
-        Box(Modifier.weight(1f).height(1.dp).background(colors.accent.copy(alpha = 0.35f)))
+        Box(Modifier.weight(1f).height(1.dp).dashedLine(colors.accent.copy(alpha = 0.5f)))
+        Text("新消息", style = QichiTheme.typography.caption.copy(fontSize = 12.tsp, fontWeight = FontWeight.W500, color = colors.accent))
+        Box(Modifier.weight(1f).height(1.dp).dashedLine(colors.accent.copy(alpha = 0.5f)))
     }
 }
 
@@ -938,14 +1042,15 @@ private fun InputBar(
         // 离线时置灰（仍可点，点了说明为什么不能发）
         IconAction(
             QichiIcons.Plus, contentDescription = if (online) "添加图片或文件" else "添加图片或文件（离线时不可用）",
-            onClick = onAttach, iconSize = 24, tint = if (online) colors.ink else colors.faint,
+            onClick = onAttach, iconSize = 22, tint = if (online) colors.ink else colors.faint,
         )
         Box(
             Modifier
                 .weight(1f)
                 .heightIn(min = 46.dp)
+                .lift(colors, RoundedCornerShape(23.dp))
                 .clip(RoundedCornerShape(23.dp))
-                .background(colors.surface)
+                .background(colors.card)
                 .padding(start = 16.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
             contentAlignment = Alignment.CenterStart,
         ) {
@@ -966,14 +1071,18 @@ private fun InputBar(
                 )
                 // 设计稿里输入框右端的「问 AI」：只有点它才会调用 AI；没开启、离线、没写问题时置灰
                 val canAsk = aiEnabled && online && draft.isNotBlank()
-                Text(
-                    "问 AI",
-                    style = type.body.copy(fontSize = 14.tsp, letterSpacing = 0.1.em, color = if (canAsk) colors.personB else colors.faint),
-                    modifier = Modifier
+                val askColor = if (canAsk) colors.personB else colors.faint
+                Row(
+                    Modifier
                         .heightIn(min = 24.dp)
                         .clickable(role = Role.Button, onClick = onAskAi)
                         .padding(horizontal = 8.dp),
-                )
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(QichiIcons.Spark, contentDescription = null, tint = askColor, modifier = Modifier.size(15.dp))
+                    Text("问 AI", style = type.body.copy(fontSize = 14.tsp, fontWeight = FontWeight.W500, color = askColor))
+                }
             }
         }
         val canSend = draft.isNotBlank()
@@ -989,4 +1098,10 @@ private fun InputBar(
             Icon(QichiIcons.Send, contentDescription = null, tint = colors.background, modifier = Modifier.size(20.dp))
         }
     }
+}
+
+/** 1dp 虚线（「新消息」两侧）。 */
+private fun Modifier.dashedLine(color: Color): Modifier = drawBehind {
+    drawLine(color, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), strokeWidth = 1.dp.toPx(),
+        pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())))
 }

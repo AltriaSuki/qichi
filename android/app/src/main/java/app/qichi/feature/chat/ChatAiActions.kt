@@ -1,31 +1,33 @@
 package app.qichi.feature.chat
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.qichi.core.data.People
 import app.qichi.core.designsystem.QichiShapes
 import app.qichi.core.designsystem.QichiTheme
-import app.qichi.core.designsystem.Sizes
 import app.qichi.core.designsystem.Spacing
+import app.qichi.core.designsystem.component.FeatureTile
 import app.qichi.core.designsystem.component.TextAction
-import app.qichi.core.data.People
+import app.qichi.core.designsystem.component.dashedBorder
+import app.qichi.core.designsystem.icon.QichiIcons
+import app.qichi.core.designsystem.tsp
 import app.qichi.shared.api.AiAction
 import app.qichi.shared.api.SummarySource
 import app.qichi.shared.model.AiActionKind
@@ -111,35 +113,49 @@ internal fun AiActionCards(actions: List<AiAction>, people: People, zone: ZoneId
     }
 }
 
+/** 提议的功能色块：日程 = 日历，待办、灵感、档案用各自的图标（颜色统一雾蓝，是 AI 的颜色）。 */
+private fun kindIcon(a: AiAction) = when (a.kind) {
+    AiActionKind.Event -> QichiIcons.Calendar
+    AiActionKind.Todo -> QichiIcons.Todo
+    AiActionKind.Idea -> QichiIcons.Idea
+    AiActionKind.ArchiveItem -> QichiIcons.Archive
+}
+
+/** 一张提议（按 New-Chat）：雾蓝虚线框 + 淡底，左边功能色块，中间标题和时间，右边「不用」「好」。 */
 @Composable
 private fun AiActionCard(a: AiAction, people: People, zone: ZoneId, handlers: AiActionHandlers) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
-    Column(Modifier.fillMaxWidth().clip(QichiShapes.card).background(colors.surface).padding(start = 16.dp, end = 12.dp, top = 12.dp)) {
-        Text(headline(a, zone), style = type.caption.copy(color = colors.faint))
-        Text(a.draft.title, style = type.bodyLarge.copy(color = colors.ink), maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
-        details(a, people)?.let { Text(it, style = type.caption.copy(color = colors.muted), maxLines = 2, overflow = TextOverflow.Ellipsis) }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        Modifier.fillMaxWidth()
+            .dashedBorder(colors.personB.copy(alpha = .45f), 12.dp)
+            .background(colors.personB.copy(alpha = .06f), shape)
+            .padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        FeatureTile(kindIcon(a), colors.personB, size = 34.dp)
+        Column(Modifier.weight(1f)) {
+            Text(a.draft.title, style = type.body.copy(fontWeight = FontWeight.W500, lineHeight = 21.75.tsp, color = colors.ink), maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Text(headline(a, zone), style = type.caption.copy(fontSize = 12.tsp, color = colors.muted))
+            details(a, people)?.let { Text(it, style = type.caption.copy(fontSize = 12.tsp, color = colors.muted), maxLines = 2, overflow = TextOverflow.Ellipsis) }
             if (a.status == AiActionStatus.Accepted) {
-                Text(
-                    (a.decidedBy?.let { "${people.name(it)}记下了" } ?: "已记下"),
-                    style = type.caption.copy(color = colors.muted),
-                    modifier = Modifier.weight(1f),
-                )
-                resultSource(a, zone)?.let { src -> TextAction("查看", { handlers.onOpen(src) }) }
-            } else {
-                TextAction("不用", { handlers.onDismiss(a) }, color = colors.muted)
-                Spacer(Modifier.width(10.dp))
-                Box(
-                    Modifier.heightIn(min = Sizes.touchTarget).clip(QichiShapes.pill).border(1.dp, colors.line2, QichiShapes.pill)
-                        .clickable(role = Role.Button, onClickLabel = "记下这${if (a.kind == AiActionKind.Event) "个日程" else "条"}") { handlers.onAccept(a) }
-                        .padding(horizontal = 18.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("好", style = type.body.copy(color = colors.ink))
-                }
+                Text(a.decidedBy?.let { "${people.name(it)}记下了" } ?: "已记下", style = type.caption.copy(fontSize = 12.tsp, color = colors.personB))
             }
         }
-        Spacer(Modifier.padding(bottom = 4.dp))
+        if (a.status == AiActionStatus.Accepted) {
+            resultSource(a, zone)?.let { src -> TextAction("查看", { handlers.onOpen(src) }) }
+        } else {
+            TextAction("不用", { handlers.onDismiss(a) }, color = colors.muted)
+            Box(
+                Modifier.heightIn(min = 40.dp).clip(QichiShapes.pill).background(colors.ink)
+                    .clickable(role = Role.Button, onClickLabel = "记下这${if (a.kind == AiActionKind.Event) "个日程" else "条"}") { handlers.onAccept(a) }
+                    .padding(horizontal = 16.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("好", style = type.button.copy(color = colors.background))
+            }
+        }
     }
 }

@@ -10,6 +10,11 @@ import app.qichi.core.auth.SessionManager
 import app.qichi.core.data.AttachmentException
 import app.qichi.core.data.AttachmentPreparer
 import app.qichi.core.data.ChatRepository
+import app.qichi.shared.api.Mood
+import java.time.Instant
+import app.qichi.core.ui.zoneOf
+import app.qichi.core.ui.todayIn
+import app.qichi.core.data.MoodRepository
 import app.qichi.core.data.DraftStore
 import app.qichi.core.data.FileRepository
 import app.qichi.core.data.People
@@ -61,6 +66,8 @@ data class ChatState(
     val online: Boolean = true,
     /** 服务端配置了 AI（否则「问 AI」显示为不可用） */
     val aiEnabled: Boolean = false,
+    /** 对方今天记的心情（没记为空） */
+    val partnerMood: Mood? = null,
 )
 
 /** 等 AI 回答的提问：显示在聊天最下面，回答同步下来后消失。[jobId] 也是回答消息的 id。 */
@@ -72,6 +79,8 @@ data class PendingAi(
     val sourceMessageId: UUID? = null,
     /** 边生成边显示：到目前为止的回答（P8-03）；还没开始出字时为空 */
     val partial: String? = null,
+    /** 点了「停下」，等服务端收尾（P10-04） */
+    val stopping: Boolean = false,
 )
 
 /** 边生成边显示：把到目前为止的回答放进对应的等待项；已经失败的不动（等用户点重试）。 */
@@ -84,6 +93,8 @@ data class Upload(
     val attachment: PreparedAttachment,
     val progress: Float = 0f,
     val failed: String? = null,
+    /** 照片下面的一句说明（P10-04） */
+    val caption: String = "",
 )
 
 /** 聊天搜索（服务端搜索，需要联网）。 */
@@ -112,6 +123,7 @@ sealed interface ChatEvent {
 class ChatViewModel @AssistedInject constructor(
     @Assisted private val roomId: UUID,
     private val chat: ChatRepository,
+    moods: MoodRepository,
     private val preparer: AttachmentPreparer,
     private val drafts: DraftStore,
     private val files: FileRepository,
@@ -128,9 +140,15 @@ class ChatViewModel @AssistedInject constructor(
     val messages: Flow<PagingData<Local<Message>>> = chat.messages(roomId).cachedIn(viewModelScope)
 
     val state: StateFlow<ChatState> = combine(
-        rooms.observeRoom(roomId), rooms.observeMembers(roomId), network.isOnline, rooms.me,
-    ) { room, members, online, me ->
-        ChatState(People(room, members, session.currentUserId), online, aiEnabled = me?.aiEnabled == true)
+        rooms.observeRoom(roomId), rooms.observeMembers(roomId), network.isOnline, rooms.me, moods.observeMoods(roomId),
+    ) { room, members, online, me, allMoods ->
+        val people = People(room, members, session.currentUserId)
+        val zone = zoneOf(room?.timezone)
+        val today = todayIn(zone, Instant.now())
+        // 顶栏名字下那句手写：对方今天记的心情（P10-04）
+        val partnerMood = allMoods.firstOrNull { it.value.authorId != people.myUserId }?.value
+            ?.takeIf { it.createdAt.atZone(zone).toLocalDate() == today }
+        ChatState(people, online, aiEnabled = me?.aiEnabled == true, partnerMood = partnerMood)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, ChatState())
 
     /** 最新一条消息的 id 与作者：界面据此决定跟到底部还是提示「新消息」 */
@@ -157,6 +175,10 @@ class ChatViewModel @AssistedInject constructor(
     private val _pendingAi = MutableStateFlow<List<PendingAi>>(emptyList())
     val pendingAi: StateFlow<List<PendingAi>> = _pendingAi.asStateFlow()
     private val aiWatchers = mutableMapOf<UUID, Job>()
+
+    /** 选好了照片、正在写说明（还没开始上传） */
+    private val _captioning = MutableStateFlow<Upload?>(null)
+    val captioning: StateFlow<Upload?> = _captioning.asStateFlow()
 
     private val _uploads = MutableStateFlow<List<Upload>>(emptyList())
     val uploads: StateFlow<List<Upload>> = _uploads.asStateFlow()
@@ -244,9 +266,28 @@ class ChatViewModel @AssistedInject constructor(
                 return@launch
             }
             val upload = Upload(UuidV7.generate(), attachment)
+            if (asImage) {
+                // 照片先写一句说明（可以不写），点「发送」再上传
+                _captioning.value?.let { preparer.cleanup(it.attachment) }
+                _captioning.value = upload
+                return@launch
+            }
             _uploads.update { it + upload }
             runUpload(upload)
         }
+    }
+
+    /** 写好说明（或不写）发出照片。 */
+    fun sendPhoto(caption: String) {
+        val upload = _captioning.value?.copy(caption = MessageRules.photoCaption(caption)) ?: return
+        _captioning.value = null
+        _uploads.update { it + upload }
+        viewModelScope.launch { runUpload(upload) }
+    }
+
+    fun cancelPhoto() {
+        _captioning.value?.let { preparer.cleanup(it.attachment) }
+        _captioning.value = null
     }
 
     fun retryUpload(id: UUID) {
@@ -266,7 +307,7 @@ class ChatViewModel @AssistedInject constructor(
         try {
             val file = files.upload(roomId, upload.id, upload.attachment) { p -> updateUpload(upload.id) { it.copy(progress = p) } }
             _replyTo.value = if (_replyTo.value == reply) null else _replyTo.value
-            chat.sendAttachment(roomId, file, replyTo = reply)
+            chat.sendAttachment(roomId, file, replyTo = reply, caption = upload.caption)
             _uploads.update { list -> list.filterNot { it.id == upload.id } }
             preparer.cleanup(upload.attachment)
         } catch (e: CancellationException) {
@@ -420,6 +461,24 @@ class ChatViewModel @AssistedInject constructor(
         }
         _pendingAi.update { list -> list.map { if (it.jobId == jobId) it.copy(failed = false, partial = null) else it } }
         submitAi(pending)
+    }
+
+    /** 「停下」：服务端停止生成，已写出的部分作为「已停下」的消息同步下来，到时这一项自动收起。 */
+    fun stopAi(jobId: UUID) {
+        val pending = _pendingAi.value.firstOrNull { it.jobId == jobId } ?: return
+        if (pending.stopping || pending.failed) return
+        _pendingAi.update { list -> list.map { if (it.jobId == jobId) it.copy(stopping = true) else it } }
+        viewModelScope.launch {
+            try {
+                chat.stopAi(roomId, jobId)
+                runCatching { syncEngine.pull(roomId) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _pendingAi.update { list -> list.map { if (it.jobId == jobId) it.copy(stopping = false) else it } }
+                _events.emit(ChatEvent.Toast(if (network.isOnline.value) "没停下来，再点一次" else "离线时停不下来"))
+            }
+        }
     }
 
     fun dismissAi(jobId: UUID) {

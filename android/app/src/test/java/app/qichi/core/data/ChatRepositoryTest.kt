@@ -21,6 +21,7 @@ import app.qichi.shared.api.AiAction
 import app.qichi.shared.api.AiActionDraft
 import app.qichi.shared.api.AiChatRequest
 import app.qichi.shared.api.AiJobAccepted
+import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.MessagePage
 import app.qichi.shared.api.QichiJson
@@ -31,6 +32,7 @@ import app.qichi.shared.model.AiActionKind
 import app.qichi.shared.model.AiActionStatus
 import app.qichi.shared.model.AiJobStatus
 import app.qichi.shared.model.EntityType
+import app.qichi.shared.model.FileKind
 import app.qichi.shared.model.MessageKind
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
@@ -216,6 +218,32 @@ class ChatRepositoryTest {
         assertEquals(false, chat.observeHasMessage(jobId).first())
         store.applyServer(serverMessage(3).copy(id = jobId, kind = MessageKind.Ai, authorId = null, aiPrompt = "周六去哪片海？"))
         assertEquals(true, chat.observeHasMessage(jobId).first())
+    }
+
+    @Test
+    fun `停下 AI：直接请求停下接口（不进发件箱）`() = runTest {
+        val jobId = UUID(0, 2)
+        var seen: String? = null
+        server.custom = { request ->
+            seen = request.method.value + " " + request.url.encodedPath
+            respond(QichiJson.encodeToString(AiJobAccepted.serializer(), AiJobAccepted(jobId, AiJobStatus.Running)), HttpStatusCode.OK, json)
+        }
+        assertEquals(AiJobStatus.Running, chat.stopAi(roomId, jobId).status)
+        assertEquals("POST /api/v1/rooms/$roomId/ai/jobs/$jobId/stop", seen)
+        assertTrue(db.outbox().all().isEmpty())
+    }
+
+    @Test
+    fun `发照片带说明：说明整理后写进正文，发送请求里也带上；文件不带说明`() = runTest {
+        val now = java.time.Instant.parse("2026-09-24T02:00:00Z")
+        val photo = FileMeta(UUID(0, 3), roomId, FileKind.Image, "sea.jpg", "image/jpeg", 10, "0".repeat(64), 400, 300, me, now)
+        val sent = chat.sendAttachment(roomId, photo, caption = "  那家民宿的\n窗外 ")
+        assertEquals("那家民宿的 窗外", store.get<Message>(EntityType.Message, sent.id)!!.value.body)
+        val request = QichiJson.decodeFromString(SendMessageRequest.serializer(), db.outbox().all().single().bodyJson!!)
+        assertEquals("那家民宿的 窗外", request.body)
+
+        val doc = photo.copy(id = UUID(0, 4), kind = FileKind.File, fileName = "a.pdf", mimeType = "application/pdf")
+        assertEquals("", chat.sendAttachment(roomId, doc, caption = "不该有").body)
     }
 
     @Test
