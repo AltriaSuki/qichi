@@ -35,7 +35,7 @@ def login(user, password):
 
 
 def first_room(token):
-    return req("GET", "rooms", token=token)[0]["id"]
+    return req("GET", "me", token=token)["rooms"][0]["roomId"]
 
 
 def upload(token, room, path, kind="review"):

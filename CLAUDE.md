@@ -63,6 +63,7 @@ adb exec-out screencap -p > shot.png                # 截图
 
 模拟器访问本机服务端：先 `adb reverse tcp:8080 tcp:8080`，App 用 `http://127.0.0.1:8080`（`android/local.properties` 的 `qichi.baseUrl`，也是默认值）。不要用 `10.0.2.2`：这台电脑的代理 TUN 模式会让它超时（见 SETUP-ARCH.md）。
 adb 输入不了中文：界面测试里的名字用英文，中文内容通过接口准备。
+模拟器操作、本机假 AI、用接口准备数据的小工具在 `tools/`（见 `tools/README.md`）；新写的测试小工具也放那里，不放会话临时目录。
 
 ## 4. 代码约定
 
