@@ -11,6 +11,7 @@ import app.qichi.server.db.Books
 import app.qichi.server.db.Decisions
 import app.qichi.server.db.DocumentVersions
 import app.qichi.server.db.Documents
+import app.qichi.shared.rules.DocumentImages
 import app.qichi.server.db.Events
 import app.qichi.server.db.Files
 import app.qichi.server.db.Highlights
@@ -198,13 +199,22 @@ class ExportService(
                 while (!usedNames.add(name)) name = "$clean ($i)$ext".also { i++ }
                 return name
             }
-            val docs = documents.filter { it.id in latestBodies }.map { unique(it.title, ".md") to latestBodies[it.id]!! }
-
-            val files = if (!includeFiles) emptyList() else {
-                // 聊天里的附件，加上审稿各版本的原文件
-                val ids = (messages.mapNotNull { it.file?.id } + reviewVersions.map { it.fileId }).distinct()
-                if (ids.isEmpty()) emptyList() else Files.select(Files.id, Files.fileName, Files.storagePath).where { Files.id inList ids }
-                    .map { unique(it[Files.id].toString().take(8) + "-" + it[Files.fileName].substringBeforeLast('.'), "." + it[Files.fileName].substringAfterLast('.', "bin")) to it[Files.storagePath] }
+            // 文稿里的照片（P9-02）：只认这个房间的文件
+            val docImageIds = latestBodies.values.flatMap { DocumentImages.fileIds(it) }.distinct()
+            val fileEntries = if (!includeFiles) emptyList() else {
+                // 聊天里的附件、审稿各版本的原文件、文稿里的照片
+                val ids = (messages.mapNotNull { it.file?.id } + reviewVersions.map { it.fileId } + docImageIds).distinct()
+                if (ids.isEmpty()) emptyList() else Files.select(Files.id, Files.fileName, Files.storagePath)
+                    .where { (Files.id inList ids) and (Files.roomId eq roomId) }
+                    .map { Triple(it[Files.id], unique(it[Files.id].toString().take(8) + "-" + it[Files.fileName].substringBeforeLast('.'), "." + it[Files.fileName].substringAfterLast('.', "bin")), it[Files.storagePath]) }
+            }
+            val zipNames = fileEntries.associate { (id, name, _) -> id to name }
+            val files = fileEntries.map { (_, name, path) -> name to path }
+            // 图片标记换成附件里的路径；没导出附件（或不是这个房间的文件）就写「（照片）」
+            val docs = documents.filter { it.id in latestBodies }.map { d ->
+                unique(d.title, ".md") to DocumentImages.rewrite(latestBodies[d.id]!!) { alt, id ->
+                    zipNames[id]?.let { "![$alt](../附件/$it)" } ?: "（${alt.ifBlank { "照片" }}）"
+                }
             }
             ExportBundle(room.name, json, chat, docs, files)
         }
