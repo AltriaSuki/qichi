@@ -55,11 +55,12 @@ fun Route.syncRoutes(ctx: AppContext) {
         /**
          * 实时通道：连上后先发 hello（所在房间与各自 lastSeq），之后每当所在房间有变化就发 changed。
          * 只是提示，客户端收到后自己调用 sync 拉取。客户端不发业务消息。
-         * 带 `?caps=notify` 的连接还会收到发给自己的 notify（内置通知，App 在后台时弹出）。
+         * 带 `?caps=notify` 的连接还会收到发给自己的 notify（内置通知，App 在后台时弹出）；
+         * 带 `ai_stream` 的还会收到 ai.delta（问 AI 边生成边显示）。能力用逗号分开，如 `?caps=notify,ai_stream`。
          */
         webSocket("/ws") {
             val userId = call.user.userId
-            val wantsNotify = call.request.queryParameters["caps"].orEmpty().split(',').any { it.trim() == "notify" }
+            val caps = call.request.queryParameters["caps"].orEmpty().split(',').map { it.trim() }.toSet()
             val rooms = ConcurrentHashMap.newKeySet<UUID>()
             val hello = ctx.database.tx(readOnly = true) {
                 val roomIds = RoomMembers.select(RoomMembers.roomId)
@@ -71,7 +72,7 @@ fun Route.syncRoutes(ctx: AppContext) {
             send(Frame.Text(QichiJson.encodeToString(WsEvent.serializer(), hello)))
 
             ctx.realtime.events
-                .filter { event -> event.userId == null || (event.userId == userId && wantsNotify) }
+                .filter { event -> (event.userId == null || event.userId == userId) && (event.cap == null || event.cap in caps) }
                 .filter { event ->
                     // 连接期间新加入的房间：第一次收到它的事件时查一次成员身份
                     event.roomId in rooms || ctx.database.tx(readOnly = true) {

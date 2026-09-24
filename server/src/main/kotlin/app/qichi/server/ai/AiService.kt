@@ -792,8 +792,21 @@ class AiService(
                 "prompt" to prompt,
             ),
         )
+        // 边生成边推给 App（P8-03）：最多每 [STREAM_EVERY_MS] 推一次到目前为止给人看的部分
+        var lastSent = 0L
+        var lastText = ""
         val result = try {
-            gateway.complete(AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)), maxTokens = CHAT_MAX_TOKENS))
+            gateway.stream(
+                AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)), maxTokens = CHAT_MAX_TOKENS, timeoutMillis = CHAT_TIMEOUT_MS),
+            ) { soFar ->
+                val visible = AiActionParser.visiblePart(soFar)
+                val now = System.currentTimeMillis()
+                if (visible.isNotEmpty() && visible != lastText && now - lastSent >= STREAM_EVERY_MS) {
+                    lastSent = now
+                    lastText = visible
+                    realtime.aiDelta(roomId, jobId, visible)
+                }
+            }
         } catch (e: AiProviderException) {
             log.warn("问 AI 失败（第 {} 次）：{}", job.attempts, e.message)
             if (e.retryable && !job.isLastAttempt) throw e
@@ -951,6 +964,10 @@ class AiService(
         const val PROMPT_MAX = 2000
         private const val CHAT_ATTEMPTS = 2
         private const val CHAT_MAX_TOKENS = 800
+
+        /** 问 AI 最多等 3 分钟（边生成边显示，等的时候看得到进度） */
+        private const val CHAT_TIMEOUT_MS = 180_000L
+        private const val STREAM_EVERY_MS = 250L
         private const val CONTEXT_MESSAGES = 30
         private const val CONTEXT_LINE_MAX = 300
         private const val MESSAGE_MAX = 10_000

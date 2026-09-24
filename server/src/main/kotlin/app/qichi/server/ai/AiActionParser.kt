@@ -137,5 +137,25 @@ class AiActionParser(
     companion object {
         const val OPEN = "<actions>"
         const val CLOSE = "</actions>"
+
+        private val citation = Regex("\\s?\\[\\d{1,4}]")
+
+        /**
+         * 边生成边显示时给人看的部分：去掉动作段（包括只来了一半的「<act」），也先去掉 [n]——
+         * 最后存下的回答会把引用重新编号，中途显示的编号对不上。
+         */
+        fun visiblePart(soFar: String): String {
+            var text = soFar
+            val i = text.indexOf(OPEN)
+            if (i >= 0) {
+                text = text.substring(0, i)
+            } else {
+                (OPEN.length - 1 downTo 1).firstOrNull { k -> text.endsWith(OPEN.substring(0, k)) }?.let { k -> text = text.dropLast(k) }
+            }
+            text = text.replace(citation, "")
+            // 结尾只来了一半的「[1」也先不显示
+            text = text.replace(Regex("\\[\\d{0,4}$"), "")
+            return text.trim()
+        }
     }
 }

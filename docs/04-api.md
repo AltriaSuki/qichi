@@ -71,17 +71,19 @@
 {"type":"changed","roomId":"…","seq":181}
 {"type":"ai.done","roomId":"…","jobId":"…","status":"done"}
 {"type":"notify","roomId":"…","payload":{"title":"小迟","body":"到家了吗","kind":"message",…}}
+{"type":"ai.delta","roomId":"…","jobId":"…","text":"周六去北边那片海，"}
 ```
 
 - `changed` 只是提示，客户端收到后调用 `sync` 拉取，不在通道里传实体内容。
 - `notify` 是内置通知（内容同经 ntfy 发的推送，见 `shared/api/Push.kt`），只发给要通知的那个人，并且只发给连接地址带 `?caps=notify` 的连接（旧版 App 不认识它）。App 在后台时据此弹通知。客户端遇到不认识的事件类型要跳过，不能断开。
-- 客户端 → 服务端不发业务消息；心跳用 WebSocket 的 ping/pong 帧（30 秒）。
+- `ai.delta` 是问 AI 边生成边显示（P8-03）：`text` 是到目前为止的回答全文（不是增量，丢几条没关系；不含动作段和 [n]），服务端最多每 250 毫秒发一次，只发给连接地址带 `ai_stream` 的连接（能力用逗号分开：`?caps=notify,ai_stream`）。最终回答照旧是 id = jobId 的 AI 消息。
+- 客户端 → 服务端不发业务消息；心跳用 WebSocket 的 ping/pong 帧（60 秒，120 秒没回应算断开）。
 - **没有**「正在输入」「在线」等事件（产品明确不做）。
 
 ## 3. AI 请求的统一模式
 
 1. 客户端 `POST …/ai/{kind}`，带 `jobId`（客户端生成）和参数 → 服务端立即返回 **202** `{jobId, status:"queued"}`
-2. 服务端在后台调用大模型，结果写进对应实体（例如一条 `kind = "ai"` 的消息、一批待采纳的问题、一份总结）
+2. 服务端在后台调用大模型，结果写进对应实体（例如一条 `kind = "ai"` 的消息、一批待采纳的问题、一份总结）；问 AI 边生成边经 `ai.delta` 推送进度。等待上限按功能分开：问 AI 3 分钟，其它 2 分钟
 3. 通过 WebSocket 发 `ai.done`，并照常产生 `changed`；客户端拉取同步即可看到结果
 4. 失败时 `ai_jobs.status = failed`，客户端在原位置显示「没有得到回答，重试」
 

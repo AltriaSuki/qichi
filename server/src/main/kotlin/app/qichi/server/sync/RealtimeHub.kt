@@ -9,8 +9,11 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import java.util.UUID
 
-/** 一条发给房间成员的实时事件（changed、ai.done）；[userId] 不为空时只发给这个人（notify）。 */
-data class RoomEvent(val roomId: UUID, val event: WsEvent, val userId: UUID? = null)
+/**
+ * 一条发给房间成员的实时事件（changed、ai.done）；[userId] 不为空时只发给这个人（notify）；
+ * [cap] 不为空时只发给连接时声明了这项能力的连接（旧版 App 不认识的事件）。
+ */
+data class RoomEvent(val roomId: UUID, val event: WsEvent, val userId: UUID? = null, val cap: String? = null)
 
 /**
  * 进程内的实时事件总线：RoomWriter 提交后发布 changed，AI 任务结束时发布 ai.done；
@@ -35,6 +38,16 @@ class RealtimeHub : ChangeNotifier {
 
     /** 内置通知：只发给 [userId] 带了 caps=notify 的连接。 */
     suspend fun notify(roomId: UUID, userId: UUID, payload: PushPayload) {
-        flow.emit(RoomEvent(roomId, WsEvent.Notify(roomId, payload), userId))
+        flow.emit(RoomEvent(roomId, WsEvent.Notify(roomId, payload), userId, CAP_NOTIFY))
+    }
+
+    /** 问 AI 边生成边显示：到目前为止的全文，发给房间里带了 caps=ai_stream 的连接。 */
+    suspend fun aiDelta(roomId: UUID, jobId: UUID, text: String) {
+        flow.emit(RoomEvent(roomId, WsEvent.AiDelta(roomId, jobId, text), cap = CAP_AI_STREAM))
+    }
+
+    companion object {
+        const val CAP_NOTIFY = "notify"
+        const val CAP_AI_STREAM = "ai_stream"
     }
 }

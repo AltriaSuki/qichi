@@ -3090,6 +3090,17 @@ components:
         roomId: { $ref: '#/components/schemas/Uuid' }
         jobId: { $ref: '#/components/schemas/Uuid' }
         status: { type: string, enum: [done, failed] }
+    WsAiDelta:
+      type: object
+      description: |
+        问 AI 边生成边显示（P8-03）：text 是到目前为止给人看的回答全文（不是增量，不含动作段和引用编号）；
+        最终回答仍是 id = jobId 的 AI 消息。只发给连接地址带 `?caps=ai_stream` 的连接。
+      required: [type, roomId, jobId, text]
+      properties:
+        type: { type: string, const: ai.delta }
+        roomId: { $ref: '#/components/schemas/Uuid' }
+        jobId: { $ref: '#/components/schemas/Uuid' }
+        text: { type: string }
 
     # ── 心情 ──
     MoodLabel:
