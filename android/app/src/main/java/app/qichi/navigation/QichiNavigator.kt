@@ -98,6 +98,26 @@ class QichiNavigator(
     }
 
     /**
+     * 打开 AI 引用的来源（总结、问 AI 回答里的 [n]）：跳到原来那条记录所在的页面。
+     * 日程按手机本地时区换算成那一天。
+     */
+    fun openSource(roomId: java.util.UUID, src: app.qichi.shared.api.SummarySource) {
+        when (src.type) {
+            "message" -> handle(DeepLink.ToTab(roomId.toString(), TopTab.Chat, src.id.toString()))
+            "decision" -> open(Page.Decisions, src.id.toString())
+            "plan" -> open(Page.Plan, src.id.toString())
+            "archive_item" -> open(Page.Archive, src.id.toString())
+            "idea" -> open(Page.Ideas)
+            "mood" -> open(Page.Mood)
+            "todo" -> open(Page.Todo)
+            "event" -> {
+                open(Page.Calendar)
+                navController.navigate(CalendarDay(src.at.atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()))
+            }
+        }
+    }
+
+    /**
      * 切到某个标签。离开的标签总是保存返回栈（saveState）。
      * 「今天」没有二级页面，切回时不恢复状态：Navigation 会把离开其它标签时保存的状态
      * 也登记在起始目的地（今天）名下，恢复它会错把别的标签的页面带回来。

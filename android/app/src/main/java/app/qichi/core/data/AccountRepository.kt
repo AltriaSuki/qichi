@@ -10,6 +10,7 @@ import app.qichi.core.network.post
 import app.qichi.shared.api.AuthTokens
 import app.qichi.shared.api.ChangePasswordRequest
 import app.qichi.shared.api.LoginSession
+import app.qichi.shared.api.AiPrefs
 import app.qichi.shared.api.NotificationPrefs
 import app.qichi.shared.api.Patch
 import app.qichi.shared.api.UpdateMeRequest
@@ -47,5 +48,9 @@ class AccountRepository(
 
     suspend fun updateNotifications(prefs: NotificationPrefs) {
         rooms.updateMe(UpdateMeRequest(notificationPrefs = Patch.of(prefs.toJson())))
+    }
+
+    suspend fun updateAiPrefs(prefs: AiPrefs) {
+        rooms.updateMe(UpdateMeRequest(aiPrefs = Patch.of(prefs.toJson())))
     }
 }

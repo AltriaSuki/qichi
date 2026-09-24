@@ -52,10 +52,9 @@ import app.qichi.core.ui.MarkdownView
 import app.qichi.core.ui.relativeDay
 import app.qichi.shared.api.Summary
 import app.qichi.shared.api.SummarySource
-import app.qichi.shared.model.MoodLabel
 import app.qichi.shared.model.SummaryKind
-import app.qichi.shared.model.fromWireOrNull
-import app.qichi.core.ui.feelingWord
+import app.qichi.core.ui.sourceKind
+import app.qichi.core.ui.sourceLabel
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -72,25 +71,6 @@ private val SummaryKind.label: String
         SummaryKind.Custom -> "一段时间"
         SummaryKind.Year -> "年度回顾"
     }
-
-/** 来源的摘录：心情在服务端存的是英文值（如「calm 7/10，…」），这里换成中文的感受词。 */
-private fun sourceLabel(src: SummarySource): String {
-    if (src.type != "mood") return src.label
-    val m = Regex("^(\\w+) (\\d+)/10(.*)$").find(src.label) ?: return src.label
-    val label = fromWireOrNull<MoodLabel>(m.groupValues[1]) ?: return src.label
-    return feelingWord(label, m.groupValues[2].toInt()) + " " + m.groupValues[2] + m.groupValues[3]
-}
-
-/** 来源的种类（给人看）。 */
-private fun sourceKind(type: String) = when (type) {
-    "message" -> "聊天"
-    "decision" -> "决定"
-    "idea" -> "灵感"
-    "plan" -> "计划"
-    "archive_item" -> "档案"
-    "mood" -> "心情"
-    else -> "记录"
-}
 
 /**
  * 总结：生成本周、本月或自定义范围的回顾（AI 派生），列表里新的在前；

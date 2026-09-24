@@ -127,7 +127,7 @@ fun MeScreen(
             MeSection("房间", listOf(Page.Members to null, Page.RoomSettings to null, Page.Trash to null), onOpen)
             MeSection(
                 "账号",
-                listOf(Page.Profile to null, Page.Display to state.display.textSizeLabel, Page.Notifications to null, Page.Security to null),
+                listOf(Page.Profile to null, Page.Display to state.display.textSizeLabel, Page.Notifications to null, Page.AiPrefs to null, Page.Security to null),
                 onOpen,
             )
             Column(

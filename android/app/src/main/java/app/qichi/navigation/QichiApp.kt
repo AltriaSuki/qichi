@@ -44,6 +44,7 @@ import app.qichi.feature.ideas.IdeasScreen
 import app.qichi.feature.me.AiUsageScreen
 import app.qichi.feature.me.MyContentScreen
 import app.qichi.feature.me.NotificationsScreen
+import app.qichi.feature.me.AiPrefsScreen
 import app.qichi.feature.me.SecurityScreen
 import app.qichi.feature.me.DisplayScreen
 import app.qichi.feature.me.MeScreen
@@ -141,10 +142,12 @@ fun QichiApp(
                 navigation<ChatGraph>(startDestination = ChatHome()) {
                     composable<ChatHome> { entry ->
                         val jumpTo = entry.toRoute<ChatHome>().jumpTo?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
+                        val chatRoom = LocalRoomId.current
                         ChatScreen(
-                            roomId = LocalRoomId.current,
+                            roomId = chatRoom,
                             jumpTo = jumpTo,
                             onArchive = { navigator.open(Page.Archive, "new:${it.id}") },
+                            onOpenSource = { src -> navigator.openSource(chatRoom, src) },
                         )
                     }
                 }
@@ -182,16 +185,7 @@ fun QichiApp(
                                 }
                             }
                             Page.Ideas -> IdeasScreen(roomId = roomId, onBack = navigator::back)
-                            Page.Summary -> SummaryScreen(roomId = roomId, onBack = navigator::back, onOpenSource = { src ->
-                                when (src.type) {
-                                    "message" -> navigator.handle(DeepLink.ToTab(roomId.toString(), TopTab.Chat, src.id.toString()))
-                                    "decision" -> navigator.open(Page.Decisions, src.id.toString())
-                                    "plan" -> navigator.open(Page.Plan, src.id.toString())
-                                    "archive_item" -> navigator.open(Page.Archive, src.id.toString())
-                                    "idea" -> navigator.open(Page.Ideas)
-                                    "mood" -> navigator.open(Page.Mood)
-                                }
-                            })
+                            Page.Summary -> SummaryScreen(roomId = roomId, onBack = navigator::back, onOpenSource = { src -> navigator.openSource(roomId, src) })
                             Page.Reading -> {
                                 val bookId = route.id?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
                                 if (bookId == null) {
@@ -290,6 +284,7 @@ fun QichiApp(
                             }
                             Page.Security -> SecurityScreen(onBack = navigator::back)
                             Page.Notifications -> NotificationsScreen(onBack = navigator::back)
+                            Page.AiPrefs -> AiPrefsScreen(onBack = navigator::back)
                             Page.RoomSettings -> RoomSettingsScreen(roomId = LocalRoomId.current, onBack = navigator::back)
                             else -> PagePlaceholder(route.page.title, onBack = navigator::back)
                         }

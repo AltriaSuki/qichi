@@ -772,6 +772,7 @@ class AiService(
             return fail(jobId, roomId, "没有得到回答")
         }
 
+        val answer = RoomContext.renumber(result.text, sources)
         db.tx {
             val now = clock.instant()
             val seq = writer.change(this, roomId, EntityType.Message, jobId, askerId, now)
@@ -784,9 +785,9 @@ class AiService(
                 it[updatedAt] = now
                 it[authorId] = null
                 it[kind] = MessageKind.Ai.wireName
-                it[body] = result.text.take(MESSAGE_MAX)
+                it[body] = answer.body.take(MESSAGE_MAX)
                 it[aiPrompt] = prompt
-                it[aiSources] = SummaryData.cited(result.text, sources)
+                it[aiSources] = answer.sources
             }
             AiJobs.update({ AiJobs.id eq jobId }) {
                 it[status] = AiJobStatus.Done.wireName

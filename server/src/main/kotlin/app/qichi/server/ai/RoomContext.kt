@@ -250,6 +250,24 @@ object RoomContext {
             }
     }
 
+    data class Cited(val body: String, val sources: List<SummarySource>)
+
+    /**
+     * 回答里引用到的来源按第一次出现的顺序重新编成 1、2、3……（给 AI 的编号是检索时排的，会跳号）；
+     * 同一句里重复的编号只留一个，不存在的编号去掉。
+     */
+    fun renumber(text: String, all: List<SourceLine>): Cited {
+        val byNumber = all.associate { it.source.number to it.source }
+        val mapping = linkedMapOf<Int, Int>()
+        val body = citation.replace(text) { m ->
+            val n = m.groupValues[1].toInt()
+            if (n !in byNumber) "" else "[" + mapping.getOrPut(n) { mapping.size + 1 } + "]"
+        }.replace(Regex("(\\[\\d+])(\\1)+"), "$1").replace(Regex(" +([。，；！？])"), "$1").trim()
+        return Cited(body, mapping.map { (old, new) -> byNumber.getValue(old).copy(number = new) })
+    }
+
+    private val citation = Regex("\\[(\\d{1,4})]")
+
     /** 给 AI 看时按类别分组：先是现在和接下来的事，再是长期的，最后是聊天。 */
     private fun order(type: EntityType) = when (type) {
         EntityType.Event -> 0

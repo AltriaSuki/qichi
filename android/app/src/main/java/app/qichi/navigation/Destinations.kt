@@ -49,6 +49,7 @@ enum class Page(val slug: String, val title: String, val tab: TopTab, val group:
     Profile("profile", "资料", TopTab.Me),
     Display("display", "显示", TopTab.Me),
     Notifications("notifications", "通知", TopTab.Me),
+    AiPrefs("ai-prefs", "AI 能看什么", TopTab.Me),
     Security("security", "安全", TopTab.Me),
     ;
 

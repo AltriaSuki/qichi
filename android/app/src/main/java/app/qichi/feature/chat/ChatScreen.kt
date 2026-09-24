@@ -67,6 +67,15 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import app.qichi.core.ui.sourceLabel
+import app.qichi.core.ui.sourceKind
+import app.qichi.shared.api.SummarySource
+import app.qichi.core.designsystem.Spacing
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -115,6 +124,8 @@ fun ChatScreen(
     jumpTo: UUID? = null,
     /** 长按「存进档案」 */
     onArchive: (Message) -> Unit = {},
+    /** 点 AI 回答里的 [n]：打开引用的那条记录（聊天消息在这里直接跳） */
+    onOpenSource: (SummarySource) -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel<ChatViewModel, ChatViewModel.Factory>(key = roomId.toString()) { it.create(roomId) },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -290,6 +301,7 @@ fun ChatScreen(
                         } == true,
                         onRetry = viewModel::retry, onAbandon = viewModel::abandon,
                         onLongPress = { menuFor = local }, onQuoteClick = viewModel::jumpTo,
+                        onOpenSource = { src -> if (src.type == "message") viewModel.jumpTo(src.id) else onOpenSource(src) },
                         attachments = AttachmentActions(
                             urls = viewModel.urls,
                             downloads = downloads,
@@ -428,6 +440,7 @@ private fun MessageRow(
     onAbandon: (Message) -> Unit,
     onLongPress: () -> Unit,
     onQuoteClick: (UUID) -> Unit,
+    onOpenSource: (SummarySource) -> Unit,
     attachments: AttachmentActions,
 ) {
     val m = local.value
@@ -458,7 +471,7 @@ private fun MessageRow(
             Box(Modifier.size(16.dp))
         }
         Column(Modifier.background(flash, RoundedCornerShape(8.dp))) {
-            MessageBody(local, mine, groupedWithNewer, people, zone, maxBubble, onRetry, onAbandon, onLongPress, onQuoteClick, attachments)
+            MessageBody(local, mine, groupedWithNewer, people, zone, maxBubble, onRetry, onAbandon, onLongPress, onQuoteClick, onOpenSource, attachments)
         }
     }
 }
@@ -475,6 +488,7 @@ private fun MessageBody(
     onAbandon: (Message) -> Unit,
     onLongPress: () -> Unit,
     onQuoteClick: (UUID) -> Unit,
+    onOpenSource: (SummarySource) -> Unit,
     attachments: AttachmentActions,
 ) {
     val m = local.value
@@ -482,7 +496,7 @@ private fun MessageBody(
         m.retractedAt != null -> Notice(if (m.retractedBy == people.myUserId) "你撤回了一条消息" else "${people.name(m.retractedBy)}撤回了一条消息")
         m.kind == MessageKind.System -> Notice(m.body)
         m.kind == MessageKind.Ai -> AiBlock(prompt = m.aiPrompt, modifier = Modifier.combinedClickable(onClick = {}, onLongClickLabel = "更多操作", onLongClick = onLongPress)) {
-            Text(m.body, style = aiAnswerStyle(), modifier = Modifier.fillMaxWidth())
+            AiAnswer(m, onOpenSource)
         }
         else -> {
             val file = m.file
@@ -684,6 +698,57 @@ private fun AiBlock(prompt: String?, modifier: Modifier = Modifier, content: @Co
         content()
     }
 }
+
+/**
+ * AI 回答：正文里的 [n] 是链接，点了打开引用的那条记录；有引用时下面可以展开「参考了几条资料」。
+ * 服务端只存正文里真的出现过的编号，找不到对应来源的 [n] 按普通文字显示。
+ */
+@Composable
+private fun AiAnswer(m: Message, onOpenSource: (SummarySource) -> Unit) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    val byNumber = remember(m.aiSources) { m.aiSources.associateBy { it.number } }
+    val linkStyle = TextLinkStyles(SpanStyle(color = colors.accent))
+    val text = remember(m.body, byNumber, linkStyle) {
+        buildAnnotatedString {
+            var last = 0
+            citationPattern.findAll(m.body).forEach { match ->
+                append(m.body.substring(last, match.range.first))
+                val src = byNumber[match.groupValues[1].toInt()]
+                if (src == null) {
+                    append(match.value)
+                } else {
+                    withLink(LinkAnnotation.Clickable("source-${src.number}", linkStyle) { onOpenSource(src) }) { append(match.value) }
+                }
+                last = match.range.last + 1
+            }
+            append(m.body.substring(last))
+        }
+    }
+    Text(text, style = aiAnswerStyle(), modifier = Modifier.fillMaxWidth())
+    if (m.aiSources.isNotEmpty()) {
+        var open by rememberSaveable(m.id) { mutableStateOf(false) }
+        TextAction(
+            "参考了 ${m.aiSources.size} 条资料" + if (open) " · 收起" else "",
+            onClick = { open = !open },
+            color = colors.muted,
+        )
+        if (open) {
+            m.aiSources.forEach { src ->
+                Row(
+                    Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "打开原来的记录") { onOpenSource(src) }.padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+                ) {
+                    Text("[${src.number}]", style = type.numeral.copy(fontSize = 14.tsp, color = colors.accent), modifier = Modifier.widthIn(min = 32.dp))
+                    Text(sourceKind(src.type), style = type.caption.copy(color = colors.faint))
+                    Text(sourceLabel(src), style = type.caption.copy(color = colors.ink), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+private val citationPattern = Regex("\\[(\\d{1,3})]")
 
 @Composable
 private fun aiAnswerStyle() = QichiTheme.typography.body.copy(fontSize = 14.5.tsp, lineHeight = 28.tsp, color = QichiTheme.colors.ink)
