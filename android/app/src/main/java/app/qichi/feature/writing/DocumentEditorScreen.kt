@@ -30,6 +30,15 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import app.qichi.core.ui.MarkdownEdits
+import app.qichi.core.ui.EditHistory
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.key
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -86,7 +95,7 @@ private enum class EditorMode { Edit, History, Rebase }
  * 纸面编辑区（Markdown 标记淡色显示）、底栏（字数与阅读时长、保存状态、字号行距、「存为 vN」）。
  * 专注模式只留纸面；历史版本与重基线在同一页里切换。
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun DocumentEditorScreen(
     roomId: UUID,
@@ -129,9 +138,33 @@ fun DocumentEditorScreen(
 
     // 编辑框自己持有内容与光标；只在本机没有正在输入时跟随外部变化（取到最新版本、对方保存、重基线）
     var field by remember(documentId) { mutableStateOf(TextFieldValue(state.text)) }
+    // 撤销 / 重做（P9-01），每篇文稿各自一份；[historyTick] 让按钮的可用状态跟着刷新
+    val history = remember(documentId) { EditHistory() }
+    var historyTick by remember(documentId) { mutableIntStateOf(0) }
+    // 拼音输入法正在组词时，开始组词前的样子；组完成一步记进撤销
+    var composingFrom by remember(documentId) { mutableStateOf<EditHistory.State?>(null) }
+    fun TextFieldValue.snapshot() = EditHistory.State(text, selection.min, selection.max)
+    fun setText(next: TextFieldValue) {
+        field = next
+        vm.onTextChange(next.text)
+        historyTick++
+    }
+    /** 格式按钮、勾选框：单独记一步。 */
+    fun applyEdit(edit: MarkdownEdits.Edit) {
+        val next = TextFieldValue(edit.text, TextRange(edit.start, edit.end))
+        history.record(field.snapshot(), next.snapshot(), force = true)
+        setText(next)
+    }
+    fun restore(to: EditHistory.State?) {
+        to ?: return
+        composingFrom = null
+        setText(TextFieldValue(to.text, TextRange(to.start.coerceAtMost(to.text.length), to.end.coerceAtMost(to.text.length))))
+    }
     LaunchedEffect(state.text, state.ready) {
         if (state.ready && !vm.hasLocalEdits() && state.text != field.text) {
             field = TextFieldValue(state.text, TextRange(minOf(field.selection.start, state.text.length)))
+            history.clear()
+            historyTick++
         }
     }
     val scroll = rememberScrollState()
@@ -206,7 +239,10 @@ fun DocumentEditorScreen(
                         .padding(start = 26.dp, end = 26.dp, top = 30.dp, bottom = 20.dp),
                 ) {
                     if (preview) {
-                        MarkdownView(field.text, fontSize, settings.lineHeight)
+                        MarkdownView(field.text, fontSize, settings.lineHeight, onToggleTask = { line ->
+                            val toggled = MarkdownEdits.toggleTask(field.text, line)
+                            applyEdit(MarkdownEdits.Edit(toggled, field.selection.min.coerceAtMost(toggled.length)))
+                        })
                     } else {
                         val headingSize = fontSize * 1.3f
                         val markerColor = colors.faint
@@ -217,11 +253,20 @@ fun DocumentEditorScreen(
                             value = field,
                             onValueChange = { next ->
                                 val changed = next.text != field.text
-                                field = next
-                                if (changed) vm.onTextChange(next.text)
+                                if (changed) {
+                                    if (next.composition != null) {
+                                        if (composingFrom == null) composingFrom = field.snapshot()
+                                    } else {
+                                        history.record(composingFrom ?: field.snapshot(), next.snapshot())
+                                        composingFrom = null
+                                    }
+                                    setText(next)
+                                } else {
+                                    field = next
+                                }
                             },
                             textStyle = type.body.copy(
-                                fontSize = fontSize, lineHeight = fontSize * settings.lineHeight, fontWeight = FontWeight.W300,
+                                fontSize = fontSize, lineHeight = settings.lineHeight.em, fontWeight = FontWeight.W300,
                                 letterSpacing = 0.03.em, color = colors.ink,
                             ),
                             cursorBrush = SolidColor(colors.personA),
@@ -243,8 +288,22 @@ fun DocumentEditorScreen(
             }
         }
 
-        // ── 底栏 ──
-        if (!focus) {
+        // ── 格式按钮：键盘打开、正在编辑时代替底栏 ──
+        val imeVisible = WindowInsets.isImeVisible
+        if (imeVisible && !preview && state.ready) {
+            key(historyTick) {
+                FormatBar(
+                    canUndo = history.canUndo,
+                    canRedo = history.canRedo,
+                    onEdit = { transform ->
+                        val e = MarkdownEdits.Edit(field.text, field.selection.min, field.selection.max)
+                        applyEdit(transform(e))
+                    },
+                    onUndo = { restore(history.undo(field.snapshot())) },
+                    onRedo = { restore(history.redo(field.snapshot())) },
+                )
+            }
+        } else if (!focus) {
             Row(
                 Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 28.dp, end = Spacing.m, top = 14.dp, bottom = 18.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -319,6 +378,34 @@ fun DocumentEditorScreen(
 }
 
 @OptIn(ExperimentalLayoutApi::class)
+/** 键盘上方的格式按钮（P9-01）：左边可以横着滑，撤销 / 重做固定在右边。 */
+@Composable
+private fun FormatBar(
+    canUndo: Boolean,
+    canRedo: Boolean,
+    onEdit: ((MarkdownEdits.Edit) -> MarkdownEdits.Edit) -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+) {
+    val colors = QichiTheme.colors
+    Row(
+        Modifier.fillMaxWidth().background(colors.background).padding(horizontal = Spacing.xs, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+            IconAction(QichiIcons.Heading, "标题", { onEdit(MarkdownEdits::cycleHeading) })
+            IconAction(QichiIcons.Bold, "加粗", { onEdit(MarkdownEdits::toggleBold) })
+            IconAction(QichiIcons.BulletList, "列表", { onEdit { MarkdownEdits.toggleLinePrefix(it, "- ") } })
+            IconAction(QichiIcons.TaskList, "勾选框", { onEdit { MarkdownEdits.toggleLinePrefix(it, "- [ ] ") } })
+            IconAction(QichiIcons.Quote, "引用", { onEdit { MarkdownEdits.toggleLinePrefix(it, "> ") } })
+            IconAction(QichiIcons.Rule, "分隔线", { onEdit(MarkdownEdits::insertRule) })
+        }
+        Box(Modifier.width(1.dp).height(22.dp).background(colors.line))
+        IconAction(QichiIcons.Undo, "撤销", onUndo, enabled = canUndo, tint = if (canUndo) colors.ink else colors.faint)
+        IconAction(QichiIcons.Redo, "重做", onRedo, enabled = canRedo, tint = if (canRedo) colors.ink else colors.faint)
+    }
+}
+
 @Composable
 private fun WritingSettingsSheet(settings: WritingSettings, onChange: (WritingSettings) -> Unit) {
     val colors = QichiTheme.colors

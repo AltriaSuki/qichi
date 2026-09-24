@@ -46,6 +46,17 @@ object QichiIcons {
     /** 大纲 */
     val Outline: ImageVector by lazy { stroke("outline", "M4 6h16M8 12h12M8 18h12M4 12h.01M4 18h.01") }
 
+    // ── 写作格式按钮（P9-01） ──
+    val Heading: ImageVector by lazy { stroke("heading", "M6 5v14M17 5v14M6 12h11", width = 1.4f) }
+    val Bold: ImageVector by lazy { stroke("bold", "M7 5h5.5a3.5 3.5 0 0 1 0 7H7zM7 12h6.5a3.5 3.5 0 0 1 0 7H7z", width = 1.6f) }
+    val BulletList: ImageVector by lazy { stroke("bullet-list", "M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01", width = 1.4f) }
+    val TaskList: ImageVector by lazy { stroke("task-list", "M4 5h5v5H4zM5.2 7.6l1.2 1.2 2-2.2M13 7.5h7M4 14h5v5H4zM13 16.5h7") }
+    val Quote: ImageVector by lazy { stroke("quote", "M5 5v14M10 8h9M10 12h9M10 16h6", width = 1.3f) }
+    val Rule: ImageVector by lazy { stroke("rule", "M4 12h16M8 7h8M8 17h8") }
+    val Undo: ImageVector by lazy { stroke("undo", "M9 13L4 8l5-5M4 8h10a6 6 0 0 1 0 12h-3") }
+    val Redo: ImageVector by lazy { stroke("redo", "M15 13l5-5-5-5M20 8H10a6 6 0 0 0 0 12h3") }
+    val Image: ImageVector by lazy { stroke("image", "M4 5h16v14H4zM4 16l5-5 4 4 2.5-2.5L20 17M15.5 9h.01") }
+
     private fun stroke(name: String, pathData: String, width: Float = 1.2f): ImageVector =
         ImageVector.Builder(
             name = name,

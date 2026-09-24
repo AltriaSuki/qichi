@@ -52,4 +52,15 @@ class MarkdownTest {
         val faded = styled.spanStyles.filter { it.item.color == Color.Gray }.map { source.substring(it.start, it.end) }
         assertEquals(listOf("## ", "- "), faded)
     }
+
+    @Test
+    fun `勾选框：认得出勾没勾，编辑时淡化整个标记`() {
+        val blocks = Markdown.parse("要带：\n- [ ] 外套\n- [x] 相机\n- 普通一项")
+        assertEquals(
+            listOf(Markdown.Block.Task(false, "外套", 1), Markdown.Block.Task(true, "相机", 2), Markdown.Block.Item("·", "普通一项", 3)),
+            blocks.drop(1),
+        )
+        val styled = Markdown.highlight("- [ ] 外套", Color.Gray, 20.sp)
+        assertEquals(listOf("- [ ] "), styled.spanStyles.filter { it.item.color == Color.Gray }.map { "- [ ] 外套".substring(it.start, it.end) })
+    }
 }

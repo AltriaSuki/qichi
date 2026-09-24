@@ -13,6 +13,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import app.qichi.core.designsystem.QichiShapes
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.border
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.heading
@@ -40,12 +48,16 @@ object Markdown {
         data class Heading(val level: Int, val text: String, override val line: Int) : Block
         data class Paragraph(val text: String, override val line: Int) : Block
         data class Item(val marker: String, val text: String, override val line: Int) : Block
+
+        /** 勾选框「- [ ] 」「- [x] 」 */
+        data class Task(val checked: Boolean, val text: String, override val line: Int) : Block
         data class Quote(val text: String, override val line: Int) : Block
         data class Rule(override val line: Int) : Block
     }
 
     private val heading = Regex("^(#{1,6})\\s+(.*)$")
     private val bullet = Regex("^\\s*([-*+])\\s+(.*)$")
+    private val task = Regex("^\\s*[-*+]\\s+\\[([ xX])]\\s+(.*)$")
     private val ordered = Regex("^\\s*(\\d{1,3}[.)])\\s+(.*)$")
     private val quote = Regex("^>\\s?(.*)$")
     private val rule = Regex("^\\s*([-*_])(\\s*\\1){2,}\\s*$")
@@ -65,6 +77,7 @@ object Markdown {
                 line.isBlank() -> flush()
                 rule.matches(line) -> { flush(); blocks += Block.Rule(i) }
                 heading.matches(line) -> { flush(); heading.find(line)!!.let { blocks += Block.Heading(it.groupValues[1].length, it.groupValues[2].trim(), i) } }
+                task.matches(line) -> { flush(); task.find(line)!!.let { blocks += Block.Task(it.groupValues[1] != " ", it.groupValues[2], i) } }
                 bullet.matches(line) -> { flush(); bullet.find(line)!!.let { blocks += Block.Item("·", it.groupValues[2], i) } }
                 ordered.matches(line) -> { flush(); ordered.find(line)!!.let { blocks += Block.Item(it.groupValues[1], it.groupValues[2], i) } }
                 quote.matches(line) -> {
@@ -121,6 +134,7 @@ object Markdown {
                     addStyle(SpanStyle(fontSize = headingSize, letterSpacing = 0.12.em), offset, offset + line.length)
                     line.indexOfFirst { it != '#' }.let { if (it < 0) line.length else it + 1 }.coerceAtMost(line.length)
                 }
+                task.matches(line) -> task.find(line)!!.groups[2]!!.range.first
                 bullet.matches(line) || ordered.matches(line) ->
                     (bullet.find(line) ?: ordered.find(line))!!.groups[2]!!.range.first
                 quote.matches(line) -> if (line.startsWith("> ")) 2 else 1
@@ -133,9 +147,12 @@ object Markdown {
     }
 }
 
-/** Markdown 预览。字号、行距跟随编辑器的本机设置。 */
+/**
+ * Markdown 预览。字号、行距跟随编辑器的本机设置。
+ * [onToggleTask] 不为空时勾选框可以点（参数是那一行在原文里的行号）。
+ */
 @Composable
-fun MarkdownView(text: String, fontSize: TextUnit, lineHeight: Float, modifier: Modifier = Modifier) {
+fun MarkdownView(text: String, fontSize: TextUnit, lineHeight: Float, modifier: Modifier = Modifier, onToggleTask: ((Int) -> Unit)? = null) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val body = type.body.copy(fontSize = fontSize, lineHeight = fontSize * lineHeight, fontWeight = FontWeight.W300, letterSpacing = 0.03.em, color = colors.ink)
@@ -151,6 +168,30 @@ fun MarkdownView(text: String, fontSize: TextUnit, lineHeight: Float, modifier: 
                 is Markdown.Block.Item -> Row(Modifier.fillMaxWidth()) {
                     Text(block.marker, style = body.copy(color = colors.faint), modifier = Modifier.widthIn(min = 22.dp))
                     Text(Markdown.inline(block.text, colors.muted), style = body, modifier = Modifier.weight(1f))
+                }
+                is Markdown.Block.Task -> Row(
+                    Modifier.fillMaxWidth().then(
+                        if (onToggleTask != null) {
+                            Modifier.toggleable(value = block.checked, role = Role.Checkbox, onValueChange = { onToggleTask(block.line) })
+                        } else {
+                            Modifier.semantics { stateDescription = if (block.checked) "已完成" else "未完成" }
+                        },
+                    ),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Box(
+                        Modifier.padding(top = (fontSize.value * (lineHeight - 1f) / 2f + 2f).dp, end = 10.dp).size((fontSize.value * 0.95f).dp)
+                            .border(1.dp, if (block.checked) colors.accent else colors.line2, QichiShapes.card)
+                            .background(if (block.checked) colors.accent else colors.paper, QichiShapes.card),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (block.checked) Text("✓", style = body.copy(fontSize = fontSize * 0.7f, lineHeight = fontSize * 0.8f, color = colors.paper))
+                    }
+                    Text(
+                        Markdown.inline(block.text, colors.muted),
+                        style = if (block.checked) body.copy(color = colors.muted, textDecoration = TextDecoration.LineThrough) else body,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
                 is Markdown.Block.Quote -> Row(Modifier.padding(vertical = 6.dp).height(IntrinsicSize.Min)) {
                     Box(Modifier.width(2.dp).fillMaxHeight().background(colors.line2))
