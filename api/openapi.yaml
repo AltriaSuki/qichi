@@ -778,6 +778,7 @@ paths:
       description: |
         - `text`：`body` 必填，去掉首尾空白后不能为空，≤ 10,000 字。
         - `image` / `file`：先上传到 `/rooms/{roomId}/files`，再带 `fileId` 发送（因此必须在线）。
+        - `image` 的 `body` 是照片下面手写的一句说明，可以不填，≤ 30 字（按字符数，P10-04）。
         - 带 `replyToId` 时，服务端填写 `replyAuthorId` 和 `replyExcerpt`（原消息前 60 字）。
       requestBody:
         required: true
@@ -2523,6 +2524,32 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /rooms/{roomId}/ai/jobs/{jobId}/stop:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - name: jobId
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Uuid' }
+    post:
+      tags: [ai]
+      operationId: stopAiJob
+      summary: 停下正在回答的 AI（聊天里）
+      description: |
+        只对 `chat_answer` 有效，只有提问的人能停下。停下后服务端马上结束生成，
+        把已经写出来的部分写成那条 AI 消息（`aiStopped = true`，不带动作提议），两台手机经同步看到同一条。
+        还在排队时停下：写一条正文为空的已停下消息。已经结束（done / failed）的任务原样返回，不报错。
+        返回时生成可能还在收尾，以同步来的消息为准。
+      responses:
+        '200':
+          description: 任务当前状态
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiJobAccepted' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /me/ai-usage:
     get:
       tags: [ai]
@@ -4087,7 +4114,7 @@ components:
               $ref: '#/components/schemas/NullableUuid'
               description: '`ai` / `system` 消息为空'
             kind: { $ref: '#/components/schemas/MessageKind' }
-            body: { type: string, maxLength: 10000, description: 撤回后为空字符串 }
+            body: { type: string, maxLength: 10000, description: 撤回后为空字符串；图片消息是照片的说明（≤ 30 字，可为空） }
             file:
               description: 图片或文件消息所附文件的元数据；撤回后为 `null`
               oneOf:
@@ -4110,13 +4137,16 @@ components:
               type: array
               description: AI 回答正文里用 [n] 引用到的房间资料（P8-01）；其它消息为空数组
               items: { $ref: '#/components/schemas/SummarySource' }
+            aiStopped:
+              type: boolean
+              description: AI 回答是被提问的人中途停下的（正文是停下时已经写出来的部分，可能为空）；其它消息为 false（P10-04）
     SendMessageRequest:
       type: object
       required: [id, kind]
       properties:
         id: { $ref: '#/components/schemas/Uuid' }
         kind: { type: string, enum: [text, image, file] }
-        body: { type: string, maxLength: 10000 }
+        body: { type: string, maxLength: 10000, description: '`image` 时是照片说明，≤ 30 字' }
         fileId: { $ref: '#/components/schemas/Uuid' }
         replyToId: { $ref: '#/components/schemas/Uuid' }
     MessagePage:

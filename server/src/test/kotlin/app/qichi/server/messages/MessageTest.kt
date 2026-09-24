@@ -103,6 +103,12 @@ class MessageTest {
         assertEquals(image, message.file)
         assertEquals("", message.body)
 
+        // 照片说明（P10-04）：最多 30 个字符
+        val caption = "那家民宿的窗外".padEnd(30, '。')
+        assertEquals(caption, aqi.post(path, SendMessageRequest(UuidV7.generate(), "image", caption, fileId = image.id)).body<Message>().body)
+        aqi.post(path, SendMessageRequest(UuidV7.generate(), "image", "$caption。", fileId = image.id))
+            .assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
+
         assertEquals(image, aqi.post(path, SendMessageRequest(UuidV7.generate(), "file", fileId = image.id)).body<Message>().file)
         assertEquals(doc, aqi.post(path, SendMessageRequest(UuidV7.generate(), "file", "看看这个", fileId = doc.id)).body<Message>().file)
         aqi.post(path, SendMessageRequest(UuidV7.generate(), "image", fileId = doc.id))

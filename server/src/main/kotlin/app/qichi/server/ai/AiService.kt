@@ -1,6 +1,13 @@
 package app.qichi.server.ai
 
 import app.qichi.server.db.Jobs
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.Job
+import java.util.concurrent.ConcurrentHashMap
+import app.qichi.server.db.Tx
 import kotlinx.serialization.json.jsonObject
 import app.qichi.shared.model.WriteAssistMode
 import app.qichi.shared.model.DraftGenre
@@ -119,6 +126,12 @@ class AiService(
     private val prompts: Prompts = Prompts(),
 ) {
     val enabled: Boolean get() = gateway != null
+
+    /** 正在流式生成的问 AI（jobId → 调用模型的协程），「停下」时取消它（P10-04）。只有一个服务端进程，放内存里就够。 */
+    private val streaming = ConcurrentHashMap<UUID, Job>()
+
+    /** 提问的人点了「停下」、还没收尾的任务。 */
+    private val stopRequested: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
 
     init {
         queue.register(JOB_CHAT) { job -> answerInChat(job) }
@@ -874,6 +887,91 @@ class AiService(
     }
 
     /** 后台任务：带上最近的聊天内容请模型回答，写成一条 AI 消息。 */
+    /**
+     * 停下正在回答的 AI（P10-04）。还在排队：直接写一条正文为空的已停下消息；正在生成：取消调用，
+     * 由 [answerInChat] 把已经写出来的部分存成消息。已经结束的原样返回。
+     */
+    suspend fun stop(userId: UUID, roomId: UUID, jobId: UUID): AiJobAccepted {
+        var stoppedWhileQueued = false
+        val status = db.tx {
+            rooms.requireMember(roomId, userId)
+            val row = AiJobs.selectAll().where { (AiJobs.id eq jobId) and (AiJobs.roomId eq roomId) }.forUpdate().singleOrNull()
+                ?.takeIf { it[AiJobs.kind] == AiJobKind.ChatAnswer.wireName } ?: throw notFound()
+            if (row[AiJobs.requestedBy] != userId) throw ApiException(ProblemCode.Forbidden, "只有提问的人能停下")
+            when (val status = fromWire<AiJobStatus>(row[AiJobs.status])) {
+                AiJobStatus.Queued -> {
+                    val prompt = row[AiJobs.request]["prompt"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    insertAnswer(jobId, roomId, userId, prompt, "", emptyList(), emptyList(), stopped = true)
+                    finishJob(jobId, model = null, inputTokens = 0, outputTokens = 0)
+                    stoppedWhileQueued = true
+                    AiJobStatus.Done
+                }
+                AiJobStatus.Running -> {
+                    stopRequested += jobId
+                    status
+                }
+                else -> status
+            }
+        }
+        if (stoppedWhileQueued) realtime.aiDone(roomId, jobId, AiJobStatus.Done.wireName)
+        streaming[jobId]?.cancel()
+        return AiJobAccepted(jobId, status)
+    }
+
+    /** 写问 AI 的回答消息（id = jobId）和它带的动作提议。在事务里调用。 */
+    private fun Tx.insertAnswer(
+        jobId: UUID, roomId: UUID, askerId: UUID?, prompt: String, body: String,
+        sources: List<app.qichi.shared.api.SummarySource>, actions: List<ParsedAction>, stopped: Boolean,
+    ) {
+        val now = clock.instant()
+        val seq = writer.change(this, roomId, EntityType.Message, jobId, askerId, now)
+        Messages.insert {
+            it[id] = jobId
+            it[Messages.roomId] = roomId
+            it[Messages.seq] = seq
+            it[createdSeq] = seq
+            it[createdAt] = now
+            it[updatedAt] = now
+            it[authorId] = null
+            it[kind] = MessageKind.Ai.wireName
+            it[Messages.body] = body.take(MESSAGE_MAX)
+            it[aiPrompt] = prompt
+            it[aiSources] = sources
+            it[aiStopped] = stopped
+        }
+        actions.forEachIndexed { i, action ->
+            val actionId = UuidV7.generate()
+            val actionSeq = writer.change(this, roomId, EntityType.AiAction, actionId, askerId, now)
+            AiActions.insert {
+                it[AiActions.id] = actionId
+                it[AiActions.roomId] = roomId
+                it[AiActions.seq] = actionSeq
+                it[createdAt] = now
+                it[updatedAt] = now
+                it[messageId] = jobId
+                it[position] = i
+                it[AiActions.kind] = action.kind.wireName
+                it[draft] = action.draft
+                it[AiActions.status] = AiActionStatus.Proposed.wireName
+                it[requestedBy] = askerId
+            }
+        }
+    }
+
+    private fun Tx.finishJob(jobId: UUID, model: String?, inputTokens: Int, outputTokens: Int) {
+        val now = clock.instant()
+        AiJobs.update({ AiJobs.id eq jobId }) {
+            it[status] = AiJobStatus.Done.wireName
+            it[AiJobs.model] = model
+            it[AiJobs.inputTokens] = inputTokens
+            it[AiJobs.outputTokens] = outputTokens
+            it[resultRef] = "message:$jobId"
+            it[error] = null
+            it[finishedAt] = now
+            it[updatedAt] = now
+        }
+    }
+
     private suspend fun answerInChat(job: QueuedJob) {
         val jobId = UUID.fromString(job.payload["aiJobId"]!!.jsonPrimitive.content)
         val row = db.tx { AiJobs.selectAll().where { AiJobs.id eq jobId }.singleOrNull() } ?: return
@@ -882,7 +980,8 @@ class AiService(
         val askerId = row[AiJobs.requestedBy]
         val prompt = row[AiJobs.request]["prompt"]?.jsonPrimitive?.contentOrNull.orEmpty()
         val sourceId = row[AiJobs.request]["sourceMessageId"]?.jsonPrimitive?.contentOrNull?.let(UUID::fromString)
-        markRunning(jobId)
+        // 排队时已经被停下（stop 写好了消息、把任务标成 done）就不再回答
+        if (!markChatRunning(jobId)) return
 
         val gateway = gateway ?: return fail(jobId, roomId, "AI 服务没有开启")
         val now = clock.instant()
@@ -920,69 +1019,61 @@ class AiService(
         // 边生成边推给 App（P8-03）：最多每 [STREAM_EVERY_MS] 推一次到目前为止给人看的部分
         var lastSent = 0L
         var lastText = ""
+        var soFar = ""
+        val aiRequest = AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)), maxTokens = CHAT_MAX_TOKENS, timeoutMillis = CHAT_TIMEOUT_MS)
         val result = try {
-            gateway.stream(
-                AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)), maxTokens = CHAT_MAX_TOKENS, timeoutMillis = CHAT_TIMEOUT_MS),
-            ) { soFar ->
-                val visible = AiActionParser.visiblePart(soFar)
-                val now = System.currentTimeMillis()
-                if (visible.isNotEmpty() && visible != lastText && now - lastSent >= STREAM_EVERY_MS) {
-                    lastSent = now
-                    lastText = visible
-                    realtime.aiDelta(roomId, jobId, visible)
+            coroutineScope {
+                val call = async {
+                    gateway.stream(aiRequest) { text ->
+                        soFar = text
+                        val visible = AiActionParser.visiblePart(text)
+                        val now = System.currentTimeMillis()
+                        if (visible.isNotEmpty() && visible != lastText && now - lastSent >= STREAM_EVERY_MS) {
+                            lastSent = now
+                            lastText = visible
+                            realtime.aiDelta(roomId, jobId, visible)
+                        }
+                    }
+                }
+                streaming[jobId] = call
+                // stop 可能在登记之前就来了
+                if (jobId in stopRequested) call.cancel()
+                try {
+                    call.await()
+                } catch (e: CancellationException) {
+                    ensureActive()
+                    if (jobId !in stopRequested) throw e
+                    null
+                } finally {
+                    streaming.remove(jobId)
                 }
             }
         } catch (e: AiProviderException) {
             log.warn("问 AI 失败（第 {} 次）：{}", job.attempts, e.message)
             if (e.retryable && !job.isLastAttempt) throw e
+            stopRequested -= jobId
             return fail(jobId, roomId, "没有得到回答")
         }
+
+        if (result == null) {
+            // 停下了：存已经写出来的部分（去掉没写完的动作段和半个引用编号），不带动作提议。用量按字数估。
+            val written = soFar.substringBefore("<act").replace(Regex("""\[\d*$"""), "").trimEnd()
+            val answer = RoomContext.renumber(written, sources)
+            db.tx {
+                insertAnswer(jobId, roomId, askerId, prompt, answer.body, answer.sources, emptyList(), stopped = true)
+                finishJob(jobId, gateway.model, (rendered.system.length + rendered.user.length) / 2, soFar.length)
+            }
+            stopRequested -= jobId
+            realtime.aiDone(roomId, jobId, AiJobStatus.Done.wireName)
+            return
+        }
+        stopRequested -= jobId
 
         val parsed = AiActionParser(zone, names.entries.associate { (id, name) -> name to id }, input.plans).parse(result.text)
         val answer = RoomContext.renumber(parsed.text.ifBlank { if (parsed.actions.isEmpty()) result.text else "可以记下这些：" }, sources)
         db.tx {
-            val now = clock.instant()
-            val seq = writer.change(this, roomId, EntityType.Message, jobId, askerId, now)
-            Messages.insert {
-                it[id] = jobId
-                it[Messages.roomId] = roomId
-                it[Messages.seq] = seq
-                it[createdSeq] = seq
-                it[createdAt] = now
-                it[updatedAt] = now
-                it[authorId] = null
-                it[kind] = MessageKind.Ai.wireName
-                it[body] = answer.body.take(MESSAGE_MAX)
-                it[aiPrompt] = prompt
-                it[aiSources] = answer.sources
-            }
-            parsed.actions.forEachIndexed { i, action ->
-                val actionId = UuidV7.generate()
-                val actionSeq = writer.change(this, roomId, EntityType.AiAction, actionId, askerId, now)
-                AiActions.insert {
-                    it[AiActions.id] = actionId
-                    it[AiActions.roomId] = roomId
-                    it[AiActions.seq] = actionSeq
-                    it[createdAt] = now
-                    it[updatedAt] = now
-                    it[messageId] = jobId
-                    it[position] = i
-                    it[AiActions.kind] = action.kind.wireName
-                    it[draft] = action.draft
-                    it[AiActions.status] = AiActionStatus.Proposed.wireName
-                    it[requestedBy] = askerId
-                }
-            }
-            AiJobs.update({ AiJobs.id eq jobId }) {
-                it[status] = AiJobStatus.Done.wireName
-                it[model] = result.model
-                it[inputTokens] = result.inputTokens
-                it[outputTokens] = result.outputTokens
-                it[resultRef] = "message:$jobId"
-                it[error] = null
-                it[finishedAt] = now
-                it[updatedAt] = now
-            }
+            insertAnswer(jobId, roomId, askerId, prompt, answer.body, answer.sources, parsed.actions, stopped = false)
+            finishJob(jobId, result.model, result.inputTokens, result.outputTokens)
         }
         realtime.aiDone(roomId, jobId, AiJobStatus.Done.wireName)
     }
@@ -1023,6 +1114,14 @@ class AiService(
                 val text = if (m.kind == MessageKind.Ai) m.body else MessageRules.replyExcerpt(m.kind, m.body, m.file?.fileName, false)
                 text?.takeIf { it.isNotBlank() }?.let { ContextLine(m.id, m.authorId, it.take(CONTEXT_LINE_MAX)) }
             }
+
+    /** 把问 AI 标成进行中；任务已经结束（排队时被停下）时返回 false。 */
+    private suspend fun markChatRunning(jobId: UUID): Boolean = db.tx {
+        AiJobs.update({ (AiJobs.id eq jobId) and (AiJobs.status neq AiJobStatus.Done.wireName) }) {
+            it[status] = AiJobStatus.Running.wireName
+            it[updatedAt] = clock.instant()
+        } > 0
+    }
 
     private suspend fun markRunning(jobId: UUID) = db.tx {
         AiJobs.update({ AiJobs.id eq jobId }) {

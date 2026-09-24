@@ -137,6 +137,7 @@ object Messages : SyncedTable("messages") {
     val createdSeq = long("created_seq")
     val aiPrompt = text("ai_prompt").nullable()
     val aiSources = jsonb("ai_sources", QichiJson, ListSerializer(SummarySource.serializer())).default(emptyList())
+    val aiStopped = bool("ai_stopped").default(false)
 }
 
 object ReadMarkers : SyncedTable("read_markers") {

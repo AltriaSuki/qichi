@@ -77,7 +77,11 @@ class MessageService(
                     check(body.isNotEmpty(), "body", "消息不能为空")
                     check(req.fileId == null, "fileId", "文字消息不带文件")
                 }
-                MessageKind.Image, MessageKind.File -> check(req.fileId != null, "fileId", "缺少文件")
+                MessageKind.Image -> {
+                    check(req.fileId != null, "fileId", "缺少文件")
+                    check(body.codePointCount(0, body.length) <= Limits.PHOTO_CAPTION_MAX, "body", "照片说明最多 ${Limits.PHOTO_CAPTION_MAX} 字")
+                }
+                MessageKind.File -> check(req.fileId != null, "fileId", "缺少文件")
                 else -> Unit
             }
         }

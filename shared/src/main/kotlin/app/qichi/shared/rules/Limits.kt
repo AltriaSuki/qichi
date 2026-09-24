@@ -28,6 +28,8 @@ object Limits {
     const val EVENT_LOCATION_MAX: Int = 200
 
     const val MESSAGE_BODY_MAX: Int = 10_000
+    /** 照片下面手写的一句说明（图片消息的 body），按字符数 */
+    const val PHOTO_CAPTION_MAX: Int = 30
     const val REPLY_EXCERPT_LENGTH: Int = 60
     const val MESSAGE_SEARCH_QUERY_MAX: Int = 100
     val QUESTION_TEXT_LENGTH: IntRange = 1..500

@@ -34,7 +34,7 @@
 | `invites` | 邀请码 | `code` 唯一、`expires_at`、`used_by` |
 | `change_log` | 同步日志 | 主键 `(room_id, seq)`；`entity_type`、`entity_id`、`op` |
 | `files` | 文件元数据 | `kind`：image / file / avatar / hero / epub / review；`sha256`；`storage_path` |
-| `messages` | 聊天消息 | `kind`：text / image / file / ai / system；`created_seq`（创建时的 seq，决定消息位置，永不改变）；`reply_to_id` + `reply_author_id` + `reply_excerpt`；`retracted_at/by`（撤回时清空 `body`、`file_id`，以及回复它的消息的 `reply_excerpt`）；`body` 上有三元组索引用于搜索；AI 回答的 `ai_prompt`（问题）和 `ai_sources`（正文里 [n] 引用到的房间资料，jsonb 数组） |
+| `messages` | 聊天消息 | `kind`：text / image / file / ai / system；`created_seq`（创建时的 seq，决定消息位置，永不改变）；`reply_to_id` + `reply_author_id` + `reply_excerpt`；`retracted_at/by`（撤回时清空 `body`、`file_id`，以及回复它的消息的 `reply_excerpt`）；`body` 上有三元组索引用于搜索；AI 回答的 `ai_prompt`（问题）、`ai_sources`（正文里 [n] 引用到的房间资料，jsonb 数组）和 `ai_stopped`（提问的人中途停下，正文是停下时已写出的部分）；图片消息的 `body` 是照片说明（≤ 30 字） |
 | `read_markers` | 未读位置 | 每人每房间一行；`last_read_seq`（对应 `messages.created_seq`）只增不减；只同步给本人 |
 | `moods` | 心情 | `label`、`intensity` 1–10、`note`、`needs_comfort` |
 | `mood_responses` | 对心情的回应（接口与代码里叫 `MoodReply`，避免和 HTTP response 混淆） | `kind`：here（我在这里）/ hug（给你一个拥抱）/ ready（等你准备好） |

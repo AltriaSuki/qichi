@@ -47,6 +47,9 @@ fun Route.aiRoutes(ctx: AppContext) {
         post("/rooms/{roomId}/ai-actions/{id}/dismiss") {
             call.respond(ctx.aiActions.dismiss(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id")))
         }
+        post("/rooms/{roomId}/ai/jobs/{jobId}/stop") {
+            call.respond(ctx.ai.stop(call.user.userId, call.uuidParam("roomId"), call.uuidParam("jobId")))
+        }
         get("/rooms/{roomId}/ai/jobs/{jobId}") {
             call.respond(ctx.ai.job(call.user.userId, call.uuidParam("roomId"), call.uuidParam("jobId")))
         }
