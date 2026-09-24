@@ -37,7 +37,7 @@ class MeService(
 ) {
     suspend fun get(userId: UUID): Me = db.tx { load(userId) }
 
-    /** 改显示名、头像、通知偏好。显示名或头像变化时，所在的每个房间都产生一条 member 变化。 */
+    /** 改显示名、头像、通知偏好、AI 能看什么。显示名或头像变化时，所在的每个房间都产生一条 member 变化。 */
     suspend fun update(userId: UUID, req: UpdateMeRequest): Me {
         validate {
             req.displayName.ifPresent {
@@ -61,6 +61,7 @@ class MeService(
                 req.displayName.ifPresent { row[displayName] = it.trim() }
                 req.avatarFileId.ifPresent { row[avatarFileId] = it }
                 req.notificationPrefs.ifPresent { row[notificationPrefs] = it }
+                req.aiPrefs.ifPresent { row[aiPrefs] = it }
                 row[updatedAt] = now
             }
             if (req.displayName.isPresent || req.avatarFileId.isPresent) {
@@ -85,6 +86,7 @@ class MeService(
             avatarFileId = row[Users.avatarFileId],
             notificationPrefs = row[Users.notificationPrefs],
             createdAt = row[Users.createdAt],
+            aiPrefs = row[Users.aiPrefs],
         )
         val rooms = RoomMembers.join(Rooms, JoinType.INNER, RoomMembers.roomId, Rooms.id)
             .selectAll()

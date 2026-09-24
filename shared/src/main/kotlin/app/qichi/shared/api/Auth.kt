@@ -60,6 +60,8 @@ data class User(
     /** 通知偏好，具体字段在 P3-10 确定 */
     val notificationPrefs: JsonObject,
     val createdAt: Timestamp,
+    /** AI 能看到哪些资料（[AiPrefs]）；旧服务端没有这个字段 */
+    val aiPrefs: JsonObject = JsonObject(emptyMap()),
 )
 
 @Serializable
@@ -83,4 +85,5 @@ data class UpdateMeRequest(
     @EncodeDefault(EncodeDefault.Mode.NEVER) val displayName: Patch<String> = Patch.Absent,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val avatarFileId: Patch<Id?> = Patch.Absent,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val notificationPrefs: Patch<JsonObject> = Patch.Absent,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val aiPrefs: Patch<JsonObject> = Patch.Absent,
 )

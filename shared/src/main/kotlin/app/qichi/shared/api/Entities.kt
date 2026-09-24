@@ -55,6 +55,8 @@ data class Message(
     val createdSeq: Long,
     /** AI 回答（kind = ai）是回答哪个问题的；其它消息为空 */
     val aiPrompt: String? = null,
+    /** AI 回答里用 [n] 引用到的房间资料（点开能跳到原来那条）；其它消息为空 */
+    val aiSources: List<SummarySource> = emptyList(),
 ) : SyncEntity
 
 /** 只同步给本人（不做已读回执）。 */

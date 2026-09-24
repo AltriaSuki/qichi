@@ -36,6 +36,7 @@ fun ResultRow.toMessage() = Message(
     retractedBy = this[Messages.retractedBy],
     createdSeq = this[Messages.createdSeq],
     aiPrompt = this[Messages.aiPrompt],
+    aiSources = this[Messages.aiSources],
 )
 
 fun ResultRow.toReadMarker() = ReadMarker(

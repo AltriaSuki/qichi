@@ -41,6 +41,7 @@ object Users : Table("users") {
     val displayName = text("display_name")
     val avatarFileId = javaUUID("avatar_file_id").nullable()
     val notificationPrefs = jsonb("notification_prefs", QichiJson, JsonObject.serializer())
+    val aiPrefs = jsonb("ai_prefs", QichiJson, JsonObject.serializer()).default(JsonObject(emptyMap()))
     val passwordChangedAt = timestamp("password_changed_at").nullable()
     val createdAt = timestamp("created_at")
     val updatedAt = timestamp("updated_at")
@@ -134,6 +135,7 @@ object Messages : SyncedTable("messages") {
     val retractedBy = javaUUID("retracted_by").nullable()
     val createdSeq = long("created_seq")
     val aiPrompt = text("ai_prompt").nullable()
+    val aiSources = jsonb("ai_sources", QichiJson, ListSerializer(SummarySource.serializer())).default(emptyList())
 }
 
 object ReadMarkers : SyncedTable("read_markers") {

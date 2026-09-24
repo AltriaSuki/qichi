@@ -2758,10 +2758,25 @@ components:
         avatarFileId: { $ref: '#/components/schemas/NullableUuid' }
         notificationPrefs: { $ref: '#/components/schemas/NotificationPrefs' }
         createdAt: { $ref: '#/components/schemas/Instant' }
+        aiPrefs: { $ref: '#/components/schemas/AiPrefs' }
     NotificationPrefs:
       type: object
       description: 通知偏好。具体字段在 P3-10（推送）确定；在那之前是空对象。
       additionalProperties: true
+    AiPrefs:
+      type: object
+      description: |
+        AI 能看到哪些房间资料（每人一份，对自己发起的 AI 请求生效；自动生成的年度回顾按两个人都允许的来）。
+        缺的字段按 true（默认都能看）。`chat` 指更早的聊天：问 AI 时总会带上最近的几十条聊天。
+      properties:
+        archive: { type: boolean, default: true }
+        decisions: { type: boolean, default: true }
+        plans: { type: boolean, default: true }
+        events: { type: boolean, default: true }
+        todos: { type: boolean, default: true }
+        ideas: { type: boolean, default: true }
+        chat: { type: boolean, default: true }
+        moods: { type: boolean, default: true }
     MyRoom:
       type: object
       required: [roomId, name, role]
@@ -2787,6 +2802,7 @@ components:
         displayName: { $ref: '#/components/schemas/DisplayName' }
         avatarFileId: { $ref: '#/components/schemas/NullableUuid' }
         notificationPrefs: { $ref: '#/components/schemas/NotificationPrefs' }
+        aiPrefs: { $ref: '#/components/schemas/AiPrefs' }
 
     # ── 同步实体的公共字段 ──
     SyncFields:
@@ -3880,6 +3896,10 @@ components:
               type: [string, 'null']
               maxLength: 2000
               description: AI 回答（`kind = ai`）是回答哪个问题的；其它消息为空（P4）
+            aiSources:
+              type: array
+              description: AI 回答正文里用 [n] 引用到的房间资料（P8-01）；其它消息为空数组
+              items: { $ref: '#/components/schemas/SummarySource' }
     SendMessageRequest:
       type: object
       required: [id, kind]

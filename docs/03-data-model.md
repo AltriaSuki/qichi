@@ -27,14 +27,14 @@
 
 | 表 | 用途 | 关键字段 |
 |---|---|---|
-| `users` | 账号 | `username` 唯一、`password_hash`（Argon2id）、`display_name`、`avatar_file_id`、`notification_prefs` |
+| `users` | 账号 | `username` 唯一、`password_hash`（Argon2id）、`display_name`、`avatar_file_id`、`notification_prefs`、`ai_prefs`（AI 能看到哪些资料，缺的键按 true） |
 | `refresh_tokens` | 刷新令牌 | 只存哈希；`family_id`（同一次登录 = 一台设备，重复使用检测时整组作废）、`device_name`、`expires_at`、`revoked_at`、`replaced_by`（轮换链） |
 | `rooms` | 房间 | `name`、`avatar_file_id`、`hero_file_id`（今天页主视觉）、`anniversary`、`timezone`、`last_seq` |
 | `room_members` | 成员 | `role`：owner / member；每房间最多 2 人（服务端校验） |
 | `invites` | 邀请码 | `code` 唯一、`expires_at`、`used_by` |
 | `change_log` | 同步日志 | 主键 `(room_id, seq)`；`entity_type`、`entity_id`、`op` |
 | `files` | 文件元数据 | `kind`：image / file / avatar / hero / epub / review；`sha256`；`storage_path` |
-| `messages` | 聊天消息 | `kind`：text / image / file / ai / system；`created_seq`（创建时的 seq，决定消息位置，永不改变）；`reply_to_id` + `reply_author_id` + `reply_excerpt`；`retracted_at/by`（撤回时清空 `body`、`file_id`，以及回复它的消息的 `reply_excerpt`）；`body` 上有三元组索引用于搜索 |
+| `messages` | 聊天消息 | `kind`：text / image / file / ai / system；`created_seq`（创建时的 seq，决定消息位置，永不改变）；`reply_to_id` + `reply_author_id` + `reply_excerpt`；`retracted_at/by`（撤回时清空 `body`、`file_id`，以及回复它的消息的 `reply_excerpt`）；`body` 上有三元组索引用于搜索；AI 回答的 `ai_prompt`（问题）和 `ai_sources`（正文里 [n] 引用到的房间资料，jsonb 数组） |
 | `read_markers` | 未读位置 | 每人每房间一行；`last_read_seq`（对应 `messages.created_seq`）只增不减；只同步给本人 |
 | `moods` | 心情 | `label`、`intensity` 1–10、`note`、`needs_comfort` |
 | `mood_responses` | 对心情的回应（接口与代码里叫 `MoodReply`，避免和 HTTP response 混淆） | `kind`：here（我在这里）/ hug（给你一个拥抱）/ ready（等你准备好） |

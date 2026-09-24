@@ -3,6 +3,9 @@ package app.qichi.server.ai
 import app.qichi.server.db.Jobs
 import app.qichi.server.db.Rooms
 import app.qichi.server.db.Summaries
+import app.qichi.server.db.Users
+import app.qichi.server.summaries.SourceLine
+import app.qichi.shared.api.AiPrefs
 import app.qichi.server.db.AiFindings
 import app.qichi.server.db.ReviewDocuments
 import app.qichi.server.db.ReviewPages
@@ -555,7 +558,7 @@ class AiService(
 
         val (names, lines) = db.tx(readOnly = true) {
             val names = RoomRepository.activeMembers(roomId).associate { it.userId to it.displayName }
-            names to SummaryData.gather(roomId, start, end, roomZone(roomId), names)
+            names to SummaryData.gather(roomId, start, end, roomZone(roomId), names, if (askerId != null) prefsOf(askerId) else roomPrefs(roomId))
         }
         val rangeText = "${start.year}年${start.monthValue}月${start.dayOfMonth}日—${end.year}年${end.monthValue}月${end.dayOfMonth}日"
         var body = "这段时间（$rangeText）没有记下什么。"
@@ -661,6 +664,7 @@ class AiService(
         val context = db.tx(readOnly = true) { chatContext(roomId) }
         val names = db.tx(readOnly = true) { RoomRepository.activeMembers(roomId).associate { it.userId to it.displayName } }
         val rendered = prompts.render("question_suggest", mapOf(
+            "now" to RoomContext.now(clock.instant(), db.tx(readOnly = true) { roomZone(roomId) }, names, null),
             "history" to context.joinToString("\n") { m -> "${m.authorId?.let(names::get) ?: "AI"}：${m.text}" }
                 .ifEmpty { "（还没有聊天记录）" },
         ))
@@ -742,11 +746,19 @@ class AiService(
         markRunning(jobId)
 
         val gateway = gateway ?: return fail(jobId, roomId, "AI 服务没有开启")
-        val context = db.tx(readOnly = true) { chatContext(roomId) }
-        val names = db.tx(readOnly = true) { RoomRepository.activeMembers(roomId).associate { it.userId to it.displayName } }
+        val now = clock.instant()
+        val (context, names, sources, zone) = db.tx(readOnly = true) {
+            val context = chatContext(roomId)
+            val names = RoomRepository.activeMembers(roomId).associate { it.userId to it.displayName }
+            val zone = roomZone(roomId)
+            val sources = RoomContext.gather(roomId, prompt, now, zone, names, prefsOf(askerId), context.map { it.id }.toSet())
+            ChatInputs(context, names, sources, zone)
+        }
         val rendered = prompts.render(
             "chat_answer",
             mapOf(
+                "now" to RoomContext.now(now, zone, names, askerId),
+                "sources" to sources.joinToString("\n") { it.line }.ifEmpty { "（没有找到相关的）" },
                 "asker" to (names[askerId] ?: "提问的人"),
                 "history" to context.joinToString("\n") { m -> "${m.authorId?.let(names::get) ?: "AI"}：${m.text}" }.ifEmpty { "（还没有聊天记录）" },
                 "prompt" to prompt,
@@ -774,6 +786,7 @@ class AiService(
                 it[kind] = MessageKind.Ai.wireName
                 it[body] = result.text.take(MESSAGE_MAX)
                 it[aiPrompt] = prompt
+                it[aiSources] = SummaryData.cited(result.text, sources)
             }
             AiJobs.update({ AiJobs.id eq jobId }) {
                 it[status] = AiJobStatus.Done.wireName
@@ -789,7 +802,20 @@ class AiService(
         realtime.aiDone(roomId, jobId, AiJobStatus.Done.wireName)
     }
 
-    private data class ContextLine(val authorId: UUID?, val text: String)
+    private data class ContextLine(val id: UUID, val authorId: UUID?, val text: String)
+
+    private data class ChatInputs(val context: List<ContextLine>, val names: Map<UUID, String>, val sources: List<SourceLine>, val zone: ZoneId)
+
+    /** 某人的「AI 能看什么」；没有发起人（自动生成的）时取所有成员都允许的。 */
+    private fun prefsOf(userId: UUID?): AiPrefs =
+        if (userId != null) {
+            AiPrefs.from(Users.select(Users.aiPrefs).where { Users.id eq userId }.singleOrNull()?.get(Users.aiPrefs))
+        } else {
+            AiPrefs()
+        }
+
+    private fun roomPrefs(roomId: UUID): AiPrefs =
+        RoomRepository.activeMembers(roomId).map { prefsOf(it.userId) }.fold(AiPrefs()) { a, b -> a and b }
 
     /** 最近 [CONTEXT_MESSAGES] 条没撤回、没删除的消息，从早到晚。 */
     private fun chatContext(roomId: UUID): List<ContextLine> =
@@ -801,7 +827,7 @@ class AiService(
             .reversed()
             .mapNotNull { m ->
                 val text = if (m.kind == MessageKind.Ai) m.body else MessageRules.replyExcerpt(m.kind, m.body, m.file?.fileName, false)
-                text?.takeIf { it.isNotBlank() }?.let { ContextLine(m.authorId, it.take(CONTEXT_LINE_MAX)) }
+                text?.takeIf { it.isNotBlank() }?.let { ContextLine(m.id, m.authorId, it.take(CONTEXT_LINE_MAX)) }
             }
 
     private suspend fun markRunning(jobId: UUID) = db.tx {
