@@ -37,7 +37,7 @@ fun EpubHost(
     onReady: (EpubNavigatorFragment) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val activity = LocalContext.current as FragmentActivity
+    val activity = androidx.activity.compose.LocalActivity.current as FragmentActivity
     val containerId = remember { View.generateViewId() }
     AndroidView(factory = { ctx -> FragmentContainerView(ctx).apply { id = containerId } }, modifier = modifier)
 

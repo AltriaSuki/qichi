@@ -19,7 +19,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.security.MessageDigest
-import java.util.HexFormat
 
 /** 更新到哪一步了。 */
 sealed interface UpdateState {
@@ -147,6 +146,7 @@ class AppUpdater(
                 digest.update(buffer, 0, n)
             }
         }
-        HexFormat.of().formatHex(digest.digest())
+        // HexFormat 要安卓 14，这里自己转
+        digest.digest().joinToString("") { "%02x".format(it) }
     }
 }

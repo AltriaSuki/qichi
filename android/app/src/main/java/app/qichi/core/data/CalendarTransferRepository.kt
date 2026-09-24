@@ -27,7 +27,17 @@ class CalendarTransferRepository(
 ) {
     suspend fun importIcs(roomId: UUID, uri: Uri): CalendarImportResult {
         val bytes = withContext(Dispatchers.IO) {
-            context.contentResolver.openInputStream(uri)?.use { it.readNBytes(MAX_BYTES + 1) }
+            // 最多读 MAX_BYTES + 1 字节（readNBytes 要安卓 13，这里自己读）
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                val out = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(64 * 1024)
+                while (out.size() <= MAX_BYTES) {
+                    val n = input.read(buffer, 0, minOf(buffer.size, MAX_BYTES + 1 - out.size()))
+                    if (n < 0) break
+                    out.write(buffer, 0, n)
+                }
+                out.toByteArray()
+            }
                 ?: throw IOException("无法读取文件")
         }
         if (bytes.size > MAX_BYTES) throw IOException("ICS 文件不能超过 2 MiB")

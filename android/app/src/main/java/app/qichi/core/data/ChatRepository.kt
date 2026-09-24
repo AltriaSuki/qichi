@@ -178,8 +178,8 @@ class ChatRepository(
 
     /** 搜索（服务端，需要联网）：不含撤回、删除的，最新的在前。 */
     suspend fun search(roomId: UUID, query: String, cursor: String?): MessageSearchPage {
-        val q = URLEncoder.encode(query, Charsets.UTF_8)
-        val after = cursor?.let { "&cursor=" + URLEncoder.encode(it, Charsets.UTF_8) }.orEmpty()
+        val q = URLEncoder.encode(query, "UTF-8")
+        val after = cursor?.let { "&cursor=" + URLEncoder.encode(it, "UTF-8") }.orEmpty()
         return api.get("rooms/$roomId/messages/search?q=$q&limit=${Limits.CURSOR_PAGE_DEFAULT}$after")
     }
 

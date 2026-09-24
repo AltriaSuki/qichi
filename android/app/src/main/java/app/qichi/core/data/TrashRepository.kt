@@ -94,7 +94,7 @@ class TrashRepository(
     suspend fun refresh(roomId: UUID) {
         var cursor: String? = null
         repeat(MAX_PAGES) {
-            val after = cursor?.let { "&cursor=" + URLEncoder.encode(it, Charsets.UTF_8) }.orEmpty()
+            val after = cursor?.let { "&cursor=" + URLEncoder.encode(it, "UTF-8") }.orEmpty()
             val page = api.get<TrashPage>("rooms/$roomId/trash?limit=100$after")
             db.transaction {
                 page.items.forEach { item -> store.applyServer(EntityCodec.decode(item.type.entityType, item.data) as SyncEntity) }

@@ -155,7 +155,7 @@ class DocumentRepository(
     suspend fun refreshVersions(roomId: UUID, documentId: UUID) {
         var cursor: String? = null
         repeat(MAX_VERSION_PAGES) {
-            val after = cursor?.let { "&cursor=" + URLEncoder.encode(it, Charsets.UTF_8) }.orEmpty()
+            val after = cursor?.let { "&cursor=" + URLEncoder.encode(it, "UTF-8") }.orEmpty()
             val page = api.get<DocumentVersionPage>("rooms/$roomId/documents/$documentId/versions?limit=100$after")
             db.transaction {
                 page.items.forEach { v ->

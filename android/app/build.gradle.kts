@@ -69,6 +69,13 @@ android {
         }
     }
 
+    // 用了比最低版本（minSdk 26）新的系统功能：在旧手机上会闪退，一律当作错误
+    lint {
+        error += "NewApi"
+        abortOnError = true
+        checkReleaseBuilds = true
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true

@@ -3,6 +3,7 @@ package app.qichi.navigation
 import kotlinx.serialization.Serializable
 
 /** 底部四个标签。 */
+@androidx.annotation.Keep
 enum class TopTab(val label: String, val slug: String) {
     Today("今天", "today"),
     Chat("聊天", "chat"),
@@ -17,6 +18,7 @@ enum class TogetherGroup(val label: String) { Life("生活"), Create("创作"), 
  * 标签之下的二级页面。[slug] 用在深链 `qichi://room/{roomId}/{slug}[/{id}]` 里。
  * 「一起」下的页面压在「一起」的返回栈里；「我的」下的页面压在「我的」的返回栈里。
  */
+@androidx.annotation.Keep
 enum class Page(val slug: String, val title: String, val tab: TopTab, val group: TogetherGroup? = null) {
     // 一起 · 生活
     Mood("mood", "心情", TopTab.Together, TogetherGroup.Life),
