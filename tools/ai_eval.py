@@ -34,14 +34,25 @@ SUMMARY_SOURCES = """[1] 9月2日 决定：先不养猫，等搬家后再说
 [4] 9月6日 灵感 小迟：周末早起去海边看日出
 [5] 9月7日 计划完成：整理好阳台"""
 
+NOW = "现在是 2026年9月24日 周四 10:00（房间时区 Asia/Shanghai）。\n房间里的人：阿栖（提问的人）、小迟。"
+
+WRITE_TEXT = "周六早上八点我们就出发去东山岛了，路上的风很大，但是大家心情都很好很好，到了以后先去吃了海鲜然后去看日落。"
+
 CASES = {
     "review_findings": dict(title="报价方案", version="2", max="8", truncated="", known="（无）", text=REVIEW_TEXT),
     "summary": dict(range="2026年9月1日—2026年9月7日", kind="一周", people="阿栖、小迟", length="500", sources=SUMMARY_SOURCES),
-    "chat_answer": dict(asker="阿栖", prompt="周六适合去哪片海？我们想人少一点。",
+    "chat_answer": dict(asker="阿栖", prompt="周六早上八点出发去东山岛，记得带外套。预算多少来着？", focus="",
+                        now=NOW,
+                        sources="[1] 日程 · 9月26日（周六） 08:00 · 出发去海边 · 在东山岛\n[2] 档案 · 共识 · 出游预算：一次短途出游两个人不超过两千",
                         history="小迟：周六早上出发怎么样？\n阿栖：好呀，想去人少的海边\n小迟：车程别超过两小时"),
-    "question_suggest": dict(history="小迟：周六早上出发怎么样？\n阿栖：好呀\n小迟：最近总是加班，有点想休息"),
+    "question_suggest": dict(now=NOW, history="小迟：周六早上出发怎么样？\n阿栖：好呀\n小迟：最近总是加班，有点想休息"),
     "read_explain": dict(title="海边的旅店", author="（林晚）", text="她不必急着去哪里，先在这里坐一会儿。",
                          before="雨是从傍晚开始下的。", after="她于是真的坐了很久。"),
+    "write_polish": dict(title="海边周末", text=WRITE_TEXT),
+    "write_proofread": dict(text="我们在海边座了很久，看着太阳慢慢的落下去，心里觉得很平净。"),
+    "write_shorten": dict(text=WRITE_TEXT),
+    "write_titles": dict(title="未命名", text=WRITE_TEXT + "\n\n晚上回到民宿，小迟说下次还要来。"),
+    "write_draft": dict(now=NOW, genre="回顾：这段时间一起做了什么、定下了什么、心情怎么样", range="9月1日—9月7日", sources=SUMMARY_SOURCES),
     "read_compare": dict(title="海边的旅店", author="（林晚）", text="她不必急着去哪里，先在这里坐一会儿。",
                          notes="阿栖：我们总是太急 —— 想起去年搬家那周\n小迟：雨天就适合发呆"),
 }
@@ -81,6 +92,30 @@ def check(name, answer, vars_):
     elif name in ("read_explain", "read_compare"):
         if len(answer) > 400:
             problems.append(f"太长了：{len(answer)} 字（要求一般不超过 200 字）")
+    elif name == "chat_answer":
+        if "[" not in answer:
+            problems.append("用到了房间资料却没标 [n]")
+        if "<actions>" not in answer:
+            problems.append("说了出发和带外套，却没有提议动作")
+    elif name == "write_proofread":
+        for wrong, right in (("座了", "坐了"), ("平净", "平静")):
+            if wrong in answer or right not in answer:
+                problems.append(f"没把「{wrong}」改成「{right}」")
+        if "慢慢地" not in answer and "慢慢的" not in answer:
+            problems.append("改写了原句（应该只改错字）")
+    elif name == "write_shorten":
+        if len(answer) >= len(WRITE_TEXT):
+            problems.append(f"没有变短：{len(answer)} 字")
+    elif name == "write_titles":
+        lines = [l for l in answer.strip().splitlines() if l.strip()]
+        if len(lines) != 3 or any(len(l) > 20 for l in lines):
+            problems.append(f"应该是 3 行短标题：{lines}")
+    elif name == "write_draft":
+        if not answer.lstrip().startswith("# "):
+            problems.append("第一行不是 # 标题")
+        cited = [k for k in ("日料", "海边", "阳台", "猫") if k in answer]
+        if len(cited) < 2:
+            problems.append("没怎么用到房间资料")
     elif name == "question_suggest":
         if len(answer) > 80 or "\n" in answer.strip():
             problems.append("应该只是一道简短的问题")

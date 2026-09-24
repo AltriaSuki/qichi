@@ -188,6 +188,7 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | POST | `/rooms/{roomId}/documents/{id}/comments` | 段落旁留言（P9-03）：开头带 `quote`（钉住的原文，最多 200 字）和写时的 `version`；回复带 `parentId`；幂等 |
 | PATCH · DELETE | `/rooms/{roomId}/doc-comments/{id}` | 改留言正文 / 删除讨论开头进回收站（都只能作者；回复不能单独删） |
 | POST | `/rooms/{roomId}/doc-comments/{id}/resolve` · `/reopen` | 标为解决 / 重新打开（两人都可以，只对开头） |
+| POST | `/rooms/{roomId}/ai/write-assist` | 写作助手（P9-04 / P9-05）→ 202：润色 / 改错别字 / 缩短选中的一段，起标题，按体裁和日期范围参考房间资料起草稿。结果在 `GET …/ai/jobs/{jobId}` 的 `resultText`，只给发起的人看；AI 不改文稿 |
 | POST | `/rooms/{roomId}/documents/{id}/versions` | 保存新版本：`{id, baseVersion, body, restoredFromVersion?}`，新文稿的基线是 0；基线落后 409；同 `id` 重试返回已保存的版本 |
 | GET · POST · PATCH · DELETE | `/rooms/{roomId}/board/topics[/{id}]` | 留言主题：列表（置顶在前，其余按最近留言）/ 新建 / 改标题与置顶 / 删除进回收站 |
 | POST | `/rooms/{roomId}/board/topics/{topicId}/posts` | 发帖（可引用，摘录由服务端生成，原文之后修订也不变） |

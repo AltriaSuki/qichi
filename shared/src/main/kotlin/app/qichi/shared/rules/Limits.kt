@@ -92,6 +92,11 @@ object Limits {
     val DOC_COMMENT_LENGTH: IntRange = 1..2_000
     /** 留言钉住的原文摘录 */
     const val DOC_COMMENT_QUOTE_MAX: Int = 200
+
+    /** 写作助手：润色等一次最多发多少字；起标题最多带多少字正文；起草稿最长范围 */
+    const val WRITE_ASSIST_TEXT_MAX: Int = 4_000
+    const val WRITE_TITLES_TEXT_MAX: Int = 8_000
+    const val WRITE_DRAFT_DAYS_MAX: Int = 31
     const val ANCHOR_QUOTE_MAX: Int = 500
     const val REVIEW_MAX_PAGES: Int = 300
 

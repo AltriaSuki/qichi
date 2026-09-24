@@ -1494,6 +1494,30 @@ paths:
         '429': { $ref: '#/components/responses/AiQuotaExceeded' }
         '503': { $ref: '#/components/responses/AiUnavailable' }
 
+  /rooms/{roomId}/ai/write-assist:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [ai, documents]
+      operationId: aiWriteAssist
+      summary: 写作里请 AI 帮忙（润色、改错别字、缩短、起标题、起草稿）→ 202（P9-04 / P9-05）
+      description: 结果是 AiJob.resultText，App 显示给人看、人决定用不用；AI 不改文稿。
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AiWriteRequest' } } }
+      responses:
+        '202':
+          description: 已接受
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiJobAccepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/AiQuotaExceeded' }
+        '503': { $ref: '#/components/responses/AiUnavailable' }
+
   /rooms/{roomId}/books:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -4423,7 +4447,25 @@ components:
     # ── AI（P4）──
     AiJobKind:
       type: string
-      enum: [chat_answer, question_suggest, read_explain, review_findings, summary, yearly_review]
+      enum: [chat_answer, question_suggest, read_explain, review_findings, summary, yearly_review, write_assist]
+    WriteAssistMode:
+      type: string
+      enum: [polish, proofread, shorten, titles, draft]
+    DraftGenre:
+      type: string
+      enum: [travel, letter, review]
+    AiWriteRequest:
+      type: object
+      required: [jobId, mode]
+      description: polish / proofread / shorten 带 text（选中的一段，最多 4000 字）；titles 带 text（整篇，最多 8000 字）；draft 带 genre 和 rangeStart～rangeEnd（最多 31 天）
+      properties:
+        jobId: { $ref: '#/components/schemas/Uuid' }
+        mode: { $ref: '#/components/schemas/WriteAssistMode' }
+        text: { type: string, maxLength: 8000 }
+        documentId: { $ref: '#/components/schemas/Uuid' }
+        genre: { $ref: '#/components/schemas/DraftGenre' }
+        rangeStart: { $ref: '#/components/schemas/LocalDate' }
+        rangeEnd: { $ref: '#/components/schemas/LocalDate' }
     AiJobStatus:
       type: string
       enum: [queued, running, done, failed]
@@ -4457,6 +4499,7 @@ components:
         error: { type: [string, 'null'] }
         createdAt: { $ref: '#/components/schemas/Instant' }
         finishedAt: { $ref: '#/components/schemas/NullableInstant' }
+        resultText: { type: [string, 'null'], description: 写作助手（write_assist）的结果文字，只给发起的人看；其它情况为空（P9-04） }
     AiUsage:
       type: object
       required: [month, jobs, myInputTokens, myOutputTokens, monthUsedTokens, monthLimitTokens]

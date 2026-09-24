@@ -9,6 +9,7 @@ import app.qichi.shared.api.AcceptAiActionRequest
 import app.qichi.shared.api.AiChatRequest
 import app.qichi.shared.api.AiReadExplainRequest
 import app.qichi.shared.api.AiReviewFindingsRequest
+import app.qichi.shared.api.AiWriteRequest
 import app.qichi.shared.api.QuestionSuggestRequest
 import app.qichi.shared.model.ProblemCode
 import io.ktor.http.HttpStatusCode
@@ -36,6 +37,9 @@ fun Route.aiRoutes(ctx: AppContext) {
         }
         post("/rooms/{roomId}/ai/review-findings") {
             call.respond(HttpStatusCode.Accepted, ctx.ai.requestReviewFindings(call.user.userId, call.uuidParam("roomId"), call.receive<AiReviewFindingsRequest>()))
+        }
+        post("/rooms/{roomId}/ai/write-assist") {
+            call.respond(HttpStatusCode.Accepted, ctx.ai.requestWrite(call.user.userId, call.uuidParam("roomId"), call.receive<AiWriteRequest>()))
         }
         post("/rooms/{roomId}/ai-actions/{id}/accept") {
             call.respond(ctx.aiActions.accept(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id"), call.receive<AcceptAiActionRequest>()))

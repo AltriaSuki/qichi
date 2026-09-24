@@ -218,6 +218,30 @@ enum class AiJobKind {
     @SerialName("review_findings") ReviewFindings,
     @SerialName("summary") Summary,
     @SerialName("yearly_review") YearlyReview,
+    @SerialName("write_assist") WriteAssist,
+}
+
+/** 写作里请 AI 帮忙做什么（P9-04 / P9-05）。 */
+@Serializable
+enum class WriteAssistMode {
+    /** 润色选中的一段 */
+    @SerialName("polish") Polish,
+    /** 只改错别字和标点 */
+    @SerialName("proofread") Proofread,
+    /** 缩短 */
+    @SerialName("shorten") Shorten,
+    /** 给文稿起几个标题 */
+    @SerialName("titles") Titles,
+    /** 参考一段时间的房间资料起草稿 */
+    @SerialName("draft") Draft,
+}
+
+/** AI 起草稿的体裁（P9-05）。 */
+@Serializable
+enum class DraftGenre {
+    @SerialName("travel") Travel,
+    @SerialName("letter") Letter,
+    @SerialName("review") Review,
 }
 
 /** AI 任务的状态。 */

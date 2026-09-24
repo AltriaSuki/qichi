@@ -1,6 +1,12 @@
 package app.qichi.server.ai
 
 import app.qichi.server.db.Jobs
+import kotlinx.serialization.json.jsonObject
+import app.qichi.shared.model.WriteAssistMode
+import app.qichi.shared.model.DraftGenre
+import app.qichi.shared.api.QichiJson
+import app.qichi.shared.api.AiWriteRequest
+import app.qichi.server.db.Documents
 import app.qichi.server.db.Rooms
 import app.qichi.server.db.Summaries
 import app.qichi.server.db.Users
@@ -121,6 +127,7 @@ class AiService(
         queue.register(JOB_SUMMARY) { job -> summarize(job) }
         queue.register(JOB_YEARLY_CHECK) { _ -> yearlyCheck() }
         queue.register(JOB_REVIEW) { job -> reviewFindings(job) }
+        queue.register(JOB_WRITE) { job -> writeAssist(job) }
     }
 
     /** 问 AI（聊天里）。同一 jobId 再次请求：失败的重新排队，其余返回当前状态。 */
@@ -723,7 +730,125 @@ class AiService(
 
     suspend fun job(userId: UUID, roomId: UUID, jobId: UUID): AiJob = db.tx(readOnly = true) {
         rooms.requireMember(roomId, userId)
-        AiJobs.selectAll().where { (AiJobs.id eq jobId) and (AiJobs.roomId eq roomId) }.singleOrNull()?.toAiJob() ?: notFound()
+        AiJobs.selectAll().where { (AiJobs.id eq jobId) and (AiJobs.roomId eq roomId) }.singleOrNull()?.toAiJob(viewer = userId) ?: notFound()
+    }
+
+    // ── 写作助手（P9-04 / P9-05）：结果是一段文字，只给发起的人看，由人决定用不用 ──
+
+    suspend fun requestWrite(userId: UUID, roomId: UUID, req: AiWriteRequest): AiJobAccepted {
+        val text = req.text?.trim().orEmpty()
+        validate {
+            when (req.mode) {
+                WriteAssistMode.Polish, WriteAssistMode.Proofread, WriteAssistMode.Shorten ->
+                    check(text.length in 1..Limits.WRITE_ASSIST_TEXT_MAX, "text", "选中 1–${Limits.WRITE_ASSIST_TEXT_MAX} 字")
+                WriteAssistMode.Titles -> check(text.isNotEmpty(), "text", "先写点内容再起标题")
+                WriteAssistMode.Draft -> {
+                    val start = req.rangeStart
+                    val end = req.rangeEnd
+                    check(req.genre != null, "genre", "选一个体裁")
+                    check(start != null && end != null && !end.isBefore(start), "rangeStart", "时间范围不对")
+                    if (start != null && end != null) {
+                        check(ChronoUnit.DAYS.between(start, end) < Limits.WRITE_DRAFT_DAYS_MAX, "rangeEnd", "最多 ${Limits.WRITE_DRAFT_DAYS_MAX} 天")
+                    }
+                }
+            }
+        }
+        return db.tx {
+            rooms.requireMember(roomId, userId)
+            if (gateway == null) throw unavailable()
+            req.documentId?.let { docId ->
+                val ok = Documents.select(Documents.id).where { (Documents.id eq docId) and (Documents.roomId eq roomId) and Documents.deletedAt.isNull() }.any()
+                if (!ok) notFound()
+            }
+            RoomRepository.lockRoom(roomId)
+            val existing = AiJobs.selectAll().where { AiJobs.id eq req.jobId }.singleOrNull()
+            if (existing != null) {
+                if (existing[AiJobs.roomId] != roomId || existing[AiJobs.requestedBy] != userId) throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
+                return@tx AiJobAccepted(req.jobId, fromWire(existing[AiJobs.status]))
+            }
+            checkQuota()
+            val now = clock.instant()
+            AiJobs.insert {
+                it[id] = req.jobId
+                it[AiJobs.roomId] = roomId
+                it[requestedBy] = userId
+                it[kind] = AiJobKind.WriteAssist.wireName
+                it[status] = AiJobStatus.Queued.wireName
+                it[request] = QichiJson.encodeToJsonElement(AiWriteRequest.serializer(), req.copy(text = text.take(Limits.WRITE_TITLES_TEXT_MAX))).jsonObject
+                it[inputTokens] = 0
+                it[outputTokens] = 0
+                it[createdAt] = now
+                it[updatedAt] = now
+            }
+            queue.enqueue(this, JOB_WRITE, buildJsonObject { put("aiJobId", req.jobId.toString()) }, maxAttempts = CHAT_ATTEMPTS)
+            AiJobAccepted(req.jobId, AiJobStatus.Queued)
+        }
+    }
+
+    private suspend fun writeAssist(job: QueuedJob) {
+        val jobId = UUID.fromString(job.payload["aiJobId"]!!.jsonPrimitive.content)
+        val row = db.tx { AiJobs.selectAll().where { AiJobs.id eq jobId }.singleOrNull() } ?: return
+        if (row[AiJobs.status] == AiJobStatus.Done.wireName) return
+        val roomId = row[AiJobs.roomId]
+        val askerId = row[AiJobs.requestedBy]
+        val req = QichiJson.decodeFromJsonElement(AiWriteRequest.serializer(), row[AiJobs.request])
+        markRunning(jobId)
+        val gateway = gateway ?: return fail(jobId, roomId, "AI 服务没有开启")
+
+        val (name, vars) = db.tx(readOnly = true) {
+            val title = req.documentId?.let { d -> Documents.select(Documents.title).where { Documents.id eq d }.singleOrNull()?.get(Documents.title) }
+            when (req.mode) {
+                WriteAssistMode.Polish -> "write_polish" to mapOf("title" to (title ?: "（没有标题）"), "text" to req.text.orEmpty())
+                WriteAssistMode.Proofread -> "write_proofread" to mapOf("text" to req.text.orEmpty())
+                WriteAssistMode.Shorten -> "write_shorten" to mapOf("text" to req.text.orEmpty())
+                WriteAssistMode.Titles -> "write_titles" to mapOf("title" to (title ?: "（没有标题）"), "text" to req.text.orEmpty())
+                WriteAssistMode.Draft -> {
+                    val names = RoomRepository.activeMembers(roomId).associate { it.userId to it.displayName }
+                    val zone = roomZone(roomId)
+                    val start = req.rangeStart!!
+                    val end = req.rangeEnd!!
+                    val lines = SummaryData.gather(roomId, start, end, zone, names, prefsOf(askerId))
+                    "write_draft" to mapOf(
+                        "now" to RoomContext.now(clock.instant(), zone, names, askerId),
+                        "genre" to when (req.genre!!) {
+                            DraftGenre.Travel -> "游记：按时间顺序写这趟出行，去了哪里、做了什么、有什么感受"
+                            DraftGenre.Letter -> "写给对方的一封信：以提问的人的口吻，写给另一个人"
+                            DraftGenre.Review -> "回顾：这段时间一起做了什么、定下了什么、心情怎么样"
+                        },
+                        "range" to "${start.monthValue}月${start.dayOfMonth}日—${end.monthValue}月${end.dayOfMonth}日",
+                        "sources" to lines.joinToString("\n") { it.line }.ifEmpty { "（这段时间没有记下什么）" },
+                    )
+                }
+            }
+        }
+        val rendered = prompts.render(name, vars)
+        val result = try {
+            gateway.complete(
+                AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)),
+                    maxTokens = if (req.mode == WriteAssistMode.Draft) DRAFT_MAX_TOKENS else WRITE_MAX_TOKENS),
+            )
+        } catch (e: AiProviderException) {
+            log.warn("写作助手失败（第 {} 次）：{}", job.attempts, e.message)
+            if (e.retryable && !job.isLastAttempt) throw e
+            return fail(jobId, roomId, "没有得到结果")
+        }
+        val text = result.text.trim().removePrefix("```markdown").removePrefix("```").removeSuffix("```").trim()
+        if (text.isEmpty()) return fail(jobId, roomId, "没有得到结果")
+        db.tx {
+            val now = clock.instant()
+            AiJobs.update({ AiJobs.id eq jobId }) {
+                it[status] = AiJobStatus.Done.wireName
+                it[model] = result.model
+                it[inputTokens] = result.inputTokens
+                it[outputTokens] = result.outputTokens
+                it[resultText] = text
+                it[resultRef] = "text"
+                it[error] = null
+                it[finishedAt] = now
+                it[updatedAt] = now
+            }
+        }
+        realtime.aiDone(roomId, jobId, AiJobStatus.Done.wireName)
     }
 
     /** 「我发起的 AI 使用」：某个月（UTC）我发起的调用，以及本月整个服务的用量与上限。 */
@@ -935,7 +1060,8 @@ class AiService(
 
     private fun unavailable() = ApiException(ProblemCode.AiUnavailable, "AI 还没有开启", detail = "需要在服务器上配置 AI（docs/07-deploy.md）")
 
-    private fun ResultRow.toAiJob() = AiJob(
+    /** [viewer] 是发起人时才带上写作助手的结果文字。 */
+    private fun ResultRow.toAiJob(viewer: UUID? = null) = AiJob(
         id = this[AiJobs.id],
         roomId = this[AiJobs.roomId],
         kind = fromWire(this[AiJobs.kind]),
@@ -947,6 +1073,7 @@ class AiService(
         error = this[AiJobs.error],
         createdAt = this[AiJobs.createdAt],
         finishedAt = this[AiJobs.finishedAt],
+        resultText = this[AiJobs.resultText]?.takeIf { viewer != null && this[AiJobs.requestedBy] == viewer },
     )
 
     companion object {
@@ -956,6 +1083,9 @@ class AiService(
         const val JOB_SUMMARY = "ai.summary"
         const val JOB_YEARLY_CHECK = "ai.yearly_check"
         const val JOB_REVIEW = "ai.review_findings"
+        const val JOB_WRITE = "ai.write_assist"
+        private const val WRITE_MAX_TOKENS = 1_500
+        private const val DRAFT_MAX_TOKENS = 2_500
         private const val REVIEW_MAX_TOKENS = 3000
         private val YEARLY_CHECK_EVERY: java.time.Duration = java.time.Duration.ofHours(6)
         private const val READ_TEXT_MAX = 2000

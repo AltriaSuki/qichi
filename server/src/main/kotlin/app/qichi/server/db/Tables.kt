@@ -502,6 +502,7 @@ object AiJobs : Table("ai_jobs") {
     val inputTokens = integer("input_tokens")
     val outputTokens = integer("output_tokens")
     val resultRef = text("result_ref").nullable()
+    val resultText = text("result_text").nullable()
     val error = text("error").nullable()
     val createdAt = timestamp("created_at")
     val updatedAt = timestamp("updated_at")
