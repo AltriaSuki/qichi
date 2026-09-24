@@ -191,4 +191,5 @@ val TrashType.entityType: EntityType
         TrashType.Milestone -> EntityType.Milestone
         TrashType.ReviewDocument -> EntityType.ReviewDocument
         TrashType.Annotation -> EntityType.Annotation
+        TrashType.DocComment -> EntityType.DocComment
     }

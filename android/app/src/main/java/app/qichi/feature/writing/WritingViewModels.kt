@@ -11,6 +11,7 @@ import app.qichi.core.data.WritingSettingsStore
 import app.qichi.core.database.DocumentVersionRow
 import app.qichi.core.database.DraftRow
 import app.qichi.core.network.NetworkMonitor
+import app.qichi.shared.api.DocComment
 import app.qichi.shared.util.UuidV7
 import app.qichi.core.network.FileUrls
 import app.qichi.core.data.FileRepository
@@ -166,6 +167,20 @@ class DocumentEditorViewModel @AssistedInject constructor(
 
     private val people = combine(rooms.observeRoom(roomId), rooms.observeMembers(roomId)) { room, members -> People(room, members, session.currentUserId) }
     private val document = docs.observeDocument(roomId, documentId)
+
+    // ── 段落旁留言（P9-03） ──
+    val comments: StateFlow<List<Local<DocComment>>> = docs.observeComments(roomId, documentId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun addComment(quote: String, body: String) = viewModelScope.launch {
+        state.value.document?.value?.let { docs.addComment(it, quote, body) }
+    }
+
+    fun reply(root: DocComment, body: String) = viewModelScope.launch { docs.reply(root, body) }
+
+    fun setResolved(root: DocComment, resolved: Boolean) = viewModelScope.launch { docs.setResolved(root, resolved) }
+
+    fun deleteComment(root: DocComment) = viewModelScope.launch { docs.deleteComment(root) }
     private val draft = docs.observeDraft(roomId, documentId)
 
     /** 最新版本的正文（本机缓存；没有就去取） */

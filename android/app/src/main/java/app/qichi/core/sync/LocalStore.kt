@@ -16,6 +16,7 @@ import app.qichi.shared.api.Book
 import app.qichi.shared.api.Decision
 import app.qichi.shared.api.Summary
 import app.qichi.shared.api.AiAction
+import app.qichi.shared.api.DocComment
 import app.qichi.shared.api.AiFinding
 import app.qichi.shared.api.Annotation
 import app.qichi.shared.api.AnnotationReply
@@ -331,6 +332,7 @@ class LocalStore(
             is AnnotationReply -> EntityType.AnnotationReply
             is AiFinding -> EntityType.AiFinding
             is AiAction -> EntityType.AiAction
+            is DocComment -> EntityType.DocComment
         }
 
         fun encode(type: EntityType, entity: SyncEntity): String =
@@ -407,6 +409,8 @@ class LocalStore(
                 is AiFinding -> base(entity.roomId, entity.deletedAt != null, entity.requestedBy, entity.documentId, null, entity.createdAt.toEpochMilli())
                 // AI 提议挂在那条 AI 回答下，按在回答里的顺序
                 is AiAction -> base(entity.roomId, entity.deletedAt != null, entity.requestedBy, entity.messageId, entity.position.toLong(), entity.createdAt.toEpochMilli())
+                // 文稿留言挂在文稿下，按时间排
+                is DocComment -> base(entity.roomId, entity.deletedAt != null, entity.authorId, entity.documentId, null, entity.createdAt.toEpochMilli())
             }
         }
     }

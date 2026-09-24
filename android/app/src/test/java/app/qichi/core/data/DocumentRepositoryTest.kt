@@ -99,6 +99,34 @@ class DocumentRepositoryTest {
     private suspend fun draft(doc: Document) = docs.observeDraft(roomId, doc.id).first()
 
     @Test
+    fun `段落旁留言：先写本机再走发件箱；回复、解决都一样；删掉讨论开头连回复一起不显示`() = runTest {
+        val doc = docs.create(roomId, "海边周末")!!
+        processor.drain()
+        assertTrue(db.outbox().all().isEmpty())
+        server.online = false
+
+        assertNull(docs.addComment(doc, "周六早上八点出发。", "   "), "空白不建")
+        val root = docs.addComment(doc, "  周六早上\n八点出发。 ", " 会不会太早？ ")!!
+        assertEquals("周六早上 八点出发。", root.quote)
+        assertEquals("会不会太早？", root.body)
+        val reply = docs.reply(root, "那就九点")!!
+        assertEquals(root.id, reply.parentId)
+        docs.setResolved(root, true)
+
+        val list = docs.observeComments(roomId, doc.id).first()
+        assertEquals(listOf(root.id, reply.id), list.map { it.value.id })
+        assertTrue(list.all { it.syncState == SyncState.PENDING })
+        assertNotNull(list.first().value.resolvedAt)
+        assertEquals(
+            listOf("rooms/$roomId/documents/${doc.id}/comments", "rooms/$roomId/documents/${doc.id}/comments", "rooms/$roomId/doc-comments/${root.id}/resolve"),
+            db.outbox().all().map { it.path },
+        )
+
+        docs.deleteComment(list.first().value)
+        assertTrue(docs.observeComments(roomId, doc.id).first().isEmpty(), "开头删了，回复也不显示")
+    }
+
+    @Test
     fun `新建文稿先出现在本机（待发送），发出后同步完成；标题空白不建`() = runTest {
         assertNull(docs.create(roomId, "   "))
         val doc = docs.create(roomId, " 给明年秋天的信 ")!!

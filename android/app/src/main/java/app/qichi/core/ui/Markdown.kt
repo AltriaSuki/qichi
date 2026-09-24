@@ -13,6 +13,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import app.qichi.core.designsystem.Sizes
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.clickable
 import app.qichi.shared.rules.DocumentImages
 import java.util.UUID
 import app.qichi.core.designsystem.QichiShapes
@@ -162,6 +171,7 @@ object Markdown {
  * Markdown 预览。字号、行距跟随编辑器的本机设置。
  * [onToggleTask] 不为空时勾选框可以点（参数是那一行在原文里的行号）。
  * [image] 画一张照片（文稿里用）；为空时照片只显示成「（照片）」这样的一行字。
+ * [comments] 不为空时，长按一块可以留言，有留言的块旁边显示条数（P9-03）。
  */
 @Composable
 fun MarkdownView(
@@ -171,59 +181,111 @@ fun MarkdownView(
     modifier: Modifier = Modifier,
     onToggleTask: ((Int) -> Unit)? = null,
     image: (@Composable (fileId: UUID, alt: String) -> Unit)? = null,
+    comments: BlockComments? = null,
 ) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val body = type.body.copy(fontSize = fontSize, lineHeight = fontSize * lineHeight, fontWeight = FontWeight.W300, letterSpacing = 0.03.em, color = colors.ink)
+    val blocks = remember(text) { Markdown.parse(text) }
     Column(modifier) {
-        Markdown.parse(text).forEach { block ->
-            when (block) {
-                is Markdown.Block.Heading -> Text(
-                    Markdown.inline(block.text, colors.muted),
-                    style = body.copy(fontSize = fontSize * (if (block.level <= 2) 1.3f else 1.12f), lineHeight = fontSize * 1.3f * 1.6f, letterSpacing = 0.12.em),
-                    modifier = Modifier.padding(top = 10.dp, bottom = 6.dp).semantics { heading() },
-                )
-                is Markdown.Block.Paragraph -> Text(Markdown.inline(block.text, colors.muted), style = body, modifier = Modifier.padding(bottom = 14.dp))
-                is Markdown.Block.Item -> Row(Modifier.fillMaxWidth()) {
-                    Text(block.marker, style = body.copy(color = colors.faint), modifier = Modifier.widthIn(min = 22.dp))
-                    Text(Markdown.inline(block.text, colors.muted), style = body, modifier = Modifier.weight(1f))
-                }
-                is Markdown.Block.Image -> Box(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 14.dp)) {
-                    if (image != null) {
-                        image(block.fileId, block.alt)
-                    } else {
-                        Text("（${block.alt.ifBlank { "照片" }}）", style = body.copy(color = colors.muted))
-                    }
-                }
-                is Markdown.Block.Task -> Row(
-                    Modifier.fillMaxWidth().then(
-                        if (onToggleTask != null) {
-                            Modifier.toggleable(value = block.checked, role = Role.Checkbox, onValueChange = { onToggleTask(block.line) })
-                        } else {
-                            Modifier.semantics { stateDescription = if (block.checked) "已完成" else "未完成" }
-                        },
-                    ),
-                    verticalAlignment = Alignment.Top,
-                ) {
-                    Box(
-                        Modifier.padding(top = (fontSize.value * (lineHeight - 1f) / 2f + 2f).dp, end = 10.dp).size((fontSize.value * 0.95f).dp)
-                            .border(1.dp, if (block.checked) colors.accent else colors.line2, QichiShapes.card)
-                            .background(if (block.checked) colors.accent else colors.paper, QichiShapes.card),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (block.checked) Text("✓", style = body.copy(fontSize = fontSize * 0.7f, lineHeight = fontSize * 0.8f, color = colors.paper))
-                    }
-                    Text(
+        blocks.forEachIndexed { index, block ->
+            CommentableBlock(index, block, comments, body) {
+                when (block) {
+                    is Markdown.Block.Heading -> Text(
                         Markdown.inline(block.text, colors.muted),
-                        style = if (block.checked) body.copy(color = colors.muted, textDecoration = TextDecoration.LineThrough) else body,
-                        modifier = Modifier.weight(1f),
+                        style = body.copy(fontSize = fontSize * (if (block.level <= 2) 1.3f else 1.12f), lineHeight = fontSize * 1.3f * 1.6f, letterSpacing = 0.12.em),
+                        modifier = Modifier.padding(top = 10.dp, bottom = 6.dp).semantics { heading() },
+                    )
+                    is Markdown.Block.Paragraph -> Text(Markdown.inline(block.text, colors.muted), style = body, modifier = Modifier.padding(bottom = 14.dp))
+                    is Markdown.Block.Item -> Row(Modifier.fillMaxWidth()) {
+                        Text(block.marker, style = body.copy(color = colors.faint), modifier = Modifier.widthIn(min = 22.dp))
+                        Text(Markdown.inline(block.text, colors.muted), style = body, modifier = Modifier.weight(1f))
+                    }
+                    is Markdown.Block.Image -> Box(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 14.dp)) {
+                        if (image != null) {
+                            image(block.fileId, block.alt)
+                        } else {
+                            Text("（${block.alt.ifBlank { "照片" }}）", style = body.copy(color = colors.muted))
+                        }
+                    }
+                    is Markdown.Block.Task -> Row(
+                        Modifier.fillMaxWidth().then(
+                            if (onToggleTask != null) {
+                                Modifier.toggleable(value = block.checked, role = Role.Checkbox, onValueChange = { onToggleTask(block.line) })
+                            } else {
+                                Modifier.semantics { stateDescription = if (block.checked) "已完成" else "未完成" }
+                            },
+                        ),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Box(
+                            Modifier.padding(top = (fontSize.value * (lineHeight - 1f) / 2f + 2f).dp, end = 10.dp).size((fontSize.value * 0.95f).dp)
+                                .border(1.dp, if (block.checked) colors.accent else colors.line2, QichiShapes.card)
+                                .background(if (block.checked) colors.accent else colors.paper, QichiShapes.card),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (block.checked) Text("✓", style = body.copy(fontSize = fontSize * 0.7f, lineHeight = fontSize * 0.8f, color = colors.paper))
+                        }
+                        Text(
+                            Markdown.inline(block.text, colors.muted),
+                            style = if (block.checked) body.copy(color = colors.muted, textDecoration = TextDecoration.LineThrough) else body,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    is Markdown.Block.Quote -> Row(Modifier.padding(vertical = 6.dp).height(IntrinsicSize.Min)) {
+                        Box(Modifier.width(2.dp).fillMaxHeight().background(colors.line2))
+                        Text(Markdown.inline(block.text, colors.muted), style = body.copy(color = colors.muted), modifier = Modifier.padding(start = 14.dp))
+                    }
+                    is Markdown.Block.Rule -> Box(Modifier.padding(vertical = 18.dp).fillMaxWidth().height(1.dp).background(colors.line))
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 预览里每一块的留言（P9-03）。[badge] 给出这一块的讨论数和是不是都解决了（没有留言返回 null）；
+ * [canComment] 这一块能不能留言（分隔线、照片不能）；点条数打开讨论，长按一块写新留言。
+ */
+class BlockComments(
+    val badge: (index: Int) -> Pair<Int, Boolean>?,
+    val canComment: (block: Markdown.Block) -> Boolean,
+    val onOpen: (index: Int) -> Unit,
+    val onLongPress: (index: Int) -> Unit,
+)
+
+@Composable
+private fun CommentableBlock(index: Int, block: Markdown.Block, comments: BlockComments?, body: TextStyle, content: @Composable () -> Unit) {
+    if (comments == null || !comments.canComment(block)) {
+        content()
+        return
+    }
+    val colors = QichiTheme.colors
+    val badge = comments.badge(index)
+    Row(
+        Modifier.fillMaxWidth()
+            .pointerInput(index) { detectTapGestures(onLongPress = { comments.onLongPress(index) }) }
+            .semantics { customActions = listOf(CustomAccessibilityAction("给这一段留言") { comments.onLongPress(index); true }) },
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(Modifier.weight(1f)) { content() }
+        if (badge != null) {
+            val (count, allResolved) = badge
+            Box(
+                Modifier.padding(start = 6.dp).size(Sizes.touchTarget)
+                    .clickable(role = Role.Button, onClickLabel = "看留言") { comments.onOpen(index) },
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                Box(
+                    Modifier.padding(top = 4.dp).clip(QichiShapes.pill)
+                        .background(if (allResolved) colors.line else colors.accent.copy(alpha = 0.14f))
+                        .padding(horizontal = 8.dp, vertical = 1.dp),
+                ) {
+                    Text(
+                        count.toString(),
+                        style = body.copy(fontSize = body.fontSize * 0.8f, lineHeight = body.fontSize, color = if (allResolved) colors.faint else colors.accent),
                     )
                 }
-                is Markdown.Block.Quote -> Row(Modifier.padding(vertical = 6.dp).height(IntrinsicSize.Min)) {
-                    Box(Modifier.width(2.dp).fillMaxHeight().background(colors.line2))
-                    Text(Markdown.inline(block.text, colors.muted), style = body.copy(color = colors.muted), modifier = Modifier.padding(start = 14.dp))
-                }
-                is Markdown.Block.Rule -> Box(Modifier.padding(vertical = 18.dp).fillMaxWidth().height(1.dp).background(colors.line))
             }
         }
     }

@@ -55,6 +55,7 @@ object QichiIcons {
     val Rule: ImageVector by lazy { stroke("rule", "M4 12h16M8 7h8M8 17h8") }
     val Undo: ImageVector by lazy { stroke("undo", "M9 13L4 8l5-5M4 8h10a6 6 0 0 1 0 12h-3") }
     val Redo: ImageVector by lazy { stroke("redo", "M15 13l5-5-5-5M20 8H10a6 6 0 0 0 0 12h3") }
+    val Comment: ImageVector by lazy { stroke("comment", "M5 5h14v10H10l-4 4v-4H5zM8.5 9h7M8.5 12h4") }
     val Image: ImageVector by lazy { stroke("image", "M4 5h16v14H4zM4 16l5-5 4 4 2.5-2.5L20 17M15.5 9h.01") }
 
     private fun stroke(name: String, pathData: String, width: Float = 1.2f): ImageVector =

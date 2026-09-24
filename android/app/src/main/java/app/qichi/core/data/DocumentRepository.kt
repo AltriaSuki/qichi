@@ -10,7 +10,9 @@ import app.qichi.core.sync.Local
 import app.qichi.core.sync.LocalStore
 import app.qichi.core.sync.OutboxOp
 import app.qichi.core.sync.SyncScheduler
+import app.qichi.shared.api.CreateDocCommentRequest
 import app.qichi.shared.api.CreateDocumentRequest
+import app.qichi.shared.api.DocComment
 import app.qichi.shared.api.Document
 import app.qichi.shared.api.DocumentVersion
 import app.qichi.shared.api.DocumentVersionPage
@@ -75,6 +77,56 @@ class DocumentRepository(
     suspend fun delete(doc: Document) {
         store.writeLocal(doc.roomId, doc.copy(deletedAt = clock.instant(), deletedBy = me),
             OutboxOp.delete("rooms/${doc.roomId}/documents/${doc.id}"))
+        scheduler.kickOutbox()
+    }
+
+    // ── 段落旁留言（P9-03，可以离线写，联网补发） ──
+
+    /** 这篇文稿的留言（开头和回复，不含回收站里的开头；开头被删了的回复也不要），按时间从早到晚。 */
+    fun observeComments(roomId: UUID, documentId: UUID): Flow<List<Local<DocComment>>> =
+        db.entities().observeByType(roomId.toString(), EntityType.DocComment.wireName)
+            .map { rows ->
+                val all = rows.map { LocalStore.toLocal<DocComment>(it) }.filter { it.value.documentId == documentId }
+                val liveRoots = all.filter { it.value.parentId == null && it.value.deletedAt == null }.map { it.value.id }.toSet()
+                all.filter { it.value.deletedAt == null && (it.value.parentId == null || it.value.parentId in liveRoots) }
+                    .sortedBy { it.value.createdAt }
+            }
+
+    /** 钉在 [quote] 上的新留言；正文空白时不建。 */
+    suspend fun addComment(doc: Document, quote: String, rawBody: String): DocComment? {
+        val body = rawBody.trim().take(Limits.DOC_COMMENT_LENGTH.last).ifEmpty { return null }
+        val q = quote.replace(Regex("\\s+"), " ").trim().take(Limits.DOC_COMMENT_QUOTE_MAX).ifEmpty { return null }
+        val now = clock.instant()
+        val c = DocComment(UuidV7.generate(), doc.roomId, 0, now, now, null, null, doc.id, null, me, body, q, doc.latestVersion, null, null)
+        store.writeLocal(doc.roomId, c, OutboxOp.post("rooms/${doc.roomId}/documents/${doc.id}/comments",
+            CreateDocCommentRequest(c.id, body, quote = q, version = doc.latestVersion)))
+        scheduler.kickOutbox()
+        return c
+    }
+
+    suspend fun reply(root: DocComment, rawBody: String): DocComment? {
+        val body = rawBody.trim().take(Limits.DOC_COMMENT_LENGTH.last).ifEmpty { return null }
+        val now = clock.instant()
+        val c = DocComment(UuidV7.generate(), root.roomId, 0, now, now, null, null, root.documentId, root.id, me, body, null, null, null, null)
+        store.writeLocal(root.roomId, c, OutboxOp.post("rooms/${root.roomId}/documents/${root.documentId}/comments",
+            CreateDocCommentRequest(c.id, body, parentId = root.id)))
+        scheduler.kickOutbox()
+        return c
+    }
+
+    suspend fun setResolved(root: DocComment, resolved: Boolean) {
+        if ((root.resolvedAt != null) == resolved) return
+        val now = clock.instant()
+        store.writeLocal(root.roomId, root.copy(resolvedAt = if (resolved) now else null, resolvedBy = if (resolved) me else null, updatedAt = now),
+            OutboxOp.action("rooms/${root.roomId}/doc-comments/${root.id}/" + if (resolved) "resolve" else "reopen"))
+        scheduler.kickOutbox()
+    }
+
+    /** 删掉自己写的讨论开头（进回收站）。 */
+    suspend fun deleteComment(root: DocComment) {
+        if (root.authorId != me || root.parentId != null) return
+        store.writeLocal(root.roomId, root.copy(deletedAt = clock.instant(), deletedBy = me),
+            OutboxOp.delete("rooms/${root.roomId}/doc-comments/${root.id}"))
         scheduler.kickOutbox()
     }
 

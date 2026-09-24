@@ -30,6 +30,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import app.qichi.shared.rules.Limits
+import app.qichi.core.ui.BlockComments
 import coil3.compose.AsyncImage
 import app.qichi.shared.rules.DocumentImages
 import app.qichi.core.ui.ImageViewer
@@ -184,6 +186,14 @@ fun DocumentEditorScreen(
         }
     }
     var viewingImage by remember { mutableStateOf<UUID?>(null) }
+    // 段落旁留言（P9-03）：按当前正文找回每条讨论的位置
+    val comments by vm.comments.collectAsStateWithLifecycle()
+    val blocks = remember(field.text) { Markdown.parse(field.text) }
+    val threads = remember(comments, blocks) { commentThreads(comments, blocks) }
+    val threadsByBlock = remember(threads) { threads.filter { it.block != null }.groupBy { it.block!! } }
+    var newCommentQuote by remember { mutableStateOf<String?>(null) }
+    // 打开的留言列表：某一块的下标，或 [ALL_COMMENTS] 全部
+    var showThreads by remember { mutableStateOf<Int?>(null) }
     viewingImage?.let { id -> ImageViewer(id, vm.urls, onDismiss = { viewingImage = null }) }
     LaunchedEffect(state.text, state.ready) {
         if (state.ready && !vm.hasLocalEdits() && state.text != field.text) {
@@ -224,6 +234,11 @@ fun DocumentEditorScreen(
                     IconAction(QichiIcons.More, "更多", { menu = true })
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = colors.paper) {
                         DropdownMenuItem(text = { Text("大纲", style = type.body) }, onClick = { menu = false; showOutline = true })
+                        val open = threads.count { !it.resolved }
+                        DropdownMenuItem(
+                            text = { Text(if (open > 0) "留言（$open 条没解决）" else "留言", style = type.body) },
+                            onClick = { menu = false; showThreads = ALL_COMMENTS },
+                        )
                         DropdownMenuItem(text = { Text("历史版本", style = type.body) }, onClick = { menu = false; mode = EditorMode.History })
                         DropdownMenuItem(text = { Text("改标题", style = type.body) }, onClick = { menu = false; renaming = true })
                         DropdownMenuItem(text = { Text("删除", style = type.body.copy(color = colors.accent)) }, onClick = { menu = false; deleting = true })
@@ -271,6 +286,12 @@ fun DocumentEditorScreen(
                                 applyEdit(MarkdownEdits.Edit(toggled, field.selection.min.coerceAtMost(toggled.length)))
                             },
                             image = { fileId, alt -> DocumentImage(fileId, alt, vm.urls, onOpen = { viewingImage = fileId }) },
+                            comments = BlockComments(
+                                badge = { i -> threadsByBlock[i]?.let { list -> list.size to list.all { it.resolved } } },
+                                canComment = { CommentAnchors.text(it) != null },
+                                onOpen = { i -> showThreads = i },
+                                onLongPress = { i -> newCommentQuote = blocks.getOrNull(i)?.let(CommentAnchors::text)?.take(Limits.DOC_COMMENT_QUOTE_MAX) },
+                            ),
                         )
                     } else {
                         val headingSize = fontSize * 1.3f
@@ -325,6 +346,10 @@ fun DocumentEditorScreen(
                     canUndo = history.canUndo,
                     canRedo = history.canRedo,
                     uploadingImage = uploadingImage,
+                    canComment = !field.selection.collapsed,
+                    onComment = {
+                        newCommentQuote = field.text.substring(field.selection.min, field.selection.max).trim().take(Limits.DOC_COMMENT_QUOTE_MAX).ifEmpty { null }
+                    },
                     onImage = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     onEdit = { transform ->
                         val e = MarkdownEdits.Edit(field.text, field.selection.min, field.selection.max)
@@ -369,6 +394,20 @@ fun DocumentEditorScreen(
         }
     }
 
+    newCommentQuote?.let { quote ->
+        NewCommentSheet(quote, onSubmit = { body -> vm.addComment(quote, body); newCommentQuote = null }, onDismiss = { newCommentQuote = null })
+    }
+    showThreads?.let { which ->
+        CommentsSheet(
+            title = if (which == ALL_COMMENTS) "留言" else "这一段的留言",
+            threads = if (which == ALL_COMMENTS) threads else threadsByBlock[which].orEmpty(),
+            people = state.people,
+            onReply = vm::reply,
+            onResolve = vm::setResolved,
+            onDelete = vm::deleteComment,
+            onDismiss = { showThreads = null },
+        )
+    }
     if (showSettings) {
         ModalBottomSheet(onDismissRequest = { showSettings = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             containerColor = colors.background) {
@@ -409,6 +448,8 @@ fun DocumentEditorScreen(
 }
 
 @OptIn(ExperimentalLayoutApi::class)
+private const val ALL_COMMENTS = -1
+
 /** 文稿预览里的一张照片：按宽度铺满，点开看大图。 */
 @Composable
 internal fun DocumentImage(fileId: UUID, alt: String, urls: FileUrls, onOpen: () -> Unit) {
@@ -429,6 +470,8 @@ private fun FormatBar(
     canRedo: Boolean,
     uploadingImage: Boolean,
     onImage: () -> Unit,
+    canComment: Boolean,
+    onComment: () -> Unit,
     onEdit: ((MarkdownEdits.Edit) -> MarkdownEdits.Edit) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -439,6 +482,8 @@ private fun FormatBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+            // 选中文字时最前面多一个「留言」
+            if (canComment) IconAction(QichiIcons.Comment, "给选中的文字留言", onComment, tint = colors.accent)
             IconAction(QichiIcons.Heading, "标题", { onEdit(MarkdownEdits::cycleHeading) })
             IconAction(QichiIcons.Bold, "加粗", { onEdit(MarkdownEdits::toggleBold) })
             IconAction(QichiIcons.BulletList, "列表", { onEdit { MarkdownEdits.toggleLinePrefix(it, "- ") } })
