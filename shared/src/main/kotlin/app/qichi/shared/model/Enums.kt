@@ -329,3 +329,13 @@ enum class AiActionStatus {
     @SerialName("accepted") Accepted,
     @SerialName("dismissed") Dismissed,
 }
+
+/** 文稿分类（P9-06）。 */
+@Serializable
+enum class DocCategory {
+    @SerialName("letter") Letter,
+    @SerialName("travel") Travel,
+    @SerialName("diary") Diary,
+    @SerialName("review") Review,
+    @SerialName("other") Other,
+}

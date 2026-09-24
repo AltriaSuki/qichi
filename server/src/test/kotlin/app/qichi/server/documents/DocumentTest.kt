@@ -5,10 +5,13 @@ import app.qichi.server.TestDatabase
 import app.qichi.server.assertProblem
 import app.qichi.server.serverTest
 import app.qichi.shared.api.Bootstrap
+import app.qichi.shared.model.DocCategory
+import app.qichi.shared.api.DocumentSearchHit
 import app.qichi.shared.api.CreateDocumentRequest
 import app.qichi.shared.api.Document
 import app.qichi.shared.api.DocumentVersion
 import app.qichi.shared.api.DocumentVersionPage
+import app.qichi.shared.api.Patch
 import app.qichi.shared.api.Problem
 import app.qichi.shared.api.SaveDocumentVersionRequest
 import app.qichi.shared.api.SyncResponse
@@ -47,10 +50,10 @@ class DocumentTest {
         assertTrue(chi.get("/api/v1/rooms/$room/sync?since=0").body<SyncResponse>().changes.any { it.type == EntityType.Document && it.id == doc.id })
         assertEquals(listOf(doc.id), chi.get(path).body<List<Document>>().map { it.id })
 
-        val renamed = chi.patch("$path/${doc.id}", UpdateDocumentRequest("给明年的信")).body<Document>()
+        val renamed = chi.patch("$path/${doc.id}", UpdateDocumentRequest(title = Patch.of("给明年的信"))).body<Document>()
         assertEquals("给明年的信", renamed.title)
         assertTrue(renamed.seq > doc.seq)
-        chi.patch("$path/${doc.id}", UpdateDocumentRequest(" ")).assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
+        chi.patch("$path/${doc.id}", UpdateDocumentRequest(title = Patch.of(" "))).assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
     }
 
     @Test fun `保存版本：基于最新版本才能保存，版本号递增，文稿记下最新作者和字数；同 id 重试不会多出版本`() = serverTest { client ->
@@ -148,5 +151,40 @@ class DocumentTest {
         assertEquals(HttpStatusCode.NoContent, aqi.delete("/api/v1/rooms/$room/trash/document/${doc.id}").status)
         val last = aqi.get("/api/v1/rooms/$room/sync?since=0").body<SyncResponse>().changes.last { it.id == doc.id }
         assertEquals(ChangeOp.Delete, last.op)
+    }
+
+    @Test fun `置顶和分类：两人一致，没发的字段不改，分类可以清掉`() = serverTest { client ->
+        val (aqi, chi, room) = Api(client).pair()
+        val path = "/api/v1/rooms/$room/documents"
+        val doc = aqi.post(path, CreateDocumentRequest(UuidV7.generate(), "东山岛游记")).body<Document>()
+        val pinned = aqi.patch("$path/${doc.id}", UpdateDocumentRequest(pinned = Patch.of(true), category = Patch.of(DocCategory.Travel))).body<Document>()
+        assertTrue(pinned.pinned)
+        assertEquals(DocCategory.Travel, pinned.category)
+        assertEquals("东山岛游记", pinned.title, "没发标题就不改")
+        val seen = chi.get("/api/v1/rooms/$room/bootstrap").body<Bootstrap>().documents.single()
+        assertTrue(seen.pinned)
+        assertEquals(DocCategory.Travel, seen.category)
+        val cleared = chi.patch("$path/${doc.id}", UpdateDocumentRequest(category = Patch.of(null))).body<Document>()
+        assertNull(cleared.category)
+        assertTrue(cleared.pinned, "只清分类，置顶不变")
+        aqi.patch("$path/${doc.id}", UpdateDocumentRequest()).assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
+    }
+
+    @Test fun `搜索：正文命中给前后一小段；标题命中也算；回收站里的不算；非成员 404`() = serverTest { client ->
+        val api = Api(client)
+        val (aqi, _, room) = api.pair()
+        val path = "/api/v1/rooms/$room/documents"
+        val trip = aqi.post(path, CreateDocumentRequest(UuidV7.generate(), "周末")).body<Document>()
+        aqi.post("$path/${trip.id}/versions", SaveDocumentVersionRequest(UuidV7.generate(), 0, "周六早上八点出发。\n晚上找一家安静的小店吃海鲜，然后在海边坐一会儿。"))
+        val letter = aqi.post(path, CreateDocumentRequest(UuidV7.generate(), "海鲜清单")).body<Document>()
+        val gone = aqi.post(path, CreateDocumentRequest(UuidV7.generate(), "删掉的海鲜")).body<Document>()
+        aqi.delete("$path/${gone.id}")
+
+        val hits = aqi.get("$path/search?q=%E6%B5%B7%E9%B2%9C").body<List<DocumentSearchHit>>()
+        assertEquals(setOf(trip.id, letter.id), hits.map { it.documentId }.toSet())
+        val snippet = hits.single { it.documentId == trip.id }.snippet
+        assertTrue(snippet.contains("吃海鲜") && !snippet.contains("\n"), snippet)
+        aqi.get("$path/search?q=").assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
+        api.outsider(aqi).get("$path/search?q=a").assertProblem(HttpStatusCode.NotFound, ProblemCode.NotFound)
     }
 }

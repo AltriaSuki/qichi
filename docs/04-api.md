@@ -182,7 +182,8 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET · POST | `/rooms/{roomId}/documents` | 文稿列表 / 新建 |
-| PATCH · DELETE | `/rooms/{roomId}/documents/{id}` | 改标题（标题不进版本）/ 删除进回收站（彻底删除时连同所有版本） |
+| PATCH · DELETE | `/rooms/{roomId}/documents/{id}` | 改标题、置顶、分类（都不进版本，没发的字段不改）/ 删除进回收站（彻底删除时连同所有版本） |
+| GET | `/rooms/{roomId}/documents/search?q=` | 在标题和最新版本正文里搜（P9-06），给出命中处前后的一小段；最多 50 条 |
 | GET | `/rooms/{roomId}/documents/{id}/versions` | 版本列表（不含正文，版本号从大到小，`cursor` + `limit` 分页） |
 | GET | `/rooms/{roomId}/documents/{id}/versions/{v}` | 某个版本的正文 |
 | POST | `/rooms/{roomId}/documents/{id}/comments` | 段落旁留言（P9-03）：开头带 `quote`（钉住的原文，最多 200 字）和写时的 `version`；回复带 `parentId`；幂等 |

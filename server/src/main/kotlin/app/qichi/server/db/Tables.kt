@@ -252,6 +252,8 @@ object Documents : SyncedTable("documents") {
     val latestVersion = integer("latest_version")
     val latestAuthorId = javaUUID("latest_author_id").nullable()
     val charCount = integer("char_count")
+    val pinned = bool("pinned").default(false)
+    val category = text("category").nullable()
 }
 
 /** 不可变：只插入，不更新。 */

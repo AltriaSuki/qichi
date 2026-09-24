@@ -35,9 +35,10 @@ fun Route.documentRoutes(ctx: AppContext) {
         route("/rooms/{roomId}/documents") {
             get { call.respond(ctx.documents.list(call.user.userId, call.uuidParam("roomId"))) }
             post { call.respondCreated(ctx.documents.create(call.user.userId, call.uuidParam("roomId"), call.receive<CreateDocumentRequest>())) }
+            get("/search") { call.respond(ctx.documents.search(call.user.userId, call.uuidParam("roomId"), call.request.queryParameters["q"].orEmpty())) }
             route("/{id}") {
                 patch {
-                    call.respond(ctx.documents.rename(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id"), call.receive<UpdateDocumentRequest>()))
+                    call.respond(ctx.documents.update(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id"), call.receive<UpdateDocumentRequest>()))
                 }
                 delete { call.respond(ctx.documents.delete(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id"))) }
                 get("/versions") {

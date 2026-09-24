@@ -1,5 +1,8 @@
 package app.qichi.shared.api
 
+import app.qichi.shared.model.DocCategory
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 
 /**
@@ -22,13 +25,26 @@ data class Document(
     val latestAuthorId: Id?,
     /** 最新版本的中文字数 */
     val charCount: Int,
+    /** 置顶（两个人看到的一样，P9-06） */
+    val pinned: Boolean = false,
+    val category: DocCategory? = null,
 ) : SyncEntity
 
 @Serializable
 data class CreateDocumentRequest(val id: Id, val title: String)
 
+/** 改标题、置顶、分类（P9-06），没发的字段不改；`category: null` 表示清掉分类。 */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
-data class UpdateDocumentRequest(val title: String)
+data class UpdateDocumentRequest(
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val title: Patch<String> = Patch.Absent,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val pinned: Patch<Boolean> = Patch.Absent,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val category: Patch<DocCategory?> = Patch.Absent,
+)
+
+/** 正文搜索的一条结果：哪篇文稿，以及命中处前后的一小段（P9-06）。 */
+@Serializable
+data class DocumentSearchHit(val documentId: Id, val snippet: String)
 
 /** 版本列表里的一项（不含正文）。 */
 @Serializable

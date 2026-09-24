@@ -1,5 +1,10 @@
 package app.qichi.server.documents
 
+import app.qichi.shared.model.wireName
+import app.qichi.shared.model.fromWire
+import app.qichi.shared.model.DocCategory
+import app.qichi.shared.api.Patch
+import app.qichi.shared.api.DocumentSearchHit
 import app.qichi.server.db.DocumentVersions
 import app.qichi.server.db.Documents
 import app.qichi.server.db.EntityWrites
@@ -45,6 +50,8 @@ fun ResultRow.toDocument() = Document(
     latestVersion = this[Documents.latestVersion],
     latestAuthorId = this[Documents.latestAuthorId],
     charCount = this[Documents.charCount],
+    pinned = this[Documents.pinned],
+    category = this[Documents.category]?.let { fromWire<DocCategory>(it) },
 )
 
 private fun ResultRow.toVersionInfo() = DocumentVersionInfo(
@@ -71,6 +78,7 @@ private fun ResultRow.toVersion() = DocumentVersion(
 )
 
 private const val VERSION_PAGE_MAX = 100
+private const val SEARCH_MAX = 50
 
 /**
  * 共同写作（P5-01）：文稿是同步实体（标题、最新版本号、作者、字数）；每次保存插入一个不可变版本。
@@ -112,14 +120,55 @@ class DocumentService(
         }
     }
 
-    suspend fun rename(userId: UUID, roomId: UUID, id: UUID, req: UpdateDocumentRequest): Document {
-        val title = checkTitle(req.title)
+    /** 改标题、置顶、分类（P9-06）：没发的字段不改；都不进版本。 */
+    suspend fun update(userId: UUID, roomId: UUID, id: UUID, req: UpdateDocumentRequest): Document {
+        validate { check(req.title.isPresent || req.pinned.isPresent || req.category.isPresent, "title", "没有要改的") }
+        val title = (req.title as? Patch.Value)?.value?.let(::checkTitle)
         return db.tx {
             rooms.requireMember(roomId, userId)
             val current = liveDocument(roomId, id)
-            if (current.title != title) writes.update(this, roomId, userId, EntityType.Document, id, Documents) { it[Documents.title] = title }
+            val pinned = req.pinned.orNull() ?: current.pinned
+            val category = if (req.category.isPresent) req.category.orNull() else current.category
+            if ((title ?: current.title) != current.title || pinned != current.pinned || category != current.category) {
+                writes.update(this, roomId, userId, EntityType.Document, id, Documents) {
+                    if (title != null) it[Documents.title] = title
+                    it[Documents.pinned] = pinned
+                    it[Documents.category] = category?.wireName
+                }
+            }
             document(id)!!
         }
+    }
+
+    /**
+     * 在标题和最新版本正文里搜（P9-06）：不含回收站里的，最近更新的在前，最多 [SEARCH_MAX] 条。
+     * 命中正文时给出命中处前后的一小段；只命中标题时给正文开头。
+     */
+    suspend fun search(userId: UUID, roomId: UUID, rawQuery: String): List<DocumentSearchHit> {
+        val q = rawQuery.trim()
+        validate { check(q.length in 1..100, "q", "搜索词 1–100 个字") }
+        return db.tx(readOnly = true) {
+            rooms.requireMember(roomId, userId)
+            val docs = Documents.selectAll().where { (Documents.roomId eq roomId) and Documents.deletedAt.isNull() }
+                .orderBy(Documents.updatedAt, SortOrder.DESC).map { it.toDocument() }
+            docs.asSequence().mapNotNull { d ->
+                val body = if (d.latestVersion == 0) "" else DocumentVersions.select(DocumentVersions.body)
+                    .where { (DocumentVersions.documentId eq d.id) and (DocumentVersions.version eq d.latestVersion) }.single()[DocumentVersions.body]
+                val at = body.indexOf(q, ignoreCase = true)
+                when {
+                    at >= 0 -> DocumentSearchHit(d.id, snippet(body, at, q.length))
+                    d.title.contains(q, ignoreCase = true) -> DocumentSearchHit(d.id, snippet(body, 0, 0))
+                    else -> null
+                }
+            }.take(SEARCH_MAX).toList()
+        }
+    }
+
+    /** 命中处前 20 字、后 40 字，换行压成空格。 */
+    private fun snippet(body: String, at: Int, len: Int): String {
+        val from = (at - 20).coerceAtLeast(0)
+        val to = (at + len + 40).coerceAtMost(body.length)
+        return (if (from > 0) "…" else "") + body.substring(from, to).replace(Regex("\\s+"), " ").trim() + (if (to < body.length) "…" else "")
     }
 
     suspend fun delete(userId: UUID, roomId: UUID, id: UUID): Document = db.tx {

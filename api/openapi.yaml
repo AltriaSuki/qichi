@@ -1253,6 +1253,25 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
+  /rooms/{roomId}/documents/search:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - name: q
+        in: query
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 100 }
+    get:
+      tags: [documents]
+      operationId: searchDocuments
+      summary: 在文稿标题和最新版本正文里搜（P9-06），最多 50 条，最近更新的在前；不含回收站里的
+      responses:
+        '200':
+          description: 命中的文稿
+          content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/DocumentSearchHit' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /rooms/{roomId}/documents/{id}:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -1260,7 +1279,7 @@ paths:
     patch:
       tags: [documents]
       operationId: updateDocument
-      summary: 改标题（两位成员都可以；标题不进版本）
+      summary: 改标题、置顶、分类（两位成员都可以；都不进版本；没发的字段不改）
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/UpdateDocumentRequest' } } }
@@ -3814,6 +3833,11 @@ components:
             latestVersion: { type: integer, minimum: 0, description: 0 表示还没有保存过版本 }
             latestAuthorId: { $ref: '#/components/schemas/NullableUuid' }
             charCount: { type: integer, minimum: 0, description: 最新版本的中文字数 }
+            pinned: { type: boolean, default: false, description: 置顶（两个人看到的一样，P9-06） }
+            category:
+              oneOf:
+                - $ref: '#/components/schemas/DocCategory'
+                - type: 'null'
     CreateDocumentRequest:
       type: object
       required: [id, title]
@@ -3822,9 +3846,24 @@ components:
         title: { type: string, minLength: 1, maxLength: 100 }
     UpdateDocumentRequest:
       type: object
-      required: [title]
+      minProperties: 1
       properties:
         title: { type: string, minLength: 1, maxLength: 100 }
+        pinned: { type: boolean }
+        category:
+          description: null 表示清掉分类
+          oneOf:
+            - $ref: '#/components/schemas/DocCategory'
+            - type: 'null'
+    DocCategory:
+      type: string
+      enum: [letter, travel, diary, review, other]
+    DocumentSearchHit:
+      type: object
+      required: [documentId, snippet]
+      properties:
+        documentId: { $ref: '#/components/schemas/Uuid' }
+        snippet: { type: string, description: 命中处前后的一小段 }
     DocumentVersionInfo:
       type: object
       required: [id, documentId, version, baseVersion, authorId, charCount, restoredFromVersion, createdAt]
