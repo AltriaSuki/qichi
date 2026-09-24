@@ -2,7 +2,6 @@ package app.qichi.feature.plan
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -37,22 +35,24 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.People
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sizes
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
+import app.qichi.core.designsystem.component.BarAction
 import app.qichi.core.designsystem.component.CheckCircle
 import app.qichi.core.designsystem.component.ConfirmDialog
-import app.qichi.core.designsystem.component.IconAction
+import app.qichi.core.designsystem.component.Fab
+import app.qichi.core.designsystem.component.FabClearance
+import app.qichi.core.designsystem.component.FeatureTopBar
+import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.MistCard
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.QichiTextField
@@ -62,12 +62,10 @@ import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.StageTrack
 import app.qichi.core.ui.TodoRow
-import app.qichi.core.ui.shortDate
-import app.qichi.core.ui.monthRoman
 import app.qichi.core.ui.relativeDay
+import app.qichi.core.ui.shortDate
 import app.qichi.shared.api.Milestone
 import app.qichi.shared.api.Plan
-import app.qichi.shared.api.PlanStage
 import app.qichi.shared.model.PlanStatus
 import java.time.LocalDate
 import java.time.ZoneId
@@ -90,28 +88,29 @@ fun PlanListScreen(
     var creating by rememberSaveable { mutableStateOf(false) }
     var showDone by rememberSaveable { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("计划", onBack) {
-            IconAction(QichiIcons.Plus, "新计划", { creating = true })
-        }
-        Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page),
-            verticalArrangement = Arrangement.spacedBy(Spacing.s),
-        ) {
-            if (state.loaded && state.active.isEmpty() && state.done.isEmpty()) {
-                Text("还没有计划。长一点的事，可以放在这里慢慢推进。", style = type.caption.copy(color = colors.muted),
-                    modifier = Modifier.padding(top = Spacing.m))
-                TextAction("新建一个计划", { creating = true })
-            }
-            state.active.forEach { PlanRow(it, state.people, state.today, onClick = { onOpen(it.plan.value.id) }) }
-            if (state.done.isNotEmpty()) {
-                SectionLabel("已完成 ${state.done.size}", modifier = Modifier.padding(top = Spacing.l)) {
-                    TextAction(if (showDone) "收起" else "展开", { showDone = !showDone }, color = colors.muted)
+    Box(Modifier.fillMaxSize().background(colors.background)) {
+        Column(Modifier.fillMaxSize()) {
+            FeatureTopBar(Feature.Plan, onBack)
+            Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page),
+                verticalArrangement = Arrangement.spacedBy(Spacing.s),
+            ) {
+                if (state.loaded && state.active.isEmpty() && state.done.isEmpty()) {
+                    Text("还没有计划。长一点的事，可以放在这里慢慢推进。", style = type.caption.copy(color = colors.muted),
+                        modifier = Modifier.padding(top = Spacing.m))
+                    TextAction("新建一个计划", { creating = true })
                 }
-                if (showDone) state.done.forEach { PlanRow(it, state.people, state.today, onClick = { onOpen(it.plan.value.id) }) }
+                state.active.forEach { PlanRow(it, state.people, state.today, onClick = { onOpen(it.plan.value.id) }) }
+                if (state.done.isNotEmpty()) {
+                    SectionLabel("已完成 ${state.done.size}", modifier = Modifier.padding(top = Spacing.l)) {
+                        TextAction(if (showDone) "收起" else "展开", { showDone = !showDone }, color = colors.muted)
+                    }
+                    if (showDone) state.done.forEach { PlanRow(it, state.people, state.today, onClick = { onOpen(it.plan.value.id) }) }
+                }
+                Spacer(Modifier.height(FabClearance))
             }
-            Spacer(Modifier.height(Spacing.xl))
         }
+        Fab("新计划", { creating = true })
     }
 
     if (creating) {
@@ -189,9 +188,8 @@ fun PlanDetailScreen(
     }
 
     Column(Modifier.fillMaxSize().background(colors.background).imePadding()) {
-        BackBar("计划", onBack) {
-            if (plan != null) TextAction("编辑", { editing = true }, color = colors.muted)
-        }
+        ItemTopBar(plan?.title.orEmpty(), onBack, feature = Feature.Plan,
+            actions = if (plan != null) listOf(BarAction("编辑", QichiIcons.Pen, { editing = true })) else emptyList())
         if (plan == null) return@Column
         val done = plan.status == PlanStatus.Done
         Column(

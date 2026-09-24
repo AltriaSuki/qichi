@@ -7,11 +7,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,24 +21,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import app.qichi.core.designsystem.component.decor.ruledPaper
-import app.qichi.core.designsystem.component.decor.marker
-import app.qichi.core.designsystem.component.decor.Watermark
-import app.qichi.core.designsystem.component.decor.WaxSeal
-import app.qichi.core.designsystem.component.decor.Tape
-import app.qichi.core.designsystem.component.decor.Sticker
-import app.qichi.core.designsystem.component.decor.Stamp
-import app.qichi.core.designsystem.component.decor.Sprig
-import app.qichi.core.designsystem.component.decor.Seal
-import app.qichi.core.designsystem.component.decor.Scene
-import app.qichi.core.designsystem.component.decor.Ribbon
-import app.qichi.core.designsystem.component.decor.Postmark
-import app.qichi.core.designsystem.component.decor.Polaroid
-import app.qichi.core.designsystem.component.decor.Illustration
-import app.qichi.core.designsystem.component.decor.HandNote
-import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -47,20 +33,47 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.LocalQichiTypography
 import app.qichi.core.designsystem.QichiShapes
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sky
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
+import app.qichi.core.designsystem.component.BarAction
 import app.qichi.core.designsystem.component.ChoicePill
+import app.qichi.core.designsystem.component.Fab
+import app.qichi.core.designsystem.component.FeatureTile
+import app.qichi.core.designsystem.component.FeatureTopBar
+import app.qichi.core.designsystem.component.ItemTopBar
+import app.qichi.core.designsystem.component.MenuAction
+import app.qichi.core.designsystem.component.QichiTabBar
 import app.qichi.core.designsystem.component.SectionLabel
+import app.qichi.core.designsystem.component.Segmented
+import app.qichi.core.designsystem.component.TabItem
+import app.qichi.core.designsystem.component.decor.HandNote
+import app.qichi.core.designsystem.component.decor.Illustration
+import app.qichi.core.designsystem.component.decor.Polaroid
+import app.qichi.core.designsystem.component.decor.Postmark
+import app.qichi.core.designsystem.component.decor.Ribbon
+import app.qichi.core.designsystem.component.decor.Scene
+import app.qichi.core.designsystem.component.decor.Seal
+import app.qichi.core.designsystem.component.decor.Sprig
+import app.qichi.core.designsystem.component.decor.Stamp
+import app.qichi.core.designsystem.component.decor.Sticker
+import app.qichi.core.designsystem.component.decor.Tape
+import app.qichi.core.designsystem.component.decor.Watermark
+import app.qichi.core.designsystem.component.decor.WaxSeal
+import app.qichi.core.designsystem.component.decor.marker
+import app.qichi.core.designsystem.component.decor.ruledPaper
 import app.qichi.core.designsystem.dashedDivider
+import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.lift
+import app.qichi.core.designsystem.tsp
 
 /**
  * 组件陈列（docs/06-design-system.md，开发用）：四种天色下的颜色令牌、字号层级、间距、圆角、浮起阴影、虚线分隔。
- * 截图和设计稿 `New-Spec.dc.html` 对照用；装饰（P10-02）和组件（P10-03）做好后加在这里。
+ * 还有组件（P10-03）和装饰（P10-02）。截图和设计稿 `New-Spec.dc.html` 对照用。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -71,7 +84,7 @@ fun ShowcaseScreen(onBack: () -> Unit) {
         val colors = QichiTheme.colors
         val type = QichiTheme.typography
         Column(Modifier.fillMaxSize().background(colors.background)) {
-            BackBar("组件陈列", onBack)
+            ItemTopBar("组件陈列", onBack, feature = Feature.Me)
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(Sky.Dawn to "清晨", Sky.Day to "白天", Sky.Dusk to "黄昏", Sky.Night to "深夜").forEach { (s, label) ->
@@ -128,6 +141,32 @@ fun ShowcaseScreen(onBack: () -> Unit) {
                 }
                 Box(Modifier.padding(top = Spacing.l).fillMaxWidth().height(Spacing.l).dashedDivider(colors))
                 Text("分隔线是 1dp 虚线（line2）", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.xs))
+
+                // ── 组件（P10-03，对照 New-Spec.dc.html 的「组件」一栏） ──
+                SectionLabel("组件", modifier = Modifier.padding(top = Spacing.l))
+                var seg by rememberSaveable { mutableIntStateOf(0) }
+                Segmented(listOf("生活", "创作", "回看"), seg, { seg = it }, margin = PaddingValues(bottom = Spacing.m))
+                SectionLabel("里程碑", Feature.Plan) { Text("2", style = type.numeral.copy(fontSize = 13.tsp, color = colors.muted)) }
+                SectionLabel("待办", Feature.Todo)
+                FlowRow(Modifier.padding(top = Spacing.xs), horizontalArrangement = Arrangement.spacedBy(Spacing.s), verticalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    Feature.entries.forEach { f ->
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            FeatureTile(f)
+                            Text(f.title, style = type.caption.copy(color = colors.muted))
+                        }
+                    }
+                }
+                Column(Modifier.padding(top = Spacing.m).fillMaxWidth().clip(QichiShapes.card).border(1.dp, colors.line, QichiShapes.card)) {
+                    FeatureTopBar(Feature.Plan, {}, actions = listOf(BarAction("搜索", QichiIcons.Search, {}), BarAction("标签", QichiIcons.Tag, {}), BarAction("选照片", QichiIcons.Image, {})))
+                    ItemTopBar("秋天去一次海边", {}, feature = Feature.Plan, actions = listOf(BarAction("编辑", QichiIcons.Pen, {})), menu = listOf(MenuAction("删除", {}, danger = true)))
+                    var tab by rememberSaveable { mutableIntStateOf(2) }
+                    QichiTabBar(
+                        listOf("今天" to QichiIcons.Sun, "聊天" to QichiIcons.Chat, "一起" to QichiIcons.Rings, "我的" to QichiIcons.User)
+                            .mapIndexed { i, (label, icon) -> TabItem(label, icon, i == tab, badge = if (i == 1) 2 else null) },
+                        { tab = it },
+                    )
+                }
+                Box(Modifier.fillMaxWidth().height(110.dp)) { Fab("新计划", {}) }
 
                 // ── 装饰（P10-02，对照 New-Spec.dc.html 的「装饰」一栏） ──
                 SectionLabel("装饰", modifier = Modifier.padding(top = Spacing.l))

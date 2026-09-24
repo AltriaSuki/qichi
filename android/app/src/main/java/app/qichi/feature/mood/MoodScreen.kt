@@ -38,13 +38,14 @@ import app.qichi.core.auth.SessionManager
 import app.qichi.core.data.MoodRepository
 import app.qichi.core.data.People
 import app.qichi.core.data.RoomRepository
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiShapes
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
 import app.qichi.core.designsystem.component.CheckCircle
 import app.qichi.core.designsystem.component.ChoicePill
 import app.qichi.core.designsystem.component.ComfortFlag
+import app.qichi.core.designsystem.component.FeatureTopBar
 import app.qichi.core.designsystem.component.IntensityTicks
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.Pill
@@ -64,6 +65,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -71,7 +73,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.UUID
 
 /** 正在填写的这一条心情。 */
 data class MoodDraft(
@@ -170,7 +171,7 @@ fun MoodScreen(
             .background(colors.background)
             .imePadding(),
     ) {
-        BackBar(title = "心情", onBack = onBack)
+        FeatureTopBar(Feature.Mood, onBack)
         Column(
             Modifier
                 .weight(1f)

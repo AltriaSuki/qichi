@@ -25,10 +25,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.data.RoomRepository
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sizes
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
+import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.Person
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.Pill
@@ -47,6 +48,9 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -54,9 +58,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.UUID
 
 data class MembersState(
     val room: Room? = null,
@@ -127,7 +128,7 @@ fun MembersScreen(
             .fillMaxSize()
             .background(colors.background),
     ) {
-        BackBar(title = "成员与邀请", onBack = onBack)
+        ItemTopBar("成员与邀请", onBack, feature = Feature.Me)
         Column(
             Modifier
                 .weight(1f)

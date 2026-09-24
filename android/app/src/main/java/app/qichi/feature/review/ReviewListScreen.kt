@@ -7,6 +7,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -38,16 +39,17 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.REVIEW_MIME_TYPES
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
 import app.qichi.core.designsystem.component.ConfirmDialog
-import app.qichi.core.designsystem.component.IconAction
+import app.qichi.core.designsystem.component.Fab
+import app.qichi.core.designsystem.component.FabClearance
+import app.qichi.core.designsystem.component.FeatureTopBar
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.TextAction
-import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.relativeDay
 import app.qichi.shared.api.ReviewDocument
@@ -55,7 +57,7 @@ import app.qichi.shared.model.PreviewStatus
 import app.qichi.shared.rules.Limits
 import java.util.UUID
 
-/** 审稿列表：每份文件的最新版本、还没处理的批注数；右上角选一个文件新建。 */
+/** 审稿列表：每份文件的最新版本、还没处理的批注数；右下角「新建审稿」选一个文件。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReviewListScreen(
@@ -79,22 +81,23 @@ fun ReviewListScreen(
     LaunchedEffect(message) { message?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); vm.messageShown() } }
     LaunchedEffect(opened) { opened?.let { onOpen(it); vm.openedHandled() } }
 
-    Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("审稿", onBack) {
-            IconAction(QichiIcons.Plus, "新建审稿", { picker.launch(REVIEW_MIME_TYPES) }, enabled = adding == null)
-        }
-        adding?.let { Text("正在上传 ${(it * 100).toInt()}%", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(horizontal = Spacing.page)) }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
-            if (state.loaded && state.items.isEmpty()) {
-                Text(
-                    "还没有要审的文件。右上角选一个 PDF、Word、Excel 或 PowerPoint，两个人在上面圈出要改的地方、讨论、接受修改。" +
-                        "手机上只看服务器生成的预览图，不打开原文件。",
-                    style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m),
-                )
+    Box(Modifier.fillMaxSize().background(colors.background)) {
+        Column(Modifier.fillMaxSize()) {
+            FeatureTopBar(Feature.Review, onBack)
+            adding?.let { Text("正在上传 ${(it * 100).toInt()}%", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(horizontal = Spacing.page)) }
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
+                if (state.loaded && state.items.isEmpty()) {
+                    Text(
+                        "还没有要审的文件。点右下角选一个 PDF、Word、Excel 或 PowerPoint，两个人在上面圈出要改的地方、讨论、接受修改。" +
+                            "手机上只看服务器生成的预览图，不打开原文件。",
+                        style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m),
+                    )
+                }
+                state.items.forEach { item -> ReviewRow(item, state, onClick = { onOpen(item.doc.id) }, onLongClick = { menuFor = item.doc }) }
+                Spacer(Modifier.height(FabClearance))
             }
-            state.items.forEach { item -> ReviewRow(item, state, onClick = { onOpen(item.doc.id) }, onLongClick = { menuFor = item.doc }) }
-            Spacer(Modifier.height(Spacing.xl))
         }
+        Fab("新建审稿", { picker.launch(REVIEW_MIME_TYPES) }, enabled = adding == null)
     }
 
     menuFor?.let { doc ->

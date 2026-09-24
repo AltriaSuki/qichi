@@ -13,7 +13,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
+import app.qichi.core.designsystem.component.ItemTopBar
 
 /** 标签根页面的占位（后续任务替换为真正的页面）。 */
 @Composable
@@ -45,6 +45,6 @@ fun PagePlaceholder(title: String, onBack: () -> Unit) {
             .fillMaxSize()
             .background(QichiTheme.colors.background),
     ) {
-        BackBar(title = title, onBack = onBack)
+        ItemTopBar(title, onBack)
     }
 }

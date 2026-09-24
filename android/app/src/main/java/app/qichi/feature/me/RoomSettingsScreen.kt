@@ -1,5 +1,6 @@
 package app.qichi.feature.me
 
+import android.content.Context
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,6 +29,8 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
@@ -52,16 +56,18 @@ import app.qichi.core.data.AttachmentException
 import app.qichi.core.data.AttachmentPreparer
 import app.qichi.core.data.FileRepository
 import app.qichi.core.data.RoomRepository
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiShapes
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sizes
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
 import app.qichi.core.designsystem.component.FogSeaHero
+import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.tsp
+import app.qichi.core.network.ApiClient
 import app.qichi.core.network.FileUrls
 import app.qichi.core.network.NetworkMonitor
 import app.qichi.shared.api.Patch
@@ -75,6 +81,12 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -84,17 +96,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
-import java.time.ZoneOffset
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
-import app.qichi.core.network.ApiClient
-import dagger.hilt.android.qualifiers.ApplicationContext
-import android.content.Context
-import androidx.compose.foundation.layout.Spacer
-import java.util.UUID
 
 @HiltViewModel(assistedFactory = RoomSettingsViewModel.Factory::class)
 class RoomSettingsViewModel @AssistedInject constructor(
@@ -272,7 +273,7 @@ fun RoomSettingsScreen(
             .background(colors.background)
             .imePadding(),
     ) {
-        BackBar(title = "房间设置", onBack = onBack)
+        ItemTopBar("房间设置", onBack, feature = Feature.Me)
         val current = room ?: return@Column
         if (name.isEmpty() && current.name.isNotEmpty()) name = current.name
         Column(

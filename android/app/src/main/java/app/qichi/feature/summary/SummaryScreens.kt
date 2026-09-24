@@ -23,7 +23,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,22 +38,23 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
 import app.qichi.core.designsystem.component.ChoicePill
 import app.qichi.core.designsystem.component.ConfirmDialog
-import app.qichi.core.designsystem.component.MistCard
+import app.qichi.core.designsystem.component.FeatureTopBar
+import app.qichi.core.designsystem.component.ItemTopBar
+import app.qichi.core.designsystem.component.MenuAction
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.MarkdownView
-import app.qichi.core.ui.relativeDay
+import app.qichi.core.ui.sourceKind
+import app.qichi.core.ui.sourceLabel
 import app.qichi.shared.api.Summary
 import app.qichi.shared.api.SummarySource
 import app.qichi.shared.model.SummaryKind
-import app.qichi.core.ui.sourceKind
-import app.qichi.core.ui.sourceLabel
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -100,7 +100,7 @@ fun SummaryScreen(
     }
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("总结", onBack)
+        FeatureTopBar(Feature.Summary, onBack)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
             Text("让 AI 帮你们回顾一段时间：发生了什么、定下了什么、完成了什么。每句都标出依据，点得回去。",
                 style = type.caption.copy(color = colors.muted))
@@ -166,9 +166,8 @@ private fun SummaryDetail(s: Summary, onBack: () -> Unit, onOpenSource: (Summary
     var deleting by remember { mutableStateOf(false) }
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar(s.kind.label, onBack) {
-            if (!s.locked) TextAction("删除", { deleting = true }, color = colors.muted)
-        }
+        ItemTopBar(s.kind.label, onBack, feature = Feature.Summary,
+            menu = if (!s.locked) listOf(MenuAction("删除", { deleting = true }, danger = true)) else emptyList())
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
             Text(rangeText(s.rangeStart, s.rangeEnd), style = type.numeral.copy(fontSize = 19.tsp, color = colors.muted), modifier = Modifier.semantics { heading() })
             Text(if (s.locked) "AI 派生 · 年度回顾，不可撤回" else "AI 派生，仅供参考", style = type.caption.copy(color = colors.accent))

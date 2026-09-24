@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,8 +21,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -45,13 +42,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import app.qichi.core.data.People
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
-import app.qichi.core.designsystem.component.ChoicePill
 import app.qichi.core.designsystem.component.ConfirmDialog
-import app.qichi.core.designsystem.component.IconAction
+import app.qichi.core.designsystem.component.Fab
+import app.qichi.core.designsystem.component.FabClearance
+import app.qichi.core.designsystem.component.FeatureTopBar
+import app.qichi.core.designsystem.component.ItemTopBar
+import app.qichi.core.designsystem.component.MenuAction
 import app.qichi.core.designsystem.component.MistCard
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.PrimaryButton
@@ -59,7 +58,6 @@ import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.QuickInput
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
-import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.DateChoice
@@ -67,7 +65,6 @@ import app.qichi.core.ui.relativeDay
 import app.qichi.shared.api.Decision
 import app.qichi.shared.rules.Limits
 import java.time.LocalDate
-import java.time.ZoneId
 import java.util.UUID
 
 private fun reviewText(d: Decision, today: LocalDate): String? = d.reviewDate?.let {
@@ -90,24 +87,27 @@ fun DecisionListScreen(
     val type = QichiTheme.typography
     var creating by rememberSaveable { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("决定", onBack) { IconAction(QichiIcons.Plus, "新的决定", { creating = true }) }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
-            if (state.loaded && state.open.isEmpty() && state.decided.isEmpty()) {
-                Text("还没有决定记录。要一起拿主意的事，可以把备选和各自在意的地方写下来，慢慢商量。",
-                    style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
-                TextAction("记一个", { creating = true })
+    Box(Modifier.fillMaxSize().background(colors.background)) {
+        Column(Modifier.fillMaxSize()) {
+            FeatureTopBar(Feature.Decisions, onBack)
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
+                if (state.loaded && state.open.isEmpty() && state.decided.isEmpty()) {
+                    Text("还没有决定记录。要一起拿主意的事，可以把备选和各自在意的地方写下来，慢慢商量。",
+                        style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
+                    TextAction("记一个", { creating = true })
+                }
+                if (state.open.isNotEmpty()) {
+                    SectionLabel("还没定  ${state.open.size}", modifier = Modifier.padding(top = Spacing.s))
+                    state.open.forEach { DecisionRow(it, state.today) { onOpen(it.value.id) } }
+                }
+                if (state.decided.isNotEmpty()) {
+                    SectionLabel("定下了  ${state.decided.size}", modifier = Modifier.padding(top = Spacing.l))
+                    state.decided.forEach { DecisionRow(it, state.today) { onOpen(it.value.id) } }
+                }
+                Spacer(Modifier.height(FabClearance))
             }
-            if (state.open.isNotEmpty()) {
-                SectionLabel("还没定  ${state.open.size}", modifier = Modifier.padding(top = Spacing.s))
-                state.open.forEach { DecisionRow(it, state.today) { onOpen(it.value.id) } }
-            }
-            if (state.decided.isNotEmpty()) {
-                SectionLabel("定下了  ${state.decided.size}", modifier = Modifier.padding(top = Spacing.l))
-                state.decided.forEach { DecisionRow(it, state.today) { onOpen(it.value.id) } }
-            }
-            Spacer(Modifier.height(Spacing.xl))
         }
+        Fab("新的决定", { creating = true })
     }
 
     if (creating) {
@@ -169,7 +169,6 @@ fun DecisionDetailScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
-    var menu by remember { mutableStateOf(false) }
     var editingQuestion by remember { mutableStateOf(false) }
     var editingConcern by remember { mutableStateOf(false) }
     var deciding by remember { mutableStateOf(false) }
@@ -183,15 +182,10 @@ fun DecisionDetailScreen(
     val people = state.people
 
     Column(Modifier.fillMaxSize().background(colors.background).imePadding()) {
-        BackBar("决定", onBack) {
-            Box {
-                IconAction(QichiIcons.More, "更多", { menu = true })
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = colors.paper) {
-                    DropdownMenuItem(text = { Text("改问题", style = type.body) }, onClick = { menu = false; editingQuestion = true })
-                    DropdownMenuItem(text = { Text("删除", style = type.body.copy(color = colors.accent)) }, onClick = { menu = false; deleting = true })
-                }
-            }
-        }
+        ItemTopBar(d?.question.orEmpty(), onBack, feature = Feature.Decisions, menu = listOf(
+            MenuAction("改问题", { editingQuestion = true }),
+            MenuAction("删除", { deleting = true }, danger = true),
+        ))
         if (d == null) return@Column
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
             Text(d.question, style = type.pageTitle.copy(fontSize = 24.tsp, lineHeight = 34.tsp, color = colors.ink),

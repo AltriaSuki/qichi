@@ -26,12 +26,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.qichi.core.data.AccountRepository
 import app.qichi.core.data.RoomRepository
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
+import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.shared.api.AiPrefs
 import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -39,7 +41,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 @HiltViewModel
 class AiPrefsViewModel @Inject constructor(
@@ -77,7 +78,7 @@ fun AiPrefsScreen(onBack: () -> Unit, vm: AiPrefsViewModel = hiltViewModel()) {
     val p = saved ?: AiPrefs()
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("AI 能看什么", onBack)
+        ItemTopBar("AI 能看什么", onBack, feature = Feature.Me)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
             Text(
                 "你问 AI、让 AI 出题或写总结时，它会先在房间里找相关的资料再回答，并标出参考了哪几条。" +

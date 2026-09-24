@@ -37,10 +37,10 @@ import androidx.compose.ui.unit.sp
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sky
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
+import app.qichi.core.designsystem.component.BarAction
 import app.qichi.core.designsystem.component.CheckCircle
 import app.qichi.core.designsystem.component.ChoicePill
-import app.qichi.core.designsystem.component.IconAction
+import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.MistCard
 import app.qichi.core.designsystem.component.Person
 import app.qichi.core.designsystem.component.PersonMark
@@ -94,9 +94,7 @@ private fun Showcase(sky: Sky, onSky: (Sky) -> Unit, large: Boolean, onLarge: (B
             .fillMaxSize()
             .background(colors.background),
     ) {
-        BackBar(title = "组件陈列", onBack = onBack) {
-            IconAction(QichiIcons.Search, contentDescription = "搜索", onClick = {})
-        }
+        ItemTopBar("组件陈列", onBack, actions = listOf(BarAction("搜索", QichiIcons.Search, {})))
         Column(
             Modifier
                 .weight(1f)
@@ -217,8 +215,8 @@ private fun Showcase(sky: Sky, onSky: (Sky) -> Unit, large: Boolean, onLarge: (B
             Spacer(Modifier.height(Spacing.xl))
         }
         QichiTabBar(
-            items = listOf("今天", "聊天", "一起", "我的").mapIndexed { i, label ->
-                TabItem(label, selected = i == tab, badge = if (i == 1) 2 else null)
+            items = listOf("今天" to QichiIcons.Sun, "聊天" to QichiIcons.Chat, "一起" to QichiIcons.Rings, "我的" to QichiIcons.User).mapIndexed { i, (label, icon) ->
+                TabItem(label, icon, selected = i == tab, badge = if (i == 1) 2 else null)
             },
             onSelect = { tab = it },
         )

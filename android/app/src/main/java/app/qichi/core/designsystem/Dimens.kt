@@ -45,7 +45,7 @@ object Sizes {
     val listRow = 50.dp
     val listRowTall = 56.dp
     val buttonHeight = 46.dp
-    val tabBarHeight = 58.dp
+    val tabBarHeight = 62.dp
     val backBarHeight = 70.dp
     val envelopeHeight = 100.dp
     val waxSeal = 46.dp

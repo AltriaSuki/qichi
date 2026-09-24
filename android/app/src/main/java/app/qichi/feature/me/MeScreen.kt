@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
@@ -20,8 +19,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -36,6 +33,7 @@ import app.qichi.core.data.RoomRepository
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sizes
 import app.qichi.core.designsystem.Spacing
+import app.qichi.core.designsystem.component.MainTopBar
 import app.qichi.core.designsystem.component.Person
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.SectionLabel
@@ -49,11 +47,11 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.UUID
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import java.util.UUID
 
 data class MeState(
     val room: Room? = null,
@@ -98,24 +96,13 @@ fun MeScreen(
     Column(
         Modifier
             .fillMaxSize()
-            .background(colors.background)
-            .statusBarsPadding(),
+            .background(colors.background),
     ) {
-        Row(
-            Modifier.padding(start = Spacing.page, end = Spacing.page, top = Spacing.xxl, bottom = 30.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
-        ) {
-            PersonMark(markCharOf(state.displayName), state.person, size = 60.dp)
-            Column {
-                Text(
-                    state.displayName,
-                    style = type.feeling.copy(fontSize = 28.tsp, letterSpacing = 0.3.em, lineHeight = 39.tsp, color = colors.ink),
-                    modifier = Modifier.semantics { heading() },
-                )
-                Text(state.room?.name.orEmpty(), style = type.caption.copy(letterSpacing = 0.2.em, color = colors.muted))
-            }
-        }
+        MainTopBar(
+            state.displayName,
+            note = state.room?.name,
+            side = { PersonMark(markCharOf(state.displayName), state.person, size = 60.dp) },
+        )
         Column(
             Modifier
                 .weight(1f)

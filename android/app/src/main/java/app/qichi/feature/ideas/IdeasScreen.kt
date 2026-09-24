@@ -21,7 +21,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -33,10 +32,11 @@ import app.qichi.core.auth.SessionManager
 import app.qichi.core.data.IdeaRepository
 import app.qichi.core.data.People
 import app.qichi.core.data.RoomRepository
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
 import app.qichi.core.designsystem.component.ConfirmDialog
+import app.qichi.core.designsystem.component.FeatureTopBar
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.QuickInput
@@ -52,14 +52,14 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.LocalDate
+import java.time.ZoneId
+import java.util.UUID
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.LocalDate
-import java.time.ZoneId
-import java.util.UUID
 
 data class IdeasState(
     val people: People = People.Empty,
@@ -109,7 +109,7 @@ fun IdeasScreen(
     var deleting by remember { mutableStateOf<Idea?>(null) }
 
     Column(Modifier.fillMaxSize().background(colors.background).imePadding()) {
-        BackBar("灵感", onBack)
+        FeatureTopBar(Feature.Ideas, onBack)
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = Spacing.page, end = Spacing.page, bottom = Spacing.l)) {
             if (state.loaded && state.ideas.isEmpty()) {
                 item { Text("想到什么就记下来，不用想清楚。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(vertical = Spacing.m)) }

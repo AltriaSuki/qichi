@@ -36,10 +36,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.People
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sizes
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
+import app.qichi.core.designsystem.component.FeatureTopBar
 import app.qichi.core.designsystem.component.MistCard
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.QuoteMark
@@ -60,7 +61,7 @@ fun QnaScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val colors = QichiTheme.colors
     Column(Modifier.fillMaxSize().background(colors.background).imePadding()) {
-        BackBar("问答", onBack)
+        FeatureTopBar(Feature.Qna, onBack)
         QnaTabs(state.tab, viewModel::tab)
         Column(
             Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())

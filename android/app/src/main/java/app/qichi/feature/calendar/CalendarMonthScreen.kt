@@ -20,8 +20,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,10 +43,12 @@ import androidx.compose.ui.unit.em
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.People
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sizes
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
+import app.qichi.core.designsystem.component.BarAction
+import app.qichi.core.designsystem.component.FeatureTopBar
 import app.qichi.core.designsystem.component.IconAction
 import app.qichi.core.designsystem.component.MistCard
 import app.qichi.core.designsystem.component.PersonMark
@@ -91,9 +93,7 @@ fun CalendarMonthScreen(
         }
     }
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("日历", onBack) {
-            TextAction("日程", onEventsClick, color = colors.muted)
-        }
+        FeatureTopBar(Feature.Calendar, onBack, actions = listOf(BarAction("全部日程", QichiIcons.BulletList, onEventsClick)))
         Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.page), horizontalArrangement = Arrangement.spacedBy(Spacing.xl)) {
             CalendarTab("日", false) { onDayClick(state.selectedDate) }
             CalendarTab("周", state.view == CalendarView.Week) { vm.show(CalendarView.Week) }

@@ -25,10 +25,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.qichi.core.data.RoomRepository
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
 import app.qichi.core.designsystem.component.IconAction
+import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
@@ -37,18 +38,18 @@ import app.qichi.shared.api.AiUsage
 import app.qichi.shared.model.AiJobKind
 import app.qichi.shared.model.AiJobStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 data class AiUsageState(
     val month: YearMonth = YearMonth.now(),
@@ -98,7 +99,7 @@ fun AiUsageScreen(onBack: () -> Unit, viewModel: AiUsageViewModel = hiltViewMode
     val numbers = remember { NumberFormat.getIntegerInstance(Locale.ROOT) }
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar(title = "我发起的 AI 使用", onBack = onBack)
+        ItemTopBar("我发起的 AI 使用", onBack, feature = Feature.Me)
         Row(
             Modifier.fillMaxWidth().padding(horizontal = Spacing.page - 12.dp),
             verticalAlignment = Alignment.CenterVertically,

@@ -56,8 +56,10 @@ fun TocRow(
     ) {
         Text(
             text = romanNumeral(index),
-            style = type.numeral.copy(fontSize = 19.tsp, color = colors.accent),
-            modifier = Modifier.width(26.dp),
+            style = type.numeral.copy(fontSize = 16.tsp, color = colors.accent),
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.width(36.dp),
         )
         Text(text = title, style = type.tocItem.copy(color = colors.ink))
         val leader = colors.line2

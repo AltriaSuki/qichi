@@ -1,5 +1,6 @@
 package app.qichi.feature.reading
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,7 +17,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -28,9 +28,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -38,24 +37,23 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import android.widget.Toast
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.em
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.People
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
+import app.qichi.core.designsystem.component.BarAction
 import app.qichi.core.designsystem.component.ConfirmDialog
-import app.qichi.core.designsystem.component.IconAction
+import app.qichi.core.designsystem.component.ItemTopBar
+import app.qichi.core.designsystem.component.MenuAction
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.QuickInput
@@ -63,20 +61,19 @@ import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
-import app.qichi.core.sync.Local
 import app.qichi.shared.api.Highlight
 import app.qichi.shared.model.HighlightKind
 import app.qichi.shared.model.ReadExplainMode
 import app.qichi.shared.rules.Limits
+import java.util.UUID
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.readium.r2.navigator.DecorableNavigator
 import org.readium.r2.navigator.Decoration
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.navigator.epub.EpubPreferences
-import org.readium.r2.shared.publication.Locator
-import java.util.UUID
 import org.readium.r2.navigator.preferences.Color as ReadiumColor
+import org.readium.r2.shared.publication.Locator
 
 private enum class ReaderSheet { Toc, Notes, Search }
 
@@ -115,20 +112,16 @@ fun ReaderScreen(
     LaunchedEffect(vm) { vm.openHighlight.collect { openHighlight = it } }
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        // ── 返回条 ──
-        Row(
-            Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 60.dp).padding(start = 8.dp, end = 6.dp, top = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconAction(QichiIcons.Back, "返回", onBack)
-            Text(state.book?.title.orEmpty(), style = type.pageTitle.copy(fontSize = 19.tsp, fontWeight = FontWeight.W300, letterSpacing = 0.2.em, color = colors.ink),
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).semantics { heading() })
-            IconAction(QichiIcons.Outline, "目录", { sheet = ReaderSheet.Toc }, enabled = state.ready)
-            IconAction(QichiIcons.Search, "书内搜索", { sheet = ReaderSheet.Search }, enabled = state.ready)
-            val marked = vm.bookmarkAt(locator) != null
-            IconAction(QichiIcons.Bookmark, if (marked) "去掉书签" else "加书签", { locator?.let(vm::toggleBookmark) },
-                enabled = locator != null, tint = if (marked) colors.accent else colors.ink)
-        }
+        val marked = vm.bookmarkAt(locator) != null
+        ItemTopBar(
+            state.book?.title.orEmpty(), onBack, feature = Feature.Reading,
+            actions = listOf(
+                BarAction("目录", QichiIcons.Toc, { sheet = ReaderSheet.Toc }, enabled = state.ready),
+                BarAction(if (marked) "去掉书签" else "加书签", QichiIcons.Bookmark, { locator?.let(vm::toggleBookmark) },
+                    enabled = locator != null, tint = if (marked) colors.accent else null),
+            ),
+            menu = listOf(MenuAction("书内搜索", { sheet = ReaderSheet.Search }, enabled = state.ready)),
+        )
 
         // ── 正文 ──
         Box(Modifier.weight(1f).fillMaxWidth()) {

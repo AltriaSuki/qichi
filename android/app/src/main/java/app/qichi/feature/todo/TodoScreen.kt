@@ -2,6 +2,7 @@ package app.qichi.feature.todo
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -39,16 +40,16 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.People
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
 import app.qichi.core.designsystem.component.ChoicePill
-import app.qichi.core.designsystem.component.IconAction
+import app.qichi.core.designsystem.component.Fab
+import app.qichi.core.designsystem.component.FeatureTopBar
 import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
-import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.ui.TodoRow
 import app.qichi.core.ui.relativeDay
 import java.time.Instant
@@ -56,7 +57,7 @@ import java.time.LocalDate
 import java.time.ZoneOffset
 import java.util.UUID
 
-/** 待办页：进行中（按截止日）与已完成；点一条打开编辑，右上角新建。 */
+/** 待办页：进行中（按截止日）与已完成；点一条打开编辑，右下角新建。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodoScreen(
@@ -69,50 +70,51 @@ fun TodoScreen(
     // null = 不显示；"new" = 新建；其它 = 编辑这条
     var editing by rememberSaveable { mutableStateOf<String?>(null) }
 
-    Column(
+    Box(
         Modifier
             .fillMaxSize()
             .background(colors.background),
     ) {
-        BackBar(title = "待办", onBack = onBack) {
-            IconAction(QichiIcons.Plus, contentDescription = "新待办", onClick = { editing = "new" })
-        }
-        LazyColumn(
-            Modifier
-                .weight(1f)
-                .padding(horizontal = Spacing.page),
-        ) {
-            items(state.open, key = { it.todo.value.id }) { group ->
-                Column {
-                    TodoRow(
-                        item = group.todo, people = state.people, today = state.today, zone = state.zone,
-                        onToggle = { viewModel.toggle(group.todo.value, it) },
-                        onClick = { editing = group.todo.value.id.toString() },
-                    )
-                    group.children.forEach { child ->
+        Column(Modifier.fillMaxSize()) {
+            FeatureTopBar(Feature.Todo, onBack)
+            LazyColumn(
+                Modifier
+                    .weight(1f)
+                    .padding(horizontal = Spacing.page),
+            ) {
+                items(state.open, key = { it.todo.value.id }) { group ->
+                    Column {
                         TodoRow(
-                            item = child, people = state.people, today = state.today, zone = state.zone, subtask = true,
-                            onToggle = { viewModel.toggle(child.value, it) },
+                            item = group.todo, people = state.people, today = state.today, zone = state.zone,
+                            onToggle = { viewModel.toggle(group.todo.value, it) },
+                            onClick = { editing = group.todo.value.id.toString() },
+                        )
+                        group.children.forEach { child ->
+                            TodoRow(
+                                item = child, people = state.people, today = state.today, zone = state.zone, subtask = true,
+                                onToggle = { viewModel.toggle(child.value, it) },
+                                onClick = { editing = group.todo.value.id.toString() },
+                            )
+                        }
+                    }
+                }
+                if (state.done.isNotEmpty()) {
+                    item(key = "done-label") {
+                        Spacer(Modifier.height(Spacing.detailSection))
+                        SectionLabel("已完成")
+                    }
+                    items(state.done, key = { "done-" + it.todo.value.id }) { group ->
+                        TodoRow(
+                            item = group.todo, people = state.people, today = state.today, zone = state.zone,
+                            onToggle = { viewModel.toggle(group.todo.value, it) },
                             onClick = { editing = group.todo.value.id.toString() },
                         )
                     }
                 }
+                item { Spacer(Modifier.height(Spacing.xxl)) }
             }
-            if (state.done.isNotEmpty()) {
-                item(key = "done-label") {
-                    Spacer(Modifier.height(Spacing.detailSection))
-                    SectionLabel("已完成")
-                }
-                items(state.done, key = { "done-" + it.todo.value.id }) { group ->
-                    TodoRow(
-                        item = group.todo, people = state.people, today = state.today, zone = state.zone,
-                        onToggle = { viewModel.toggle(group.todo.value, it) },
-                        onClick = { editing = group.todo.value.id.toString() },
-                    )
-                }
-            }
-            item { Spacer(Modifier.height(Spacing.xxl)) }
         }
+        Fab("新待办", { editing = "new" })
     }
 
     editing?.let { key ->

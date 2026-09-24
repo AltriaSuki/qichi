@@ -15,13 +15,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.em
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
 import app.qichi.core.designsystem.component.IconAction
+import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.MistCard
 import app.qichi.core.designsystem.component.PersonMarks
 import app.qichi.core.designsystem.component.SectionLabel
@@ -43,7 +43,7 @@ fun CalendarDayScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val colors = QichiTheme.colors
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("日历", onBack)
+        ItemTopBar("${state.date.monthValue} 月 ${state.date.dayOfMonth} 日", onBack, feature = Feature.Calendar)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(state.date.dayOfWeek.chinese, style = QichiTheme.typography.pageTitle.copy(color = colors.ink))

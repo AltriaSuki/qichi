@@ -27,8 +27,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -50,11 +48,17 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.People
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
+import app.qichi.core.designsystem.component.BarAction
 import app.qichi.core.designsystem.component.ConfirmDialog
+import app.qichi.core.designsystem.component.Fab
+import app.qichi.core.designsystem.component.FabClearance
+import app.qichi.core.designsystem.component.FeatureTopBar
 import app.qichi.core.designsystem.component.IconAction
+import app.qichi.core.designsystem.component.ItemTopBar
+import app.qichi.core.designsystem.component.MenuAction
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.Pill
 import app.qichi.core.designsystem.component.PrimaryButton
@@ -71,12 +75,12 @@ import app.qichi.shared.api.BoardPostRevision
 import app.qichi.shared.model.BoardReactionKind
 import app.qichi.shared.rules.BoardRules
 import app.qichi.shared.rules.Limits
-import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import kotlinx.coroutines.launch
 
 private val hm = DateTimeFormatter.ofPattern("HH:mm")
 
@@ -110,42 +114,42 @@ fun BoardListScreen(
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     BackHandler(enabled = searchOpen) { searchOpen = false; vm.search("") }
 
-    Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("留言", onBack) {
-            IconAction(QichiIcons.Search, "搜索", { searchOpen = !searchOpen; if (!searchOpen) vm.search("") })
-            IconAction(QichiIcons.Plus, "新主题", { creating = true })
-        }
-        if (searchOpen) {
-            QuickInput(state.query, vm::search, placeholder = "搜索留言和标题", actionLabel = "清空", onSubmit = { vm.search("") },
-                modifier = Modifier.padding(horizontal = Spacing.m, vertical = Spacing.xs))
-        }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
-            if (state.searching) {
-                if (state.topicHits.isEmpty() && state.postHits.isEmpty()) {
-                    Text("没有找到。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
-                }
-                state.topicHits.forEach { TopicRow(it, state.people, state.zone, state.today) { onOpen(it.topic.value.id, null) } }
-                if (state.postHits.isNotEmpty()) SectionLabel("留言", modifier = Modifier.padding(top = Spacing.m))
-                state.postHits.forEach { hit ->
-                    Column(Modifier.fillMaxWidth().clickable(role = Role.Button) { onOpen(hit.post.topicId, hit.post.id) }.padding(vertical = Spacing.s)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                            PersonMark(state.people.markChar(hit.post.authorId), state.people.person(hit.post.authorId), size = 18.dp)
-                            Text("${hit.topicTitle} · ${whenText(hit.post.createdAt, state.zone, state.today)}", style = type.caption.copy(color = colors.muted),
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        Text(BoardRules.quoteExcerpt(hit.post.body), style = type.body.copy(color = colors.ink), maxLines = 2, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = Spacing.xxs))
-                    }
-                }
-            } else {
-                if (state.loaded && state.topics.isEmpty()) {
-                    Text("还没有留言。想慢慢说清楚的话，可以写在这里。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
-                    TextAction("写第一个主题", { creating = true })
-                }
-                state.topics.forEach { TopicRow(it, state.people, state.zone, state.today) { onOpen(it.topic.value.id, null) } }
+    Box(Modifier.fillMaxSize().background(colors.background)) {
+        Column(Modifier.fillMaxSize()) {
+            FeatureTopBar(Feature.Board, onBack, actions = listOf(BarAction("搜索", QichiIcons.Search, { searchOpen = !searchOpen; if (!searchOpen) vm.search("") })))
+            if (searchOpen) {
+                QuickInput(state.query, vm::search, placeholder = "搜索留言和标题", actionLabel = "清空", onSubmit = { vm.search("") },
+                    modifier = Modifier.padding(horizontal = Spacing.m, vertical = Spacing.xs))
             }
-            Spacer(Modifier.height(Spacing.xl))
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
+                if (state.searching) {
+                    if (state.topicHits.isEmpty() && state.postHits.isEmpty()) {
+                        Text("没有找到。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
+                    }
+                    state.topicHits.forEach { TopicRow(it, state.people, state.zone, state.today) { onOpen(it.topic.value.id, null) } }
+                    if (state.postHits.isNotEmpty()) SectionLabel("留言", modifier = Modifier.padding(top = Spacing.m))
+                    state.postHits.forEach { hit ->
+                        Column(Modifier.fillMaxWidth().clickable(role = Role.Button) { onOpen(hit.post.topicId, hit.post.id) }.padding(vertical = Spacing.s)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                                PersonMark(state.people.markChar(hit.post.authorId), state.people.person(hit.post.authorId), size = 18.dp)
+                                Text("${hit.topicTitle} · ${whenText(hit.post.createdAt, state.zone, state.today)}", style = type.caption.copy(color = colors.muted),
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            Text(BoardRules.quoteExcerpt(hit.post.body), style = type.body.copy(color = colors.ink), maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = Spacing.xxs))
+                        }
+                    }
+                } else {
+                    if (state.loaded && state.topics.isEmpty()) {
+                        Text("还没有留言。想慢慢说清楚的话，可以写在这里。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
+                        TextAction("写第一个主题", { creating = true })
+                    }
+                    state.topics.forEach { TopicRow(it, state.people, state.zone, state.today) { onOpen(it.topic.value.id, null) } }
+                }
+                Spacer(Modifier.height(FabClearance))
+            }
         }
+        Fab("新主题", { creating = true })
     }
 
     if (creating) {
@@ -211,7 +215,6 @@ fun TopicScreen(
     val type = QichiTheme.typography
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    var menu by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var deletingTopic by remember { mutableStateOf(false) }
     var revising by remember { mutableStateOf<BoardPost?>(null) }
@@ -236,16 +239,11 @@ fun TopicScreen(
 
     val topic = state.topic?.value
     Column(Modifier.fillMaxSize().background(colors.background).imePadding()) {
-        BackBar(topic?.title.orEmpty(), onBack) {
-            if (topic != null) TextAction(if (topic.pinnedAt != null) "取消置顶" else "置顶", { vm.setPinned(topic.pinnedAt == null) }, color = colors.muted)
-            Box {
-                IconAction(QichiIcons.More, "更多", { menu = true })
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = colors.paper) {
-                    DropdownMenuItem(text = { Text("改标题", style = type.body) }, onClick = { menu = false; renaming = true })
-                    DropdownMenuItem(text = { Text("删除主题", style = type.body.copy(color = colors.accent)) }, onClick = { menu = false; deletingTopic = true })
-                }
-            }
-        }
+        ItemTopBar(topic?.title.orEmpty(), onBack, feature = Feature.Board, menu = listOfNotNull(
+            topic?.let { t -> MenuAction(if (t.pinnedAt != null) "取消置顶" else "置顶", { vm.setPinned(t.pinnedAt == null) }) },
+            MenuAction("改标题", { renaming = true }),
+            MenuAction("删除主题", { deletingTopic = true }, danger = true),
+        ))
         LazyColumn(Modifier.weight(1f), state = list) {
             items(state.posts, key = { it.post.value.id }) { item ->
                 PostCard(

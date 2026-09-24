@@ -7,6 +7,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -40,12 +41,15 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.People
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
+import app.qichi.core.designsystem.component.BarAction
 import app.qichi.core.designsystem.component.ChoicePill
 import app.qichi.core.designsystem.component.ConfirmDialog
-import app.qichi.core.designsystem.component.IconAction
+import app.qichi.core.designsystem.component.Fab
+import app.qichi.core.designsystem.component.FabClearance
+import app.qichi.core.designsystem.component.FeatureTopBar
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.QichiTextField
@@ -62,7 +66,7 @@ import java.util.UUID
 
 private fun mb(bytes: Long) = "${(bytes / (1024 * 1024)).coerceAtLeast(if (bytes > 0) 1 else 0)} MB"
 
-/** 共同书架：各自的进度、是否已下载、共读计划；右上角加 EPUB，「离线」设缓存上限。 */
+/** 共同书架：各自的进度、是否已下载、共读计划；右下角加 EPUB，右上角设离线缓存上限。 */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ShelfScreen(
@@ -85,19 +89,19 @@ fun ShelfScreen(
 
     LaunchedEffect(message) { message?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); vm.messageShown() } }
 
-    Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("阅读", onBack) {
-            TextAction("离线", { cacheSheet = true }, color = colors.muted)
-            IconAction(QichiIcons.Plus, "加一本书", { picker.launch(arrayOf("application/epub+zip")) }, enabled = adding == null)
-        }
-        adding?.let { Text("正在上传 ${(it * 100).toInt()}%", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(horizontal = Spacing.page)) }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
-            if (state.loaded && state.books.isEmpty()) {
-                Text("书架还是空的。右上角可以放一本 EPUB 上来，两个人一起读。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
+    Box(Modifier.fillMaxSize().background(colors.background)) {
+        Column(Modifier.fillMaxSize()) {
+            FeatureTopBar(Feature.Reading, onBack, actions = listOf(BarAction("离线下载", QichiIcons.Down, { cacheSheet = true })))
+            adding?.let { Text("正在上传 ${(it * 100).toInt()}%", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(horizontal = Spacing.page)) }
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
+                if (state.loaded && state.books.isEmpty()) {
+                    Text("书架还是空的。右下角可以放一本 EPUB 上来，两个人一起读。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
+                }
+                state.books.forEach { item -> BookRow(item, state.people, state.today, onClick = { onOpen(item.book.value.id) }, onLongClick = { menuFor = item }) }
+                Spacer(Modifier.height(FabClearance))
             }
-            state.books.forEach { item -> BookRow(item, state.people, state.today, onClick = { onOpen(item.book.value.id) }, onLongClick = { menuFor = item }) }
-            Spacer(Modifier.height(Spacing.xl))
         }
+        Fab("加一本书", { picker.launch(arrayOf("application/epub+zip")) }, enabled = adding == null)
     }
 
     menuFor?.let { item ->

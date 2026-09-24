@@ -29,11 +29,12 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.database.DocumentVersionRow
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
 import app.qichi.core.designsystem.component.ChoicePill
 import app.qichi.core.designsystem.component.ConfirmDialog
+import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.TextAction
@@ -64,7 +65,7 @@ internal fun HistoryView(state: EditorState, vm: DocumentEditorViewModel, onBack
     }
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("历史版本", onBack)
+        ItemTopBar("历史版本", onBack, feature = Feature.Writing)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
             if (versions.isEmpty()) {
                 Text(if (state.latestVersion == 0) "还没有保存过版本。" else "联网后能看到全部版本。",
@@ -118,7 +119,7 @@ private fun VersionView(
     }
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("v$version", onBack)
+        ItemTopBar("v$version", onBack, feature = Feature.Writing)
         Row(Modifier.padding(horizontal = Spacing.page), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ChoicePill(if (version > 1) "和 v${version - 1} 对比" else "改动", showDiff, { showDiff = true })
             ChoicePill("全文", !showDiff, { showDiff = false })
@@ -175,7 +176,7 @@ internal fun RebaseView(state: EditorState, onBack: () -> Unit, onKeepMine: () -
     var confirmTake by remember { mutableStateOf(false) }
     val author = state.document?.value?.latestAuthorId
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("重基线", onBack)
+        ItemTopBar("重基线", onBack, feature = Feature.Writing)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
             Text(
                 "${state.people.name(author)}存了 v${state.latestVersion}，你的内容是在 v${state.baseVersion} 上写的。" +

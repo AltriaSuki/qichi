@@ -38,17 +38,20 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import app.qichi.core.designsystem.QichiTheme
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiShapes
+import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
+import app.qichi.core.designsystem.component.BarAction
+import app.qichi.core.designsystem.component.FeatureTopBar
 import app.qichi.core.designsystem.component.IconAction
+import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.icon.QichiIcons
@@ -60,7 +63,6 @@ import app.qichi.shared.model.TimelineEntryKind
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
-import java.time.YearMonth
 import java.util.UUID
 
 private val chineseMonths = listOf("一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月")
@@ -99,7 +101,7 @@ fun TimelineScreen(
     }
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("时间线", onBack) { TextAction("选照片", { picking = true; vm.loadPicks() }) }
+        FeatureTopBar(Feature.Timeline, onBack, actions = listOf(BarAction("选照片", QichiIcons.Image, { picking = true; vm.loadPicks() })))
         val page = state.page
         when {
             page == null && state.failed -> Column(Modifier.padding(Spacing.page)) {
@@ -179,7 +181,7 @@ private fun PhotoPicker(state: TimelineState, vm: TimelineViewModel, onBack: () 
     val partner = people.partner
     BackHandler(onBack = onBack)
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("选照片", onBack)
+        ItemTopBar("选照片", onBack, feature = Feature.Timeline)
         Text("点一下选中。两个人都选中的照片，会出现在时间线上。", style = type.caption.copy(color = colors.muted),
             modifier = Modifier.padding(horizontal = Spacing.page, vertical = Spacing.xs))
         if (state.photos.isEmpty()) {

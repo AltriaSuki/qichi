@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,10 +30,11 @@ import app.qichi.core.data.People
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.data.TrashEntry
 import app.qichi.core.data.TrashRepository
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
 import app.qichi.core.designsystem.component.ConfirmDialog
+import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.feelingWord
@@ -49,15 +49,15 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.UUID
 
 data class TrashState(
     val people: People = People.Empty,
@@ -117,7 +117,7 @@ fun TrashScreen(
             .fillMaxSize()
             .background(colors.background),
     ) {
-        BackBar(title = "回收站", onBack = onBack)
+        ItemTopBar("回收站", onBack, feature = Feature.Me)
         if (state.loaded && state.entries.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(bottom = 120.dp), contentAlignment = Alignment.Center) {
                 Text("回收站是空的", style = type.caption.copy(color = colors.muted))

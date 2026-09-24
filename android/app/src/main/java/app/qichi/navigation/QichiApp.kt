@@ -35,46 +35,46 @@ import androidx.navigation.toRoute
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.component.QichiTabBar
 import app.qichi.core.designsystem.component.TabItem
+import app.qichi.feature.archive.ArchiveDetailScreen
+import app.qichi.feature.archive.ArchiveListScreen
+import app.qichi.feature.board.BoardListScreen
+import app.qichi.feature.board.TopicScreen
 import app.qichi.feature.calendar.CalendarDayScreen
 import app.qichi.feature.calendar.CalendarMonthScreen
 import app.qichi.feature.calendar.EventListScreen
 import app.qichi.feature.chat.ChatScreen
 import app.qichi.feature.chat.UnreadViewModel
+import app.qichi.feature.decisions.DecisionDetailScreen
+import app.qichi.feature.decisions.DecisionListScreen
 import app.qichi.feature.ideas.IdeasScreen
-import app.qichi.feature.me.AiUsageScreen
-import app.qichi.feature.me.MyContentScreen
-import app.qichi.feature.me.NotificationsScreen
-import app.qichi.feature.me.ShowcaseScreen
 import app.qichi.feature.me.AiPrefsScreen
-import app.qichi.feature.me.SecurityScreen
+import app.qichi.feature.me.AiUsageScreen
 import app.qichi.feature.me.DisplayScreen
 import app.qichi.feature.me.MeScreen
+import app.qichi.feature.me.MyContentScreen
+import app.qichi.feature.me.NotificationsScreen
 import app.qichi.feature.me.ProfileScreen
 import app.qichi.feature.me.RoomSettingsScreen
+import app.qichi.feature.me.SecurityScreen
+import app.qichi.feature.me.ShowcaseScreen
 import app.qichi.feature.me.TrashScreen
 import app.qichi.feature.mood.MoodScreen
 import app.qichi.feature.plan.PlanDetailScreen
 import app.qichi.feature.plan.PlanListScreen
 import app.qichi.feature.qna.QnaScreen
-import app.qichi.feature.room.MembersScreen
-import app.qichi.feature.archive.ArchiveDetailScreen
-import app.qichi.feature.archive.ArchiveListScreen
-import app.qichi.feature.board.BoardListScreen
-import app.qichi.feature.decisions.DecisionDetailScreen
-import app.qichi.feature.decisions.DecisionListScreen
-import app.qichi.feature.board.TopicScreen
 import app.qichi.feature.reading.ReaderScreen
 import app.qichi.feature.reading.ShelfScreen
+import app.qichi.feature.review.ReviewListScreen
+import app.qichi.feature.review.ReviewScreen
+import app.qichi.feature.room.MembersScreen
 import app.qichi.feature.summary.SummaryScreen
 import app.qichi.feature.timeline.TimelineScreen
 import app.qichi.feature.today.TodayScreen
-import app.qichi.feature.writing.DocumentEditorScreen
-import app.qichi.feature.writing.DocumentListScreen
-import app.qichi.feature.review.ReviewListScreen
-import app.qichi.feature.review.ReviewScreen
 import app.qichi.feature.todo.TodoScreen
 import app.qichi.feature.together.TogetherHubScreen
 import app.qichi.feature.together.TogetherHubViewModel
+import app.qichi.feature.writing.DocumentEditorScreen
+import app.qichi.feature.writing.DocumentListScreen
 
 /** 页面进出：200ms 淡入 + 8dp 位移；「减少动画」时直接切换。 */
 private const val PAGE_TRANSITION_MILLIS = 200
@@ -305,7 +305,7 @@ fun QichiApp(
         if (atTabRoot && !WindowInsets.isImeVisible) {
             QichiTabBar(
                 items = TopTab.entries.map { tab ->
-                    TabItem(tab.label, selected = tab == currentTab, badge = if (tab == TopTab.Chat) unread else null)
+                    TabItem(tab.label, tab.icon, selected = tab == currentTab, badge = if (tab == TopTab.Chat) unread else null)
                 },
                 onSelect = { navigator.selectTab(TopTab.entries[it]) },
             )

@@ -70,12 +70,13 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.People
 import app.qichi.core.data.REVIEW_MIME_TYPES
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
+import app.qichi.core.designsystem.component.BarAction
 import app.qichi.core.designsystem.component.ChoicePill
 import app.qichi.core.designsystem.component.ConfirmDialog
-import app.qichi.core.designsystem.component.IconAction
+import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.QichiTextField
@@ -86,10 +87,9 @@ import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.DiffView
 import app.qichi.core.ui.relativeDay
 import app.qichi.shared.api.AiFinding
-import app.qichi.shared.api.Annotation
-import app.qichi.shared.api.FindingEvidence
 import app.qichi.shared.api.AnnotationAnchor
 import app.qichi.shared.api.DiffKind
+import app.qichi.shared.api.FindingEvidence
 import app.qichi.shared.api.NormRect
 import app.qichi.shared.api.ReviewPage
 import app.qichi.shared.api.ReviewVersion
@@ -102,11 +102,11 @@ import app.qichi.shared.model.ReviewFormat
 import app.qichi.shared.rules.Limits
 import app.qichi.shared.util.Diff
 import coil3.compose.AsyncImage
-import kotlinx.coroutines.launch
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
+import kotlinx.coroutines.launch
 
 /** 选中了什么（还没写批注）：一段文字、一个单元格、一块区域、一张图片或整页。 */
 internal data class Selection(val page: Int, val kind: AnchorKind, val rect: NormRect?, val ref: String?, val quote: String?) {
@@ -160,17 +160,17 @@ fun ReviewScreen(
 
     if (state.loaded && doc == null) {
         Column(Modifier.fillMaxSize().background(colors.background)) {
-            BackBar("审稿", onBack)
+            ItemTopBar("已删除", onBack, feature = Feature.Review)
             Text("这份审稿已经删除了。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(Spacing.page))
         }
         return
     }
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar(doc?.title ?: "", onBack) {
-            IconAction(QichiIcons.Plus, "传新版本", { picker.launch(REVIEW_MIME_TYPES) }, enabled = uploading == null && doc != null)
-            IconAction(QichiIcons.More, "更多", { menu = true })
-        }
+        ItemTopBar(doc?.title.orEmpty(), onBack, feature = Feature.Review, actions = listOf(
+            BarAction("传新版本", QichiIcons.Plus, { picker.launch(REVIEW_MIME_TYPES) }, enabled = uploading == null && doc != null),
+            BarAction("更多", QichiIcons.More, { menu = true }),
+        ))
         // 版本行：v3 · 对比 v2 · 2 / 5
         Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.page), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
             Text(

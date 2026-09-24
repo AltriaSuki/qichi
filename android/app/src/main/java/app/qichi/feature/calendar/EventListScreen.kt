@@ -3,6 +3,7 @@ package app.qichi.feature.calendar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -46,13 +47,15 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.EventDraft
 import app.qichi.core.data.People
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sizes
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
 import app.qichi.core.designsystem.component.CheckCircle
 import app.qichi.core.designsystem.component.ChoicePill
-import app.qichi.core.designsystem.component.IconAction
+import app.qichi.core.designsystem.component.Fab
+import app.qichi.core.designsystem.component.FabClearance
+import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.PersonMarks
 import app.qichi.core.designsystem.component.PrimaryButton
@@ -75,7 +78,7 @@ import java.util.UUID
 
 private val hm = DateTimeFormatter.ofPattern("HH:mm")
 
-/** 日程（列表版）：从今天起按天列出，右上角新建，点一条编辑。月视图在 P4-07。 */
+/** 日程（列表版）：从今天起按天列出，右下角新建，点一条编辑。月视图在 P4-07。 */
 @Composable
 fun EventListScreen(
     roomId: UUID,
@@ -87,32 +90,33 @@ fun EventListScreen(
     val type = QichiTheme.typography
     var editing by rememberSaveable { mutableStateOf<String?>(null) }
 
-    Column(
+    Box(
         Modifier
             .fillMaxSize()
             .background(colors.background),
     ) {
-        BackBar(title = "日历", onBack = onBack) {
-            IconAction(QichiIcons.Plus, contentDescription = "新日程", onClick = { editing = "new" })
-        }
-        LazyColumn(
-            Modifier
-                .weight(1f)
-                .padding(horizontal = Spacing.page),
-        ) {
-            items(state.days, key = { it.date.toString() }) { day ->
-                Column(Modifier.padding(bottom = Spacing.l)) {
-                    val (label, _) = relativeDay(day.date, state.today)
-                    SectionLabel(if (label.startsWith("周") || label == "今天" || label == "明天" || label == "昨天") label else day.date.dayOfWeek.chinese) {
-                        Text("${day.date.monthValue} · ${day.date.dayOfMonth}", style = type.numeral.copy(fontSize = 15.tsp, color = colors.muted))
-                    }
-                    day.events.forEach { item ->
-                        EventRow(item, state.people, state.zone, day.date) { editing = item.value.id.toString() }
+        Column(Modifier.fillMaxSize()) {
+            ItemTopBar("全部日程", onBack, feature = Feature.Calendar)
+            LazyColumn(
+                Modifier
+                    .weight(1f)
+                    .padding(horizontal = Spacing.page),
+            ) {
+                items(state.days, key = { it.date.toString() }) { day ->
+                    Column(Modifier.padding(bottom = Spacing.l)) {
+                        val (label, _) = relativeDay(day.date, state.today)
+                        SectionLabel(if (label.startsWith("周") || label == "今天" || label == "明天" || label == "昨天") label else day.date.dayOfWeek.chinese) {
+                            Text("${day.date.monthValue} · ${day.date.dayOfMonth}", style = type.numeral.copy(fontSize = 15.tsp, color = colors.muted))
+                        }
+                        day.events.forEach { item ->
+                            EventRow(item, state.people, state.zone, day.date) { editing = item.value.id.toString() }
+                        }
                     }
                 }
+                item { Spacer(Modifier.height(FabClearance)) }
             }
-            item { Spacer(Modifier.height(Spacing.xxl)) }
         }
+        Fab("新日程", { editing = "new" })
     }
 
     editing?.let { key ->

@@ -35,8 +35,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
 import app.qichi.core.designsystem.component.FogSeaHero
+import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.QichiKeyboard
 import app.qichi.core.designsystem.component.QichiTextField
@@ -110,7 +110,7 @@ private fun FormPage(title: String, onBack: () -> Unit, content: @Composable () 
             .background(QichiTheme.colors.background)
             .imePadding(),
     ) {
-        BackBar(title = title, onBack = onBack)
+        ItemTopBar(title, onBack)
         Column(
             Modifier
                 .weight(1f)

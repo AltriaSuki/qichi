@@ -1,7 +1,13 @@
 package app.qichi.feature.writing
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,53 +15,32 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import app.qichi.core.designsystem.Sizes
-import app.qichi.shared.model.WriteAssistMode
-import app.qichi.shared.rules.Limits
-import app.qichi.core.ui.BlockComments
-import coil3.compose.AsyncImage
-import app.qichi.shared.rules.DocumentImages
-import app.qichi.core.ui.ImageViewer
-import app.qichi.core.network.FileUrls
-import app.qichi.core.designsystem.QichiShapes
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.layout.ContentScale
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.compose.rememberLauncherForActivityResult
-import android.widget.Toast
-import app.qichi.core.ui.MarkdownEdits
-import app.qichi.core.ui.EditHistory
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.key
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.isImeVisible
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -67,9 +52,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -87,21 +73,36 @@ import androidx.compose.ui.unit.em
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.WritingSettings
+import app.qichi.core.designsystem.Feature
+import app.qichi.core.designsystem.QichiShapes
 import app.qichi.core.designsystem.QichiTheme
+import app.qichi.core.designsystem.Sizes
 import app.qichi.core.designsystem.Spacing
+import app.qichi.core.designsystem.component.BarAction
 import app.qichi.core.designsystem.component.ChoicePill
 import app.qichi.core.designsystem.component.ConfirmDialog
 import app.qichi.core.designsystem.component.IconAction
+import app.qichi.core.designsystem.component.ItemTopBar
+import app.qichi.core.designsystem.component.MenuAction
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
+import app.qichi.core.network.FileUrls
+import app.qichi.core.ui.BlockComments
+import app.qichi.core.ui.EditHistory
+import app.qichi.core.ui.ImageViewer
 import app.qichi.core.ui.Markdown
+import app.qichi.core.ui.MarkdownEdits
 import app.qichi.core.ui.MarkdownView
-import kotlinx.coroutines.launch
+import app.qichi.shared.model.WriteAssistMode
+import app.qichi.shared.rules.DocumentImages
+import app.qichi.shared.rules.Limits
+import coil3.compose.AsyncImage
 import java.util.UUID
+import kotlinx.coroutines.launch
 
 private enum class EditorMode { Edit, History, Rebase }
 
@@ -128,7 +129,6 @@ fun DocumentEditorScreen(
     var mode by rememberSaveable { mutableStateOf(EditorMode.Edit) }
     var preview by rememberSaveable { mutableStateOf(false) }
     var focus by rememberSaveable { mutableStateOf(false) }
-    var menu by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showOutline by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
@@ -229,44 +229,29 @@ fun DocumentEditorScreen(
                 TextAction("退出专注", { focus = false }, color = colors.muted)
             }
         } else {
-            // ── 返回条 ──
-            Row(
-                Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 70.dp).padding(start = 8.dp, end = 6.dp, top = 18.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconAction(QichiIcons.Back, "返回", onBack)
-                Text(
-                    doc?.title.orEmpty(),
-                    style = type.pageTitle.copy(fontSize = 19.tsp, fontWeight = FontWeight.W300, letterSpacing = 0.2.em, color = colors.ink),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).clickable(role = Role.Button, onClickLabel = "改标题") { renaming = true }.semantics { heading() },
-                )
-                IconAction(if (preview) QichiIcons.Pen else QichiIcons.Eye, if (preview) "回到编辑" else "预览", { preview = !preview })
-                IconAction(QichiIcons.Focus, "专注", { focus = true })
-                Box {
-                    IconAction(QichiIcons.More, "更多", { menu = true })
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = colors.paper) {
-                        DropdownMenuItem(text = { Text("大纲", style = type.body) }, onClick = { menu = false; showOutline = true })
-                        DropdownMenuItem(text = { Text("帮我起标题", style = type.body) }, onClick = {
-                            menu = false
-                            if (field.text.isBlank()) {
-                                Toast.makeText(context, "先写点内容再起标题", Toast.LENGTH_SHORT).show()
-                            } else {
-                                vm.requestAssist(WriteAssistMode.Titles, field.text.take(Limits.WRITE_TITLES_TEXT_MAX), 0, 0)
-                            }
-                        })
-                        val open = threads.count { !it.resolved }
-                        DropdownMenuItem(
-                            text = { Text(if (open > 0) "留言（$open 条没解决）" else "留言", style = type.body) },
-                            onClick = { menu = false; showThreads = ALL_COMMENTS },
-                        )
-                        DropdownMenuItem(text = { Text("历史版本", style = type.body) }, onClick = { menu = false; mode = EditorMode.History })
-                        DropdownMenuItem(text = { Text("改标题", style = type.body) }, onClick = { menu = false; renaming = true })
-                        DropdownMenuItem(text = { Text("删除", style = type.body.copy(color = colors.accent)) }, onClick = { menu = false; deleting = true })
-                    }
-                }
-            }
+            // ── 顶栏 ──
+            val openThreads = threads.count { !it.resolved }
+            ItemTopBar(
+                doc?.title.orEmpty(), onBack, feature = Feature.Writing,
+                actions = listOf(
+                    BarAction(if (preview) "回到编辑" else "预览", if (preview) QichiIcons.Pen else QichiIcons.Eye, { preview = !preview }),
+                    BarAction("专注", QichiIcons.Focus, { focus = true }),
+                ),
+                menu = listOf(
+                    MenuAction("大纲", { showOutline = true }),
+                    MenuAction("帮我起标题", {
+                        if (field.text.isBlank()) {
+                            Toast.makeText(context, "先写点内容再起标题", Toast.LENGTH_SHORT).show()
+                        } else {
+                            vm.requestAssist(WriteAssistMode.Titles, field.text.take(Limits.WRITE_TITLES_TEXT_MAX), 0, 0)
+                        }
+                    }),
+                    MenuAction(if (openThreads > 0) "留言（$openThreads 条没解决）" else "留言", { showThreads = ALL_COMMENTS }),
+                    MenuAction("历史版本", { mode = EditorMode.History }),
+                    MenuAction("改标题", { renaming = true }),
+                    MenuAction("删除", { deleting = true }, danger = true),
+                ),
+            )
             // ── 基线落后 ──
             if (state.conflict) {
                 val author = doc?.latestAuthorId

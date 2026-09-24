@@ -23,19 +23,20 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.qichi.core.data.DisplaySettings
 import app.qichi.core.data.DisplaySettingsStore
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
 import app.qichi.core.designsystem.component.ChoicePill
+import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.MistCard
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.SwitchRow
 import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 @HiltViewModel
 class DisplayViewModel @Inject constructor(private val store: DisplaySettingsStore) : ViewModel() {
@@ -61,7 +62,7 @@ fun DisplayScreen(
             .fillMaxSize()
             .background(colors.background),
     ) {
-        BackBar(title = "显示", onBack = onBack)
+        ItemTopBar("显示", onBack, feature = Feature.Me)
         Column(
             Modifier
                 .weight(1f)

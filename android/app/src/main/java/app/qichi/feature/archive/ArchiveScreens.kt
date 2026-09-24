@@ -22,8 +22,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -46,12 +44,17 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.People
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
+import app.qichi.core.designsystem.component.BarAction
 import app.qichi.core.designsystem.component.ChoicePill
 import app.qichi.core.designsystem.component.ConfirmDialog
-import app.qichi.core.designsystem.component.IconAction
+import app.qichi.core.designsystem.component.Fab
+import app.qichi.core.designsystem.component.FabClearance
+import app.qichi.core.designsystem.component.FeatureTopBar
+import app.qichi.core.designsystem.component.ItemTopBar
+import app.qichi.core.designsystem.component.MenuAction
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.QichiTextField
@@ -108,34 +111,37 @@ fun ArchiveListScreen(
     var source by remember { mutableStateOf<Message?>(null) }
     LaunchedEffect(fromMessageId) { fromMessageId?.let { source = vm.message(it) } }
 
-    Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("档案", onBack) { IconAction(QichiIcons.Plus, "新条目", { source = null; creating = true }) }
-        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = Spacing.page), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ChoicePill("全部", state.filter == null, { vm.filter(null) })
-            ArchiveKind.entries.forEach { k -> ChoicePill(k.label, state.filter == k, { vm.filter(k) }) }
-        }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
-            if (state.loaded && state.shown.isEmpty()) {
-                Text(
-                    if (state.filter == null) "还没有档案。两个人慢慢确认下来的事——喜欢什么、说好了什么、在意什么——可以记在这里。"
-                    else "还没有「${state.filter!!.label}」。",
-                    style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m),
-                )
+    Box(Modifier.fillMaxSize().background(colors.background)) {
+        Column(Modifier.fillMaxSize()) {
+            FeatureTopBar(Feature.Archive, onBack)
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = Spacing.page), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ChoicePill("全部", state.filter == null, { vm.filter(null) })
+                ArchiveKind.entries.forEach { k -> ChoicePill(k.label, state.filter == k, { vm.filter(k) }) }
             }
-            if (state.filter == null) {
-                ArchiveKind.entries.forEach { k ->
-                    val group = state.shown.filter { it.value.kind == k }
-                    if (group.isNotEmpty()) {
-                        SectionLabel("${k.label}  ${group.size}", modifier = Modifier.padding(top = Spacing.l))
-                        group.forEach { ItemRow(it, state.people, state.zone, state.today) { onOpen(it.value.id) } }
-                    }
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
+                if (state.loaded && state.shown.isEmpty()) {
+                    Text(
+                        if (state.filter == null) "还没有档案。两个人慢慢确认下来的事——喜欢什么、说好了什么、在意什么——可以记在这里。"
+                        else "还没有「${state.filter!!.label}」。",
+                        style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m),
+                    )
                 }
-            } else {
-                Spacer(Modifier.height(Spacing.s))
-                state.shown.forEach { ItemRow(it, state.people, state.zone, state.today) { onOpen(it.value.id) } }
+                if (state.filter == null) {
+                    ArchiveKind.entries.forEach { k ->
+                        val group = state.shown.filter { it.value.kind == k }
+                        if (group.isNotEmpty()) {
+                            SectionLabel("${k.label}  ${group.size}", modifier = Modifier.padding(top = Spacing.l))
+                            group.forEach { ItemRow(it, state.people, state.zone, state.today) { onOpen(it.value.id) } }
+                        }
+                    }
+                } else {
+                    Spacer(Modifier.height(Spacing.s))
+                    state.shown.forEach { ItemRow(it, state.people, state.zone, state.today) { onOpen(it.value.id) } }
+                }
+                Spacer(Modifier.height(FabClearance))
             }
-            Spacer(Modifier.height(Spacing.xl))
         }
+        Fab("新条目", { source = null; creating = true })
     }
 
     if (creating) {
@@ -200,7 +206,6 @@ fun ArchiveDetailScreen(
     val revisions by vm.revisions.collectAsStateWithLifecycle()
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
-    var menu by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
     var openRevision by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -212,15 +217,9 @@ fun ArchiveDetailScreen(
     val local = state.item
     val item = local?.value
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar(item?.kind?.label.orEmpty(), onBack) {
-            TextAction("修订", { editing = true }, enabled = item != null && !state.conflict)
-            Box {
-                IconAction(QichiIcons.More, "更多", { menu = true })
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = colors.paper) {
-                    DropdownMenuItem(text = { Text("删除", style = type.body.copy(color = colors.accent)) }, onClick = { menu = false; deleting = true })
-                }
-            }
-        }
+        ItemTopBar(item?.kind?.label.orEmpty(), onBack, feature = Feature.Archive,
+            actions = listOf(BarAction("修订", QichiIcons.Pen, { editing = true }, enabled = item != null && !state.conflict)),
+            menu = listOf(MenuAction("删除", { deleting = true }, danger = true)))
         if (item == null) return@Column
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
             Text(item.title, style = type.pageTitle.copy(fontSize = 24.tsp, lineHeight = 34.tsp, color = colors.ink),

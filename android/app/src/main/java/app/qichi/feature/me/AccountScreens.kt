@@ -3,12 +3,6 @@ package app.qichi.feature.me
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleEventEffect
-import app.qichi.BuildConfig
-import app.qichi.core.push.PushNotifier
-import app.qichi.core.push.PushRegistrar
-import org.unifiedpush.android.connector.UnifiedPush
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,7 +29,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -45,25 +38,32 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import app.qichi.BuildConfig
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.data.AccountRepository
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.database.TypeCount
+import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
-import app.qichi.core.designsystem.component.BackBar
 import app.qichi.core.designsystem.component.ConfirmDialog
+import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.network.ApiException
+import app.qichi.core.push.PushNotifier
+import app.qichi.core.push.PushRegistrar
 import app.qichi.core.ui.relativeDay
 import app.qichi.navigation.Page
+import app.qichi.shared.api.Answer
 import app.qichi.shared.api.ArchiveItem
 import app.qichi.shared.api.BoardPost
 import app.qichi.shared.api.Decision
@@ -79,7 +79,6 @@ import app.qichi.shared.api.NotificationPrefs
 import app.qichi.shared.api.Plan
 import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.Todo
-import app.qichi.shared.api.Answer
 import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.fromWire
 import app.qichi.shared.model.wireName
@@ -88,6 +87,11 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.UUID
+import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -95,11 +99,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.UUID
-import javax.inject.Inject
+import org.unifiedpush.android.connector.UnifiedPush
 
 // ───────────────────────── 我写下的内容 ─────────────────────────
 
@@ -181,7 +181,7 @@ fun MyContentScreen(
     val type = QichiTheme.typography
     val labels = contentKinds.associateBy { it.type }
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("我写下的内容", onBack)
+        ItemTopBar("我写下的内容", onBack, feature = Feature.Me)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
             Text("这台手机上已有的内容。聊天记录只算已经同步到手机上的。", style = type.caption.copy(color = colors.muted))
             val byType = state.counts.associate { it.type to it.count }
@@ -301,7 +301,7 @@ fun SecurityScreen(onBack: () -> Unit, vm: SecurityViewModel = hiltViewModel()) 
     val zone = ZoneId.systemDefault()
 
     Column(Modifier.fillMaxSize().background(colors.background).imePadding()) {
-        BackBar("安全", onBack)
+        ItemTopBar("安全", onBack, feature = Feature.Me)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
             SectionLabel("登录的设备") {
                 if ((state.sessions?.count { !it.current } ?: 0) > 1) TextAction("让其它设备都退出", { revokingAll = true }, color = colors.accent)
@@ -400,7 +400,7 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
     val p = saved ?: NotificationPrefs()
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        BackBar("通知", onBack)
+        ItemTopBar("通知", onBack, feature = Feature.Me)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
             BuiltInSection(vm)
             SectionLabel("提醒我", modifier = Modifier.padding(top = Spacing.l))
