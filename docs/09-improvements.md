@@ -40,9 +40,9 @@
 | 16 | 模拟器操作、假 AI、准备数据的小工具只放在临时目录，电脑一重启就没了 | 放进 `tools/` | ✅ |
 | 17 | 电脑重启后要手动一个个开：数据库、服务端、模拟器、端口转发 | `tools/dev_up.sh` 一条命令拉起整套本机环境 | ✅ |
 | 18 | lint 从来没跑过，上面的闪退就是它查出来的 | lint 设为出错即中止；以后每个任务结束跑 `lintDebug` | ✅（写进 CLAUDE.md 常用命令） |
-| 19 | 没有自动测试：只有我在本机跑，推到 GitHub 后没人再跑一遍 | GitHub Actions：推送后自动跑 shared、server（带 PostgreSQL）、Android 单元测试和 lint | ✅ 写好了 `.github/workflows/ci.yml`，👤 推送后在 GitHub 的 Actions 页看结果（第一次跑可能要我修小问题） | |
+| 19 | 没有自动测试：只有我在本机跑，推到 GitHub 后没人再跑一遍 | GitHub Actions：推送后自动跑 shared、server（带 PostgreSQL）、Android 单元测试和 lint | ✅ 写好了 `.github/workflows/ci.yml`，👤 推送后在 GitHub 的 Actions 页看结果（第一次跑可能要我修小问题） |
 | 20 | 只在安卓 17 的模拟器上试过，旧手机的问题看不到 | lint 的 NewApi 已兜住大部分；再建一个安卓 9 的模拟器做发布前冒烟 | ⏳ 下载系统镜像约 1GB，发布前再做 |
-| 21 | 部署全靠手打命令 | `tools/publish_release.sh` 已能发布安装包；服务端更新也做成一个脚本（构建、传镜像、重启、看健康检查），每次仍先经人类同意 | ✅ `tools/deploy_server.sh`（先备份再更新） | |
+| 21 | 部署全靠手打命令 | `tools/publish_release.sh` 已能发布安装包；服务端更新也做成一个脚本（构建、传镜像、重启、看健康检查），每次仍先经人类同意 | ✅ `tools/deploy_server.sh`（先备份再更新） |
 
 ## 五、本轮之外顺手修的
 
