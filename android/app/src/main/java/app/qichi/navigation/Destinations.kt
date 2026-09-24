@@ -1,5 +1,7 @@
 package app.qichi.navigation
 
+import app.qichi.core.designsystem.Feature
+import app.qichi.core.designsystem.icon.QichiIcons
 import kotlinx.serialization.Serializable
 
 /** 底部四个标签。 */
@@ -9,6 +11,15 @@ enum class TopTab(val label: String, val slug: String) {
     Chat("聊天", "chat"),
     Together("一起", "together"),
     Me("我的", "me"),
+    ;
+
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+        get() = when (this) {
+            Today -> QichiIcons.Sun
+            Chat -> QichiIcons.Chat
+            Together -> QichiIcons.Rings
+            Me -> QichiIcons.User
+        }
 }
 
 /** 「一起」入口页的三组。 */
@@ -30,7 +41,7 @@ enum class Page(val slug: String, val title: String, val tab: TopTab, val group:
 
     // 一起 · 创作
     Board("board", "留言", TopTab.Together, TogetherGroup.Create),
-    Writing("writing", "共同写作", TopTab.Together, TogetherGroup.Create),
+    Writing("writing", "写作", TopTab.Together, TogetherGroup.Create),
 
     // 一起 · 回看
     Archive("archive", "档案", TopTab.Together, TogetherGroup.Look),
@@ -54,6 +65,9 @@ enum class Page(val slug: String, val title: String, val tab: TopTab, val group:
     /** 组件陈列（开发用，只在调试版的「我的」里出现） */
     Showcase("showcase", "组件陈列", TopTab.Me),
     ;
+
+    /** 「一起」下的页面对应的功能（颜色、图标、标题旁的手写）；「我的」下的页面是 [Feature.Me]。 */
+    val feature: Feature get() = if (tab == TopTab.Me) Feature.Me else Feature.valueOf(name)
 
     companion object {
         fun bySlug(slug: String): Page? = entries.firstOrNull { it.slug == slug }

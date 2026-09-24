@@ -51,7 +51,7 @@ class NavigationLogicTest {
     @Test
     fun `一起的三组包含文档规定的页面`() {
         assertEquals(listOf("心情", "问答", "计划", "待办", "日历", "灵感"), Page.inGroup(TogetherGroup.Life).map { it.title })
-        assertEquals(listOf("留言", "共同写作"), Page.inGroup(TogetherGroup.Create).map { it.title })
+        assertEquals(listOf("留言", "写作"), Page.inGroup(TogetherGroup.Create).map { it.title })
         assertEquals(listOf("档案", "决定", "时间线", "阅读", "审稿", "总结"), Page.inGroup(TogetherGroup.Look).map { it.title })
     }
 
@@ -83,4 +83,45 @@ class NavigationLogicTest {
             listOf(1, 2, 3, 4, 5, 6, 9, 12, 40, 2026).map(::romanNumeral),
         )
     }
+
+    @Test
+    fun `功能首页总是直接压在一起上`() {
+        // 从时间线点进灵感：时间线退掉
+        assertEquals(OpenPlan(null, listOf(TogetherPage(Page.Ideas))), plan(listOf(TogetherPage(Page.Timeline)), Page.Ideas, null))
+        // 从聊天存进档案（new:）也算功能首页
+        assertEquals(OpenPlan(null, listOf(TogetherPage(Page.Archive, "new:m1"))), plan(emptyList(), Page.Archive, "new:m1"))
+        // 已经打开过的功能首页：退回去，不重建
+        val plans = TogetherPage(Page.Plan)
+        assertEquals(OpenPlan(plans, emptyList()), plan(listOf(plans, TogetherPage(Page.Plan, "p1")), Page.Plan, null))
+    }
+
+    @Test
+    fun `单项页下面总是它的功能首页`() {
+        val decisions = TogetherPage(Page.Decisions)
+        // 从今天直接打开一个决定：先压决定首页
+        assertEquals(OpenPlan(null, listOf(decisions, TogetherPage(Page.Decisions, "d1"))), plan(emptyList(), Page.Decisions, "d1"))
+        // 从时间线打开：时间线退掉
+        assertEquals(
+            OpenPlan(null, listOf(decisions, TogetherPage(Page.Decisions, "d1"))),
+            plan(listOf(TogetherPage(Page.Timeline)), Page.Decisions, "d1"),
+        )
+        // 从决定首页打开：直接压上
+        assertEquals(OpenPlan(decisions, listOf(TogetherPage(Page.Decisions, "d1"))), plan(listOf(decisions), Page.Decisions, "d1"))
+        // 从一个决定打开另一个：换掉，返回仍回首页
+        assertEquals(
+            OpenPlan(decisions, listOf(TogetherPage(Page.Decisions, "d2"))),
+            plan(listOf(decisions, TogetherPage(Page.Decisions, "d1")), Page.Decisions, "d2"),
+        )
+        // 已经在这一项上：不动
+        val d1 = TogetherPage(Page.Decisions, "d1")
+        assertEquals(OpenPlan(d1, emptyList()), plan(listOf(decisions, d1), Page.Decisions, "d1"))
+    }
+
+    @Test
+    fun `一起下的页面都有功能颜色和图标`() {
+        Page.entries.filter { it.tab == TopTab.Together }.forEach { assertEquals(it.title, it.feature.title) }
+    }
+
+    private fun plan(stack: List<TogetherPage>, page: Page, id: String?) =
+        planOpen(stack.lastOrNull(), TogetherPage(page) in stack, page, id)
 }

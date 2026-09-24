@@ -13,6 +13,7 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.toRoute
 
 /**
  * 导航的唯一入口：切标签、打开二级页面、处理深链、返回。
@@ -54,13 +55,31 @@ class QichiNavigator(
         switchTo(tab, restore = true)
     }
 
-    /** 在当前标签（或页面所属的标签）里打开一个二级页面。 */
+    /**
+     * 在页面所属的标签里打开一个二级页面。「一起」下的页面按 [planOpen] 整理返回栈：
+     * 功能首页总是直接压在「一起」上，单项页下面总是它的功能首页。
+     */
     fun open(page: Page, id: String? = null) {
         if (current != page.tab) {
             tabHistory.onSwitch(current, page.tab)
             switchTo(page.tab, restore = true)
         }
-        navController.navigate(page.route(id))
+        push(page, id)
+    }
+
+    private fun push(page: Page, id: String?) {
+        if (page.tab != TopTab.Together) {
+            navController.navigate(page.route(id))
+            return
+        }
+        val top = navController.currentBackStackEntry
+            ?.takeIf { it.destination.hasRoute(TogetherPage::class) }?.toRoute<TogetherPage>()
+        // getBackStackEntry 找不到时抛异常：用它判断功能首页在不在返回栈里
+        val homeOnStack = runCatching { navController.getBackStackEntry(TogetherPage(page)) }.isSuccess
+        val plan = planOpen(top, homeOnStack, page, id)
+        if (plan.popTo == null) navController.popBackStack<TogetherHome>(inclusive = false)
+        else navController.popBackStack(plan.popTo, inclusive = false)
+        plan.push.forEach { navController.navigate(it) }
     }
 
     fun back() {
@@ -92,7 +111,7 @@ class QichiNavigator(
             is DeepLink.ToPage -> {
                 tabHistory.onSwitch(current, link.page.tab)
                 switchTo(link.page.tab, restore = false)
-                navController.navigate(link.page.route(link.id))
+                push(link.page, link.id)
             }
         }
     }
