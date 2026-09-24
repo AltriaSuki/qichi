@@ -4,6 +4,10 @@ import app.qichi.server.db.Jobs
 import app.qichi.server.db.Rooms
 import app.qichi.server.db.Summaries
 import app.qichi.server.db.Users
+import app.qichi.server.db.AiActions
+import app.qichi.server.db.Plans
+import app.qichi.shared.model.AiActionStatus
+import app.qichi.shared.model.PlanStatus
 import app.qichi.server.summaries.SourceLine
 import app.qichi.shared.api.AiPrefs
 import app.qichi.server.db.AiFindings
@@ -126,6 +130,12 @@ class AiService(
         return db.tx {
             rooms.requireMember(roomId, userId)
             if (gateway == null) throw unavailable()
+            req.sourceMessageId?.let { sourceId ->
+                val ok = Messages.select(Messages.id).where {
+                    (Messages.id eq sourceId) and (Messages.roomId eq roomId) and Messages.deletedAt.isNull() and Messages.retractedAt.isNull()
+                }.any()
+                validate { check(ok, "sourceMessageId", "要整理的消息不存在") }
+            }
             RoomRepository.lockRoom(roomId)
             val existing = AiJobs.selectAll().where { AiJobs.id eq req.jobId }.singleOrNull()
             if (existing != null) {
@@ -150,7 +160,10 @@ class AiService(
                     it[requestedBy] = userId
                     it[kind] = AiJobKind.ChatAnswer.wireName
                     it[status] = AiJobStatus.Queued.wireName
-                    it[request] = buildJsonObject { put("prompt", prompt) }
+                    it[request] = buildJsonObject {
+                        put("prompt", prompt)
+                        req.sourceMessageId?.let { id -> put("sourceMessageId", id.toString()) }
+                    }
                     it[inputTokens] = 0
                     it[outputTokens] = 0
                     it[createdAt] = now
@@ -743,17 +756,31 @@ class AiService(
         val roomId = row[AiJobs.roomId]
         val askerId = row[AiJobs.requestedBy]
         val prompt = row[AiJobs.request]["prompt"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val sourceId = row[AiJobs.request]["sourceMessageId"]?.jsonPrimitive?.contentOrNull?.let(UUID::fromString)
         markRunning(jobId)
 
         val gateway = gateway ?: return fail(jobId, roomId, "AI 服务没有开启")
         val now = clock.instant()
-        val (context, names, sources, zone) = db.tx(readOnly = true) {
+        val input = db.tx(readOnly = true) {
             val context = chatContext(roomId)
             val names = RoomRepository.activeMembers(roomId).associate { it.userId to it.displayName }
             val zone = roomZone(roomId)
-            val sources = RoomContext.gather(roomId, prompt, now, zone, names, prefsOf(askerId), context.map { it.id }.toSet())
-            ChatInputs(context, names, sources, zone)
+            val focus = sourceId?.let { id ->
+                messageQuery().where { (Messages.id eq id) and Messages.retractedAt.isNull() }.singleOrNull()?.toMessage()
+            }
+            val query = listOfNotNull(prompt, focus?.body).joinToString(" ")
+            val sources = RoomContext.gather(roomId, query, now, zone, names, prefsOf(askerId), context.map { it.id }.toSet())
+            val plans = Plans.select(Plans.id, Plans.title)
+                .where { (Plans.roomId eq roomId) and Plans.deletedAt.isNull() and (Plans.status eq PlanStatus.Active.wireName) }
+                .associate { it[Plans.title] to it[Plans.id] }
+            ChatInputs(context, names, sources, zone, focus, plans)
         }
+        val (context, names, sources, zone) = input
+        val focusText = input.focus?.let { m ->
+            val t = m.createdAt.atZone(zone)
+            "要整理的消息（${m.authorId?.let(names::get) ?: "AI"}，${t.monthValue}月${t.dayOfMonth}日 %02d:%02d）：${m.body.take(CONTEXT_LINE_MAX * 3)}\n".format(t.hour, t.minute) +
+                "请把它整理成可以记下来的日程、待办、档案或灵感（用 <actions>），文字只要一两句说明整理了什么。\n\n"
+        }.orEmpty()
         val rendered = prompts.render(
             "chat_answer",
             mapOf(
@@ -761,6 +788,7 @@ class AiService(
                 "sources" to sources.joinToString("\n") { it.line }.ifEmpty { "（没有找到相关的）" },
                 "asker" to (names[askerId] ?: "提问的人"),
                 "history" to context.joinToString("\n") { m -> "${m.authorId?.let(names::get) ?: "AI"}：${m.text}" }.ifEmpty { "（还没有聊天记录）" },
+                "focus" to focusText,
                 "prompt" to prompt,
             ),
         )
@@ -772,7 +800,8 @@ class AiService(
             return fail(jobId, roomId, "没有得到回答")
         }
 
-        val answer = RoomContext.renumber(result.text, sources)
+        val parsed = AiActionParser(zone, names.entries.associate { (id, name) -> name to id }, input.plans).parse(result.text)
+        val answer = RoomContext.renumber(parsed.text.ifBlank { if (parsed.actions.isEmpty()) result.text else "可以记下这些：" }, sources)
         db.tx {
             val now = clock.instant()
             val seq = writer.change(this, roomId, EntityType.Message, jobId, askerId, now)
@@ -788,6 +817,23 @@ class AiService(
                 it[body] = answer.body.take(MESSAGE_MAX)
                 it[aiPrompt] = prompt
                 it[aiSources] = answer.sources
+            }
+            parsed.actions.forEachIndexed { i, action ->
+                val actionId = UuidV7.generate()
+                val actionSeq = writer.change(this, roomId, EntityType.AiAction, actionId, askerId, now)
+                AiActions.insert {
+                    it[AiActions.id] = actionId
+                    it[AiActions.roomId] = roomId
+                    it[AiActions.seq] = actionSeq
+                    it[createdAt] = now
+                    it[updatedAt] = now
+                    it[messageId] = jobId
+                    it[position] = i
+                    it[AiActions.kind] = action.kind.wireName
+                    it[draft] = action.draft
+                    it[AiActions.status] = AiActionStatus.Proposed.wireName
+                    it[requestedBy] = askerId
+                }
             }
             AiJobs.update({ AiJobs.id eq jobId }) {
                 it[status] = AiJobStatus.Done.wireName
@@ -805,7 +851,16 @@ class AiService(
 
     private data class ContextLine(val id: UUID, val authorId: UUID?, val text: String)
 
-    private data class ChatInputs(val context: List<ContextLine>, val names: Map<UUID, String>, val sources: List<SourceLine>, val zone: ZoneId)
+    private data class ChatInputs(
+        val context: List<ContextLine>,
+        val names: Map<UUID, String>,
+        val sources: List<SourceLine>,
+        val zone: ZoneId,
+        /** 「让 AI 整理」的那条消息 */
+        val focus: app.qichi.shared.api.Message?,
+        /** 进行中的计划：标题 → id（AI 提议「加进某个计划」时用） */
+        val plans: Map<String, UUID>,
+    )
 
     /** 某人的「AI 能看什么」；没有发起人（自动生成的）时取所有成员都允许的。 */
     private fun prefsOf(userId: UUID?): AiPrefs =

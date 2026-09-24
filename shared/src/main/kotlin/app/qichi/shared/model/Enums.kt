@@ -41,6 +41,7 @@ enum class EntityType {
     @SerialName("annotation") Annotation,
     @SerialName("annotation_reply") AnnotationReply,
     @SerialName("ai_finding") AiFinding,
+    @SerialName("ai_action") AiAction,
 }
 
 /** 变化类型：软删除与恢复都是 upsert，只有彻底删除是 delete。 */
@@ -284,4 +285,21 @@ enum class FindingStatus {
     @SerialName("new") New,
     @SerialName("dismissed") Dismissed,
     @SerialName("converted") Converted,
+}
+
+/** AI 提议的动作要建成什么（P8-02）。 */
+@Serializable
+enum class AiActionKind {
+    @SerialName("event") Event,
+    @SerialName("todo") Todo,
+    @SerialName("archive_item") ArchiveItem,
+    @SerialName("idea") Idea,
+}
+
+/** AI 提议的动作的状态：等人决定、建好了、不用了。 */
+@Serializable
+enum class AiActionStatus {
+    @SerialName("proposed") Proposed,
+    @SerialName("accepted") Accepted,
+    @SerialName("dismissed") Dismissed,
 }

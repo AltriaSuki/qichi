@@ -9,6 +9,7 @@ import app.qichi.server.calendar.calendarRoutes
 import app.qichi.server.auth.authRoutes
 import app.qichi.server.ai.AiGateway
 import app.qichi.server.ai.AiService
+import app.qichi.server.ai.AiActionService
 import app.qichi.server.ai.aiRoutes
 import app.qichi.server.config.AppConfig
 import app.qichi.server.config.ConfigException
@@ -206,6 +207,7 @@ class AppContext(
     val documents = DocumentService(database, rooms, writes)
     val board = BoardService(database, rooms, writes)
     val archive = ArchiveService(database, rooms, writes)
+    val aiActions = AiActionService(database, rooms, writes, events, todos, archive, ideas)
     val decisions = DecisionService(database, rooms, writes)
     val timeline = TimelineService(database, rooms, clock)
     val reading = ReadingService(database, rooms, writes)

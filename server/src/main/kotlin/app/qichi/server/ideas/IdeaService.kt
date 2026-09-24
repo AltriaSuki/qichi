@@ -1,5 +1,6 @@
 package app.qichi.server.ideas
 
+import app.qichi.server.db.Tx
 import app.qichi.server.db.EntityWrites
 import app.qichi.server.db.Ideas
 import app.qichi.server.db.QichiDatabase
@@ -47,17 +48,23 @@ class IdeaService(
     }
 
     suspend fun create(userId: UUID, roomId: UUID, req: CreateIdeaRequest): Pair<Idea, Boolean> {
-        val body = checkBody(req.body)
+        checkBody(req.body)
         return db.tx {
             rooms.requireMember(roomId, userId)
-            val result = writes.create(this, roomId, userId, EntityType.Idea, req.id, Ideas, ::idea) {
-                it[Ideas.authorId] = userId
-                it[Ideas.body] = body
-            }
-            // 同一个 id 已经是对方记下的：不是重试，而是 id 冲突
-            if (!result.second && result.first.authorId != userId) throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
-            result
+            createIn(this, userId, roomId, req)
         }
+    }
+
+    /** 在已有事务里建（接受 AI 提议时和提议的状态一起提交）；成员身份由调用方检查。 */
+    fun createIn(tx: Tx, userId: UUID, roomId: UUID, req: CreateIdeaRequest): Pair<Idea, Boolean> {
+        val body = checkBody(req.body)
+        val result = writes.create(tx, roomId, userId, EntityType.Idea, req.id, Ideas, ::idea) {
+            it[Ideas.authorId] = userId
+            it[Ideas.body] = body
+        }
+        // 同一个 id 已经是对方记下的：不是重试，而是 id 冲突
+        if (!result.second && result.first.authorId != userId) throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
+        return result
     }
 
     suspend fun update(userId: UUID, roomId: UUID, id: UUID, req: UpdateIdeaRequest): Idea {

@@ -5,6 +5,7 @@ import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.AnnotationAnchor
 import app.qichi.shared.api.FindingEvidence
 import app.qichi.shared.api.NormRect
+import app.qichi.shared.api.AiActionDraft
 import app.qichi.shared.api.SummarySource
 import app.qichi.shared.api.TextBlock
 import kotlinx.serialization.builtins.ListSerializer
@@ -440,6 +441,17 @@ object AiFindings : SyncedTable("ai_findings") {
     val carriedFromId = javaUUID("carried_from_id").nullable()
     val goneInVersion = integer("gone_in_version").nullable()
     val resolvedBy = javaUUID("resolved_by").nullable()
+}
+
+object AiActions : SyncedTable("ai_actions") {
+    val messageId = javaUUID("message_id")
+    val position = integer("position")
+    val kind = text("kind")
+    val draft = jsonb("draft", QichiJson, AiActionDraft.serializer())
+    val status = text("status")
+    val resultId = javaUUID("result_id").nullable()
+    val decidedBy = javaUUID("decided_by").nullable()
+    val requestedBy = javaUUID("requested_by").nullable()
 }
 
 object Devices : Table("devices") {

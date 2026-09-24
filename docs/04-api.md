@@ -232,3 +232,13 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | POST | `/rooms/{roomId}/ai/review-findings` | 本次授权 AI 出审稿发现 → 202（只发文字层；结果是若干条 `ai_finding`，证据核对不上原文的丢掉） |
 | POST | `/rooms/{roomId}/ai-findings/{id}/convert` | 转为人工批注（请求带客户端生成的 `annotationId`，可经发件箱补发；作者是自己，钉在第一条证据上） |
 | POST | `/rooms/{roomId}/ai-findings/{id}/dismiss` | 忽略 |
+
+### AI 提议、人确认（P8-02）
+
+问 AI 的回答里，模型可以在最后用 `<actions>[…]</actions>` 给出最多 5 个动作草稿（日程、待办、档案、灵感）；服务端把名字、计划名换成 id，把「日期 + 时刻」按房间时区换成 UTC，写成同步实体 `ai_action`（`messageId` = 那次问 AI 的 jobId），动作段不进消息正文。AI 不自己写入任何东西。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/rooms/{roomId}/ai/chat` | 带 `sourceMessageId` 时是长按消息「让 AI 整理」：提示词里带上那条消息，请模型整理成动作草稿 |
+| POST | `/rooms/{roomId}/ai-actions/{id}/accept` | 接受：按草稿建成实体（id = 请求里客户端生成的 `resultId`，建的人是点「好」的人），和状态一起在一个事务里提交；已接受过的原样返回；可经发件箱补发 |
+| POST | `/rooms/{roomId}/ai-actions/{id}/dismiss` | 不用（已接受的不变） |

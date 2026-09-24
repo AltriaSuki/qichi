@@ -10,6 +10,8 @@ import kotlinx.serialization.Serializable
 data class AiChatRequest(
     val jobId: Id,
     val prompt: String,
+    /** 长按一条消息「让 AI 整理」：把这条消息整理成日程、待办等草稿（P8-02） */
+    val sourceMessageId: Id? = null,
 )
 
 /**

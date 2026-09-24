@@ -45,7 +45,13 @@ class TodoService(
     private fun existingInRoom(roomId: UUID, id: UUID): Todo =
         todo(id)?.takeIf { it.roomId == roomId } ?: notFound()
 
-    suspend fun create(userId: UUID, roomId: UUID, req: CreateTodoRequest): Pair<Todo, Boolean> {
+    suspend fun create(userId: UUID, roomId: UUID, req: CreateTodoRequest): Pair<Todo, Boolean> = db.tx {
+        rooms.requireMember(roomId, userId)
+        createIn(this, userId, roomId, req)
+    }
+
+    /** 在已有事务里建（接受 AI 提议时和提议的状态一起提交）；成员身份由调用方检查。 */
+    fun createIn(tx: Tx, userId: UUID, roomId: UUID, req: CreateTodoRequest): Pair<Todo, Boolean> {
         val title = req.title.trim()
         val note = req.note?.trim()?.takeIf { it.isNotEmpty() }
         validate {
@@ -55,20 +61,17 @@ class TodoService(
             checkRecurrence(req.recurrence, hasDue = req.dueDate != null || req.dueAt != null)
             check(req.parentId == null || req.recurrence == null, "recurrence", "子任务不能重复")
         }
-        return db.tx {
-            rooms.requireMember(roomId, userId)
-            validateRefs(roomId, req.assigneeId, req.parentId, req.planId, selfId = req.id)
-            writes.create(this, roomId, userId, EntityType.Todo, req.id, Todos, ::todo) {
-                it[Todos.title] = title
-                it[Todos.note] = note
-                it[Todos.createdBy] = userId
-                it[Todos.assigneeId] = req.assigneeId
-                it[Todos.parentId] = req.parentId
-                it[Todos.dueDate] = req.dueDate
-                it[Todos.dueAt] = req.dueAt
-                it[Todos.recurrence] = req.recurrence?.let { r -> Recurrence.parse(r)!!.format() }
-                it[Todos.planId] = req.planId
-            }
+        validateRefs(roomId, req.assigneeId, req.parentId, req.planId, selfId = req.id)
+        return writes.create(tx, roomId, userId, EntityType.Todo, req.id, Todos, ::todo) {
+            it[Todos.title] = title
+            it[Todos.note] = note
+            it[Todos.createdBy] = userId
+            it[Todos.assigneeId] = req.assigneeId
+            it[Todos.parentId] = req.parentId
+            it[Todos.dueDate] = req.dueDate
+            it[Todos.dueAt] = req.dueAt
+            it[Todos.recurrence] = req.recurrence?.let { r -> Recurrence.parse(r)!!.format() }
+            it[Todos.planId] = req.planId
         }
     }
 

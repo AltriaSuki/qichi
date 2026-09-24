@@ -5,6 +5,7 @@ import app.qichi.server.plugins.AUTH_JWT
 import app.qichi.server.plugins.ApiException
 import app.qichi.server.plugins.user
 import app.qichi.server.plugins.uuidParam
+import app.qichi.shared.api.AcceptAiActionRequest
 import app.qichi.shared.api.AiChatRequest
 import app.qichi.shared.api.AiReadExplainRequest
 import app.qichi.shared.api.AiReviewFindingsRequest
@@ -35,6 +36,12 @@ fun Route.aiRoutes(ctx: AppContext) {
         }
         post("/rooms/{roomId}/ai/review-findings") {
             call.respond(HttpStatusCode.Accepted, ctx.ai.requestReviewFindings(call.user.userId, call.uuidParam("roomId"), call.receive<AiReviewFindingsRequest>()))
+        }
+        post("/rooms/{roomId}/ai-actions/{id}/accept") {
+            call.respond(ctx.aiActions.accept(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id"), call.receive<AcceptAiActionRequest>()))
+        }
+        post("/rooms/{roomId}/ai-actions/{id}/dismiss") {
+            call.respond(ctx.aiActions.dismiss(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id")))
         }
         get("/rooms/{roomId}/ai/jobs/{jobId}") {
             call.respond(ctx.ai.job(call.user.userId, call.uuidParam("roomId"), call.uuidParam("jobId")))

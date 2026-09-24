@@ -24,6 +24,8 @@ import app.qichi.server.db.Books
 import app.qichi.server.db.Summaries
 import app.qichi.server.db.AnnotationReplies
 import app.qichi.server.db.AiFindings
+import app.qichi.server.db.AiActions
+import app.qichi.server.ai.toAiAction
 import app.qichi.server.review.toAiFinding
 import app.qichi.server.db.Annotations
 import app.qichi.server.db.ReviewDocuments
@@ -142,6 +144,7 @@ class SyncService(private val db: QichiDatabase) {
                 annotations = Annotations.selectAll().where { Annotations.roomId eq roomId }.map { it.toAnnotation() },
                 annotationReplies = AnnotationReplies.selectAll().where { AnnotationReplies.roomId eq roomId }.map { it.toAnnotationReply() },
                 aiFindings = AiFindings.selectAll().where { AiFindings.roomId eq roomId }.map { it.toAiFinding() },
+                aiActions = AiActions.selectAll().where { AiActions.roomId eq roomId }.map { it.toAiAction() },
             )
         }
 
@@ -225,6 +228,7 @@ class SyncService(private val db: QichiDatabase) {
                 EntityType.Annotation -> Annotations.selectAll().where { Annotations.id inList ids }.map { it.toAnnotation() }
                 EntityType.AnnotationReply -> AnnotationReplies.selectAll().where { AnnotationReplies.id inList ids }.map { it.toAnnotationReply() }
                 EntityType.AiFinding -> AiFindings.selectAll().where { AiFindings.id inList ids }.map { it.toAiFinding() }
+                EntityType.AiAction -> AiActions.selectAll().where { AiActions.id inList ids }.map { it.toAiAction() }
             }
             loaded.forEach { result[type to it.id] = it }
         }

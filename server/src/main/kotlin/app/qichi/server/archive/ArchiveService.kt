@@ -1,5 +1,6 @@
 package app.qichi.server.archive
 
+import app.qichi.server.db.Tx
 import app.qichi.server.db.ArchiveItems
 import app.qichi.server.db.ArchiveRevisions
 import app.qichi.server.db.EntityWrites
@@ -82,34 +83,40 @@ class ArchiveService(
     }
 
     suspend fun create(userId: UUID, roomId: UUID, req: CreateArchiveItemRequest): Pair<ArchiveItem, Boolean> {
-        val (title, body) = check(req.title, req.body)
+        check(req.title, req.body)
         return db.tx {
             rooms.requireMember(roomId, userId)
-            checkSource(roomId, req.sourceMessageId)
-            val result = writes.create(this, roomId, userId, EntityType.ArchiveItem, req.id, ArchiveItems, ::item) {
-                it[ArchiveItems.kind] = req.kind.wireName
-                it[ArchiveItems.title] = title
-                it[ArchiveItems.body] = body
-                it[ArchiveItems.createdBy] = userId
-                it[ArchiveItems.currentRevision] = 1
-                it[ArchiveItems.revisedBy] = userId
-                it[ArchiveItems.sourceMessageId] = req.sourceMessageId
-            }
-            if (result.second) {
-                // 第 1 次修订与条目同一个 id（条目 id 本身就不会重复）
-                ArchiveRevisions.insert {
-                    it[id] = req.id
-                    it[itemId] = req.id
-                    it[revision] = 1
-                    it[authorId] = userId
-                    it[ArchiveRevisions.title] = title
-                    it[ArchiveRevisions.body] = body
-                    it[sourceMessageId] = req.sourceMessageId
-                    it[createdAt] = result.first.createdAt
-                }
-            }
-            result
+            createIn(this, userId, roomId, req)
         }
+    }
+
+    /** 在已有事务里建（接受 AI 提议时和提议的状态一起提交）；成员身份由调用方检查。 */
+    fun createIn(tx: Tx, userId: UUID, roomId: UUID, req: CreateArchiveItemRequest): Pair<ArchiveItem, Boolean> {
+        val (title, body) = check(req.title, req.body)
+        checkSource(roomId, req.sourceMessageId)
+        val result = writes.create(tx, roomId, userId, EntityType.ArchiveItem, req.id, ArchiveItems, ::item) {
+            it[ArchiveItems.kind] = req.kind.wireName
+            it[ArchiveItems.title] = title
+            it[ArchiveItems.body] = body
+            it[ArchiveItems.createdBy] = userId
+            it[ArchiveItems.currentRevision] = 1
+            it[ArchiveItems.revisedBy] = userId
+            it[ArchiveItems.sourceMessageId] = req.sourceMessageId
+        }
+        if (result.second) {
+            // 第 1 次修订与条目同一个 id（条目 id 本身就不会重复）
+            ArchiveRevisions.insert {
+                it[id] = req.id
+                it[itemId] = req.id
+                it[revision] = 1
+                it[authorId] = userId
+                it[ArchiveRevisions.title] = title
+                it[ArchiveRevisions.body] = body
+                it[sourceMessageId] = req.sourceMessageId
+                it[createdAt] = result.first.createdAt
+            }
+        }
+        return result
     }
 
     suspend fun revise(userId: UUID, roomId: UUID, id: UUID, req: ReviseArchiveItemRequest): Pair<ArchiveItem, Boolean> {

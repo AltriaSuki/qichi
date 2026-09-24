@@ -1,5 +1,6 @@
 package app.qichi.server.events
 
+import app.qichi.server.db.Tx
 import app.qichi.server.db.EntityWrites
 import app.qichi.server.db.Events
 import app.qichi.server.db.QichiDatabase
@@ -62,6 +63,11 @@ class EventService(
 
     suspend fun create(userId: UUID, roomId: UUID, req: CreateEventRequest): Pair<Event, Boolean> = db.tx {
         rooms.requireMember(roomId, userId)
+        createIn(this, userId, roomId, req)
+    }
+
+    /** 在已有事务里建（接受 AI 提议时和提议的状态一起提交）；成员身份由调用方检查。 */
+    fun createIn(tx: Tx, userId: UUID, roomId: UUID, req: CreateEventRequest): Pair<Event, Boolean> {
         val shape = Shape(
             title = req.title.trim(),
             note = req.note?.trim()?.takeIf { it.isNotEmpty() },
@@ -71,7 +77,7 @@ class EventService(
             participantIds = req.participantIds.distinct(),
         )
         validate { checkShape(shape, roomId) }
-        writes.create(this, roomId, userId, EntityType.Event, req.id, Events, ::event) {
+        return writes.create(tx, roomId, userId, EntityType.Event, req.id, Events, ::event) {
             it[Events.title] = shape.title
             it[Events.note] = shape.note
             it[Events.location] = shape.location

@@ -1771,6 +1771,37 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /rooms/{roomId}/ai-actions/{id}/accept:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [ai]
+      operationId: acceptAiAction
+      summary: 接受 AI 的提议（P8-02）：服务端按草稿建成日程 / 待办 / 档案 / 灵感（id = resultId）；已经接受过的原样返回
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/AcceptAiActionRequest' } } }
+      responses:
+        '200': { description: 接受后的动作（建成的实体经同步到达）, content: { application/json: { schema: { $ref: '#/components/schemas/AiAction' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/ai-actions/{id}/dismiss:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [ai]
+      operationId: dismissAiAction
+      summary: 不用这个提议（已经接受的不变）
+      responses:
+        '200': { description: 之后的动作, content: { application/json: { schema: { $ref: '#/components/schemas/AiAction' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /app/latest:
     get:
       tags: [system]
@@ -2902,7 +2933,7 @@ components:
     EntityType:
       type: string
       description: 与 `shared/model/EntityType` 一致，后续阶段追加
-      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document, board_topic, board_post, board_reaction, archive_item, decision, book, reading_progress, highlight, summary, review_document, review_version, annotation, annotation_reply, ai_finding]
+      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document, board_topic, board_post, board_reaction, archive_item, decision, book, reading_progress, highlight, summary, review_document, review_version, annotation, annotation_reply, ai_finding, ai_action]
     ChangeOp:
       type: string
       description: '`upsert` 包括软删除与恢复；只有彻底删除是 `delete`'
@@ -2955,6 +2986,7 @@ components:
             - $ref: '#/components/schemas/Annotation'
             - $ref: '#/components/schemas/AnnotationReply'
             - $ref: '#/components/schemas/AiFinding'
+            - $ref: '#/components/schemas/AiAction'
             - type: 'null'
     SyncResponse:
       type: object
@@ -2968,7 +3000,7 @@ components:
           items: { $ref: '#/components/schemas/Change' }
     Bootstrap:
       type: object
-      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents, boardTopics, boardPosts, boardReactions, archiveItems, decisions, books, readingProgress, highlights, summaries, reviewDocuments, reviewVersions, annotations, annotationReplies, aiFindings]
+      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents, boardTopics, boardPosts, boardReactions, archiveItems, decisions, books, readingProgress, highlights, summaries, reviewDocuments, reviewVersions, annotations, annotationReplies, aiFindings, aiActions]
       properties:
         room: { $ref: '#/components/schemas/Room' }
         members:
@@ -3027,6 +3059,7 @@ components:
         annotations: { type: array, items: { $ref: '#/components/schemas/Annotation' } }
         annotationReplies: { type: array, items: { $ref: '#/components/schemas/AnnotationReply' } }
         aiFindings: { type: array, items: { $ref: '#/components/schemas/AiFinding' } }
+        aiActions: { type: array, items: { $ref: '#/components/schemas/AiAction' } }
     WsHello:
       type: object
       required: [type, userId, rooms]
@@ -4170,6 +4203,56 @@ components:
       properties:
         annotationId: { $ref: '#/components/schemas/Uuid' }
 
+    AiActionKind:
+      type: string
+      enum: [event, todo, archive_item, idea]
+    AiActionStatus:
+      type: string
+      enum: [proposed, accepted, dismissed]
+    AiActionDraft:
+      type: object
+      description: |
+        AI 提议的草稿，按 kind 取用字段：event 用 title/note/location 和 allDay + startDate/endDate 或 startsAt/endsAt；
+        todo 用 title/note/assigneeId/dueDate 或 dueAt/planId；archive_item 用 archiveKind/title/note（正文）；idea 用 title（正文）。
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 2000 }
+        note: { type: [string, 'null'], maxLength: 2000 }
+        allDay: { type: boolean, default: false }
+        startsAt: { $ref: '#/components/schemas/NullableInstant' }
+        endsAt: { $ref: '#/components/schemas/NullableInstant' }
+        startDate: { type: [string, 'null'], format: date }
+        endDate: { type: [string, 'null'], format: date }
+        location: { type: [string, 'null'], maxLength: 200 }
+        assigneeId: { $ref: '#/components/schemas/NullableUuid' }
+        dueDate: { type: [string, 'null'], format: date }
+        dueAt: { $ref: '#/components/schemas/NullableInstant' }
+        planId: { $ref: '#/components/schemas/NullableUuid' }
+        archiveKind:
+          oneOf:
+            - $ref: '#/components/schemas/ArchiveKind'
+            - type: 'null'
+    AiAction:
+      description: 同步实体类型 `ai_action`（P8-02）：问 AI 时 AI 提议的动作，人点「好」才由服务端建成真正的实体；没有回收站
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [messageId, position, kind, draft, status, resultId, decidedBy, requestedBy]
+          properties:
+            messageId: { $ref: '#/components/schemas/Uuid', description: 属于哪条 AI 回答（= 那次问 AI 的 jobId） }
+            position: { type: integer, minimum: 0 }
+            kind: { $ref: '#/components/schemas/AiActionKind' }
+            draft: { $ref: '#/components/schemas/AiActionDraft' }
+            status: { $ref: '#/components/schemas/AiActionStatus' }
+            resultId: { $ref: '#/components/schemas/NullableUuid' }
+            decidedBy: { $ref: '#/components/schemas/NullableUuid' }
+            requestedBy: { $ref: '#/components/schemas/NullableUuid' }
+    AcceptAiActionRequest:
+      type: object
+      required: [resultId]
+      properties:
+        resultId: { $ref: '#/components/schemas/Uuid', description: 要建的实体的 id（客户端生成），重试不会多建 }
+
     AppRelease:
       type: object
       required: [versionCode, versionName, notes, sizeBytes, sha256, publishedAt]
@@ -4236,6 +4319,9 @@ components:
       properties:
         jobId: { $ref: '#/components/schemas/Uuid' }
         prompt: { type: string, minLength: 1, maxLength: 2000 }
+        sourceMessageId:
+          $ref: '#/components/schemas/Uuid'
+          description: 长按一条消息「让 AI 整理」：把这条消息整理成动作草稿（P8-02）
     AiJobAccepted:
       type: object
       required: [jobId, status]

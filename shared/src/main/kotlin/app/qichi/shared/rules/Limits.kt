@@ -92,6 +92,9 @@ object Limits {
 
     /** 审稿 AI：一次最多几条发现、每条最多几条证据、标题和说明多长；发给 AI 的原文最多多少字 */
     const val FINDINGS_MAX: Int = 12
+
+    /** 一次问 AI 最多提议几个动作（P8-02） */
+    const val AI_ACTIONS_MAX: Int = 5
     const val FINDING_EVIDENCE_MAX: Int = 3
     const val FINDING_TITLE_MAX: Int = 60
     const val FINDING_BODY_MAX: Int = 600
