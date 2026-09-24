@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import app.qichi.shared.rules.DocumentImages
+import java.util.UUID
 import app.qichi.core.designsystem.QichiShapes
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.semantics.stateDescription
@@ -49,6 +51,9 @@ object Markdown {
         data class Paragraph(val text: String, override val line: Int) : Block
         data class Item(val marker: String, val text: String, override val line: Int) : Block
 
+        /** 照片：单独一行 ![说明](qichi-file:文件id)（P9-02） */
+        data class Image(val fileId: UUID, val alt: String, override val line: Int) : Block
+
         /** 勾选框「- [ ] 」「- [x] 」 */
         data class Task(val checked: Boolean, val text: String, override val line: Int) : Block
         data class Quote(val text: String, override val line: Int) : Block
@@ -77,6 +82,11 @@ object Markdown {
                 line.isBlank() -> flush()
                 rule.matches(line) -> { flush(); blocks += Block.Rule(i) }
                 heading.matches(line) -> { flush(); heading.find(line)!!.let { blocks += Block.Heading(it.groupValues[1].length, it.groupValues[2].trim(), i) } }
+                DocumentImages.line.matches(line) -> {
+                    flush()
+                    val m = DocumentImages.line.find(line)!!
+                    blocks += Block.Image(UUID.fromString(m.groupValues[2]), m.groupValues[1], i)
+                }
                 task.matches(line) -> { flush(); task.find(line)!!.let { blocks += Block.Task(it.groupValues[1] != " ", it.groupValues[2], i) } }
                 bullet.matches(line) -> { flush(); bullet.find(line)!!.let { blocks += Block.Item("·", it.groupValues[2], i) } }
                 ordered.matches(line) -> { flush(); ordered.find(line)!!.let { blocks += Block.Item(it.groupValues[1], it.groupValues[2], i) } }
@@ -134,6 +144,7 @@ object Markdown {
                     addStyle(SpanStyle(fontSize = headingSize, letterSpacing = 0.12.em), offset, offset + line.length)
                     line.indexOfFirst { it != '#' }.let { if (it < 0) line.length else it + 1 }.coerceAtMost(line.length)
                 }
+                DocumentImages.line.matches(line) -> line.length
                 task.matches(line) -> task.find(line)!!.groups[2]!!.range.first
                 bullet.matches(line) || ordered.matches(line) ->
                     (bullet.find(line) ?: ordered.find(line))!!.groups[2]!!.range.first
@@ -150,9 +161,17 @@ object Markdown {
 /**
  * Markdown 预览。字号、行距跟随编辑器的本机设置。
  * [onToggleTask] 不为空时勾选框可以点（参数是那一行在原文里的行号）。
+ * [image] 画一张照片（文稿里用）；为空时照片只显示成「（照片）」这样的一行字。
  */
 @Composable
-fun MarkdownView(text: String, fontSize: TextUnit, lineHeight: Float, modifier: Modifier = Modifier, onToggleTask: ((Int) -> Unit)? = null) {
+fun MarkdownView(
+    text: String,
+    fontSize: TextUnit,
+    lineHeight: Float,
+    modifier: Modifier = Modifier,
+    onToggleTask: ((Int) -> Unit)? = null,
+    image: (@Composable (fileId: UUID, alt: String) -> Unit)? = null,
+) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val body = type.body.copy(fontSize = fontSize, lineHeight = fontSize * lineHeight, fontWeight = FontWeight.W300, letterSpacing = 0.03.em, color = colors.ink)
@@ -168,6 +187,13 @@ fun MarkdownView(text: String, fontSize: TextUnit, lineHeight: Float, modifier: 
                 is Markdown.Block.Item -> Row(Modifier.fillMaxWidth()) {
                     Text(block.marker, style = body.copy(color = colors.faint), modifier = Modifier.widthIn(min = 22.dp))
                     Text(Markdown.inline(block.text, colors.muted), style = body, modifier = Modifier.weight(1f))
+                }
+                is Markdown.Block.Image -> Box(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 14.dp)) {
+                    if (image != null) {
+                        image(block.fileId, block.alt)
+                    } else {
+                        Text("（${block.alt.ifBlank { "照片" }}）", style = body.copy(color = colors.muted))
+                    }
                 }
                 is Markdown.Block.Task -> Row(
                     Modifier.fillMaxWidth().then(

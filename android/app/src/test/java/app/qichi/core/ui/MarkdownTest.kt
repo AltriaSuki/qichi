@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.sp
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.test.assertIs
 
 class MarkdownTest {
@@ -62,5 +63,16 @@ class MarkdownTest {
         )
         val styled = Markdown.highlight("- [ ] 外套", Color.Gray, 20.sp)
         assertEquals(listOf("- [ ] "), styled.spanStyles.filter { it.item.color == Color.Gray }.map { "- [ ] 外套".substring(it.start, it.end) })
+    }
+
+    @Test
+    fun `照片行：认出文件和说明，编辑时整行淡化；不是单独一行的不算`() {
+        val id = java.util.UUID.fromString("01a0c31e-bdff-73fd-ba1e-305adb764467")
+        val text = "看日落\n![日落](qichi-file:$id)\n文字里 ![x](qichi-file:$id) 不算"
+        val blocks = Markdown.parse(text)
+        assertEquals(Markdown.Block.Image(id, "日落", 1), blocks[1])
+        assertTrue(blocks[2] is Markdown.Block.Paragraph)
+        val styled = Markdown.highlight("![日落](qichi-file:$id)", Color.Gray, 20.sp)
+        assertEquals(listOf("![日落](qichi-file:$id)"), styled.spanStyles.filter { it.item.color == Color.Gray }.map { styled.text.substring(it.start, it.end) })
     }
 }

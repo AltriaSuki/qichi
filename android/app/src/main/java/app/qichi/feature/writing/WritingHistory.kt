@@ -108,6 +108,8 @@ private fun VersionView(
     var bodies by remember(version) { mutableStateOf<Pair<String, String>?>(null) }
     var failed by remember(version) { mutableStateOf(false) }
     var showDiff by rememberSaveable { mutableStateOf(true) }
+    var viewing by remember { mutableStateOf<java.util.UUID?>(null) }
+    viewing?.let { id -> app.qichi.core.ui.ImageViewer(id, vm.urls, onDismiss = { viewing = null }) }
     var confirmRestore by remember { mutableStateOf(false) }
     LaunchedEffect(version) {
         val loaded = vm.bodies(version)
@@ -133,7 +135,10 @@ private fun VersionView(
             val b = bodies
             when {
                 b != null && showDiff -> DiffView(Diff.lines(b.first, b.second))
-                b != null -> MarkdownView(b.second, state.settings.fontSize.tsp, state.settings.lineHeight)
+                b != null -> MarkdownView(
+                    b.second, state.settings.fontSize.tsp, state.settings.lineHeight,
+                    image = { fileId, alt -> DocumentImage(fileId, alt, vm.urls, onOpen = { viewing = fileId }) },
+                )
                 failed -> Text("需要联网才能打开这个版本。", style = type.body.copy(color = colors.muted))
                 else -> Text("正在打开…", style = type.caption.copy(color = colors.faint))
             }

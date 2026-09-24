@@ -211,55 +211,9 @@ private fun SheetRow(label: String, onClick: () -> Unit) {
     )
 }
 
-/** 全屏看图：双指缩放、双击放大、单击关闭。先显示已缓存的缩略图，原图到了再换上。 */
+/** 全屏看图（聊天里的图片）。 */
 @Composable
-internal fun ImageViewer(file: FileMeta, urls: FileUrls, onDismiss: () -> Unit) {
-    val context = LocalContext.current
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
-    val transform = rememberTransformableState { zoom, pan, _ ->
-        scale = (scale * zoom).coerceIn(1f, 5f)
-        offset = if (scale == 1f) Offset.Zero else offset + pan
-    }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Box(Modifier.fillMaxSize().background(Color.Black)) {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(urls.original(file.id))
-                    .placeholderMemoryCacheKey(urls.thumbnail(file.id))
-                    .build(),
-                contentDescription = "图片",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        translationX = offset.x
-                        translationY = offset.y
-                    }
-                    .transformable(transform)
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onDoubleTap = {
-                                if (scale > 1f) {
-                                    scale = 1f
-                                    offset = Offset.Zero
-                                } else {
-                                    scale = 2.5f
-                                }
-                            },
-                            onTap = { onDismiss() },
-                        )
-                    },
-            )
-            IconAction(
-                QichiIcons.Close, contentDescription = "关闭", onClick = onDismiss, tint = Color.White,
-                modifier = Modifier.statusBarsPadding().padding(8.dp),
-            )
-        }
-    }
-}
+internal fun ImageViewer(file: FileMeta, urls: FileUrls, onDismiss: () -> Unit) = app.qichi.core.ui.ImageViewer(file.id, urls, onDismiss)
 
 /** 把下载好的附件交给别的应用打开。 */
 internal fun openWithOtherApp(context: Context, file: File, mimeType: String) {

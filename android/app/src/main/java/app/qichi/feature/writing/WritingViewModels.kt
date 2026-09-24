@@ -11,6 +11,11 @@ import app.qichi.core.data.WritingSettingsStore
 import app.qichi.core.database.DocumentVersionRow
 import app.qichi.core.database.DraftRow
 import app.qichi.core.network.NetworkMonitor
+import app.qichi.shared.util.UuidV7
+import app.qichi.core.network.FileUrls
+import app.qichi.core.data.FileRepository
+import app.qichi.core.data.AttachmentPreparer
+import app.qichi.core.data.AttachmentException
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.todayIn
 import app.qichi.core.ui.zoneOf
@@ -118,9 +123,47 @@ class DocumentEditorViewModel @AssistedInject constructor(
     private val docs: DocumentRepository,
     private val settingsStore: WritingSettingsStore,
     rooms: RoomRepository,
-    network: NetworkMonitor,
+    private val network: NetworkMonitor,
     session: SessionManager,
+    private val preparer: AttachmentPreparer,
+    private val files: FileRepository,
+    val urls: FileUrls,
 ) : ViewModel() {
+    // ── 插照片（P9-02，要联网） ──
+    private val _uploadingImage = MutableStateFlow(false)
+    val uploadingImage: StateFlow<Boolean> = _uploadingImage
+    private val _message = MutableStateFlow<String?>(null)
+
+    /** 一句要告诉人的话（插照片失败等），显示后调用 [messageShown] */
+    val message: StateFlow<String?> = _message
+
+    fun messageShown() { _message.value = null }
+
+    /** 上传选中的照片，成功后把文件 id 交给 [onUploaded]（由编辑器插进光标处）。 */
+    fun uploadImage(uri: android.net.Uri, onUploaded: (UUID) -> Unit) {
+        if (!network.isOnline.value) {
+            _message.value = "离线时不能插照片"
+            return
+        }
+        if (_uploadingImage.value) return
+        _uploadingImage.value = true
+        viewModelScope.launch {
+            try {
+                val prepared = preparer.image(uri)
+                val meta = files.upload(roomId, UuidV7.generate(), prepared)
+                onUploaded(meta.id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: AttachmentException) {
+                _message.value = e.message
+            } catch (_: Exception) {
+                _message.value = "照片没有传上去，再试一次"
+            } finally {
+                _uploadingImage.value = false
+            }
+        }
+    }
+
     private val people = combine(rooms.observeRoom(roomId), rooms.observeMembers(roomId)) { room, members -> People(room, members, session.currentUserId) }
     private val document = docs.observeDocument(roomId, documentId)
     private val draft = docs.observeDraft(roomId, documentId)

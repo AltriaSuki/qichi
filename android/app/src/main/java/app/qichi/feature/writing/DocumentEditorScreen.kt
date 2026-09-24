@@ -30,6 +30,17 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import coil3.compose.AsyncImage
+import app.qichi.shared.rules.DocumentImages
+import app.qichi.core.ui.ImageViewer
+import app.qichi.core.network.FileUrls
+import app.qichi.core.designsystem.QichiShapes
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import android.widget.Toast
 import app.qichi.core.ui.MarkdownEdits
 import app.qichi.core.ui.EditHistory
 import androidx.compose.runtime.mutableIntStateOf
@@ -160,6 +171,20 @@ fun DocumentEditorScreen(
         composingFrom = null
         setText(TextFieldValue(to.text, TextRange(to.start.coerceAtMost(to.text.length), to.end.coerceAtMost(to.text.length))))
     }
+    // 插照片（P9-02）：选图 → 上传 → 在光标所在行后面插一行图片标记
+    val uploadingImage by vm.uploadingImage.collectAsStateWithLifecycle()
+    val message by vm.message.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    LaunchedEffect(message) { message?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); vm.messageShown() } }
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            vm.uploadImage(uri) { fileId ->
+                applyEdit(MarkdownEdits.insertBlock(MarkdownEdits.Edit(field.text, field.selection.min, field.selection.max), DocumentImages.markdown(fileId)))
+            }
+        }
+    }
+    var viewingImage by remember { mutableStateOf<UUID?>(null) }
+    viewingImage?.let { id -> ImageViewer(id, vm.urls, onDismiss = { viewingImage = null }) }
     LaunchedEffect(state.text, state.ready) {
         if (state.ready && !vm.hasLocalEdits() && state.text != field.text) {
             field = TextFieldValue(state.text, TextRange(minOf(field.selection.start, state.text.length)))
@@ -239,10 +264,14 @@ fun DocumentEditorScreen(
                         .padding(start = 26.dp, end = 26.dp, top = 30.dp, bottom = 20.dp),
                 ) {
                     if (preview) {
-                        MarkdownView(field.text, fontSize, settings.lineHeight, onToggleTask = { line ->
-                            val toggled = MarkdownEdits.toggleTask(field.text, line)
-                            applyEdit(MarkdownEdits.Edit(toggled, field.selection.min.coerceAtMost(toggled.length)))
-                        })
+                        MarkdownView(
+                            field.text, fontSize, settings.lineHeight,
+                            onToggleTask = { line ->
+                                val toggled = MarkdownEdits.toggleTask(field.text, line)
+                                applyEdit(MarkdownEdits.Edit(toggled, field.selection.min.coerceAtMost(toggled.length)))
+                            },
+                            image = { fileId, alt -> DocumentImage(fileId, alt, vm.urls, onOpen = { viewingImage = fileId }) },
+                        )
                     } else {
                         val headingSize = fontSize * 1.3f
                         val markerColor = colors.faint
@@ -295,6 +324,8 @@ fun DocumentEditorScreen(
                 FormatBar(
                     canUndo = history.canUndo,
                     canRedo = history.canRedo,
+                    uploadingImage = uploadingImage,
+                    onImage = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                     onEdit = { transform ->
                         val e = MarkdownEdits.Edit(field.text, field.selection.min, field.selection.max)
                         applyEdit(transform(e))
@@ -378,11 +409,26 @@ fun DocumentEditorScreen(
 }
 
 @OptIn(ExperimentalLayoutApi::class)
+/** 文稿预览里的一张照片：按宽度铺满，点开看大图。 */
+@Composable
+internal fun DocumentImage(fileId: UUID, alt: String, urls: FileUrls, onOpen: () -> Unit) {
+    val colors = QichiTheme.colors
+    AsyncImage(
+        model = urls.thumbnail(fileId, 800),
+        contentDescription = alt.ifBlank { "照片" },
+        contentScale = ContentScale.FillWidth,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp).clip(QichiShapes.card).background(colors.line)
+            .clickable(role = Role.Image, onClickLabel = "看大图", onClick = onOpen),
+    )
+}
+
 /** 键盘上方的格式按钮（P9-01）：左边可以横着滑，撤销 / 重做固定在右边。 */
 @Composable
 private fun FormatBar(
     canUndo: Boolean,
     canRedo: Boolean,
+    uploadingImage: Boolean,
+    onImage: () -> Unit,
     onEdit: ((MarkdownEdits.Edit) -> MarkdownEdits.Edit) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
@@ -399,6 +445,10 @@ private fun FormatBar(
             IconAction(QichiIcons.TaskList, "勾选框", { onEdit { MarkdownEdits.toggleLinePrefix(it, "- [ ] ") } })
             IconAction(QichiIcons.Quote, "引用", { onEdit { MarkdownEdits.toggleLinePrefix(it, "> ") } })
             IconAction(QichiIcons.Rule, "分隔线", { onEdit(MarkdownEdits::insertRule) })
+            IconAction(
+                QichiIcons.Image, if (uploadingImage) "正在传照片" else "插照片", onImage,
+                enabled = !uploadingImage, tint = if (uploadingImage) colors.faint else colors.ink,
+            )
         }
         Box(Modifier.width(1.dp).height(22.dp).background(colors.line))
         IconAction(QichiIcons.Undo, "撤销", onUndo, enabled = canUndo, tint = if (canUndo) colors.ink else colors.faint)
