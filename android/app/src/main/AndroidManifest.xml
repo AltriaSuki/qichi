@@ -42,6 +42,11 @@
             </intent-filter>
         </service>
 
+        <!-- 在通知上直接回复聊天消息 -->
+        <receiver
+            android:name=".core.push.ReplyReceiver"
+            android:exported="false" />
+
         <!-- WorkManager 由 QichiApplication 提供配置（Hilt 注入 Worker），去掉默认的自动初始化 -->
         <provider
             android:name="androidx.startup.InitializationProvider"

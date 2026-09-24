@@ -59,7 +59,7 @@ class PushTest {
         repeat(50) { if (sender.sent.size >= count) return; delay(40) }
     }
 
-    @Test fun `对方发消息推给我，自己发的不推给自己；推送里没有正文，链接直达那条消息`() = serverTest(testContext(clock = clock, pushSender = sender)) { client ->
+    @Test fun `对方发消息推给我，自己发的不推给自己；像 QQ 那样标题是谁、正文是内容，链接直达那条消息`() = serverTest(testContext(clock = clock, pushSender = sender)) { client ->
         val (aqi, chi, room) = Api(client).pair()
         assertEquals(HttpStatusCode.Created, aqi.device("https://push.example.com/aqi").status)
         chi.device("https://push.example.com/chi")
@@ -69,9 +69,21 @@ class PushTest {
         assertEquals(1, sender.sent.size)
         val (endpoint, payload) = sender.sent.single()
         assertEquals("https://push.example.com/aqi", endpoint)
-        assertEquals("xiaochi发来一条消息", payload.body)
+        assertEquals("xiaochi", payload.title)
+        assertEquals("晚上一起吃面吧", payload.body)
+        assertEquals(PushPayload.KIND_MESSAGE, payload.kind)
+        assertEquals(msg.id, payload.messageId)
+        assertEquals(chi.userId(), payload.senderId)
+        assertEquals(false, payload.senderIsCreator)
         assertEquals("qichi://room/$room/chat/${msg.id}", payload.link)
-        assertTrue("面" !in payload.body)
+
+        // 关掉「通知里显示内容」：只有谁做了什么，不带内容和发件人信息
+        aqi.patch("/api/v1/me", UpdateMeRequest(notificationPrefs = Patch.of(NotificationPrefs(showPreview = false).toJson())))
+        chi.post("/api/v1/rooms/$room/messages", SendMessageRequest(UuidV7.generate(), "text", "明天见"))
+        awaitSent(2)
+        val plain = sender.sent.last().second
+        assertEquals("xiaochi发来一条消息", plain.body)
+        assertTrue("明天见" !in plain.body && plain.messageId == null && plain.sender == null)
     }
 
     @Test fun `心情需要安慰单独说；给我加的待办推给我；关掉的类别和免打扰时段不推`() = serverTest(testContext(clock = clock, pushSender = sender)) { client ->
@@ -79,10 +91,11 @@ class PushTest {
         aqi.device("https://push.example.com/aqi")
         chi.post("/api/v1/rooms/$room/moods", CreateMoodRequest(UuidV7.generate(), MoodLabel.entries.first(), 3, null, needsComfort = true))
         awaitSent(1)
-        assertEquals("xiaochi需要一点安慰", sender.sent.last().second.body)
+        assertEquals("需要一点安慰", sender.sent.last().second.body)
+        assertEquals("xiaochi", sender.sent.last().second.title)
         chi.post("/api/v1/rooms/$room/todos", CreateTodoRequest(UuidV7.generate(), "取快递", assigneeId = aqi.userId()))
         awaitSent(2)
-        assertEquals("xiaochi给你加了一件待办", sender.sent.last().second.body)
+        assertEquals("给你加了一件待办：取快递", sender.sent.last().second.body)
 
         // 关掉待办提醒
         aqi.patch("/api/v1/me", UpdateMeRequest(notificationPrefs = Patch.of(NotificationPrefs(todos = false).toJson())))

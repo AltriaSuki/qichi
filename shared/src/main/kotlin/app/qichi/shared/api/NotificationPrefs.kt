@@ -9,7 +9,7 @@ import kotlinx.serialization.json.jsonObject
 /**
  * 通知偏好（存在 users.notification_prefs，经 PATCH /me 修改）。推送（P3-10）按它决定发不发：
  * 各类开关，以及免打扰时段（房间时区，[quietStart] 到 [quietEnd]，可以跨午夜）。
- * 推送里只有「谁做了什么」，不含正文。
+ * [showPreview] 为 true（默认）时推送像 QQ 那样带上内容（消息原文、心情的几句、待办标题……）；关掉后只有「谁做了什么」。
  */
 @Serializable
 data class NotificationPrefs(
@@ -19,6 +19,8 @@ data class NotificationPrefs(
     val todos: Boolean = true,
     val events: Boolean = true,
     val board: Boolean = true,
+    /** 通知里显示内容 */
+    val showPreview: Boolean = true,
     val quietEnabled: Boolean = false,
     /** 形如 22:00 */
     val quietStart: String = "22:00",

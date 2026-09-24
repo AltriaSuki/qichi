@@ -125,6 +125,12 @@ fun ChatScreen(
     val scope = rememberCoroutineScope()
     val people = state.people
 
+    // 打开聊天（或从后台回到聊天）：这个房间的聊天通知清掉
+    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        app.qichi.core.push.PushNotifier.clearChat(appContext, roomId)
+    }
+
     val replyTo by viewModel.replyTo.collectAsStateWithLifecycle()
     // 从通知或档案的来源进来：跳到那条消息（只跳一次）
     var jumped by rememberSaveable(jumpTo) { mutableStateOf(false) }

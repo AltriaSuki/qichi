@@ -381,7 +381,7 @@ class NotificationsViewModel @Inject constructor(
     fun messageShown() { _message.value = null }
 }
 
-/** 通知：各类提醒的开关、免打扰时段。推送里只有「谁做了什么」，不含正文。 */
+/** 通知：开启推送、各类提醒的开关、通知里显示不显示内容、免打扰时段。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltViewModel()) {
@@ -412,6 +412,13 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
             toggle("待办", p.todos) { p.copy(todos = it) }
             toggle("日程", p.events) { p.copy(events = it) }
             toggle("留言", p.board) { p.copy(board = it) }
+            SectionLabel("内容", modifier = Modifier.padding(top = Spacing.l))
+            toggle("通知里显示内容", p.showPreview) { p.copy(showPreview = it) }
+            Text(
+                if (p.showPreview) "像 QQ 那样，通知里能看到是谁、说了什么（锁屏上是否显示按手机的系统设置）。"
+                else "通知里只写「谁做了什么」，看不到内容。",
+                style = type.caption.copy(color = colors.muted),
+            )
             SectionLabel("免打扰", modifier = Modifier.padding(top = Spacing.l))
             toggle("按时段免打扰", p.quietEnabled) { p.copy(quietEnabled = it) }
             if (p.quietEnabled) {
@@ -511,7 +518,7 @@ private fun PushSection(vm: NotificationsViewModel) {
     }
     hint?.let { Text(it, style = type.caption.copy(color = colors.accent)) }
     Text(
-        "记得在系统设置里把 ntfy 和栖迟都加入「电池优化白名单 / 允许后台运行 / 自启动」，不然手机省电时会收不到。通知里只有「谁做了什么」，不含内容。",
+        "记得在系统设置里把 ntfy 和栖迟都加入「电池优化白名单 / 允许后台运行 / 自启动」，不然手机省电时会收不到。",
         style = type.caption.copy(color = colors.muted),
         modifier = Modifier.padding(top = Spacing.xs),
     )
