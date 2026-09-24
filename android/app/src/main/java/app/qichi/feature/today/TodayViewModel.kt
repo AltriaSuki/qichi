@@ -62,6 +62,8 @@ data class TodayState(
     val myMood: Local<Mood>? = null,
     /** 截止在今天或更早、还没完成的顶层待办 */
     val todos: List<Local<Todo>> = emptyList(),
+    /** 今天完成的顶层待办（划掉显示，也算进进度圈） */
+    val doneToday: List<Local<Todo>> = emptyList(),
     /** 今天的日程 */
     val events: List<Local<Event>> = emptyList(),
     /** 今天的一问（轮次还没拉到时为空） */
@@ -159,6 +161,9 @@ class TodayViewModel @AssistedInject constructor(
                 .filter { it.value.parentId == null && it.value.doneAt == null }
                 .filter { t -> dueOf(t.value)?.let { !it.isAfter(today) } == true }
                 .sortedWith(compareBy({ dueOf(it.value) }, { it.value.createdAt })),
+            doneToday = allTodos
+                .filter { it.value.parentId == null && it.value.doneAt?.atZone(zone)?.toLocalDate() == today }
+                .sortedBy { it.value.doneAt },
             events = allEvents
                 .filter { today in it.value.days(zone) }
                 .sortedWith(compareBy<Local<Event>>({ !it.value.allDay }, { it.value.startsAt ?: Instant.MIN })),
