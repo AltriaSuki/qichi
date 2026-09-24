@@ -48,8 +48,20 @@ object PushNotifier {
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
             NotificationManagerCompat.from(context).areNotificationsEnabled()
 
+    /** 最近弹过的（ntfy 和内置通知可能各送来一份同样的，只弹一次） */
+    private val recent = ArrayDeque<String>()
+
+    @Synchronized
+    private fun seen(payload: PushPayload): Boolean {
+        val key = payload.messageId?.toString() ?: "${payload.tag}|${payload.body}|${payload.sentAt}"
+        if (key in recent) return true
+        recent.addLast(key)
+        while (recent.size > 50) recent.removeFirst()
+        return false
+    }
+
     fun show(context: Context, payload: PushPayload) {
-        if (!canNotify(context)) return
+        if (!canNotify(context) || seen(payload)) return
         ensureChannels(context)
         if (payload.kind == PushPayload.KIND_MESSAGE && payload.sender != null) showMessage(context, payload) else showEvent(context, payload)
     }

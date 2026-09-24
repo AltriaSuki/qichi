@@ -21,6 +21,9 @@ import java.util.UUID
 interface PushStore {
     var deviceId: String?
     var endpoint: String?
+
+    /** 内置通知（App 自己在后台保持连接），默认开 */
+    var builtIn: Boolean
 }
 
 class SharedPrefsPushStore(context: Context) : PushStore {
@@ -31,6 +34,9 @@ class SharedPrefsPushStore(context: Context) : PushStore {
     override var endpoint: String?
         get() = prefs.getString("endpoint", null)
         set(value) = prefs.edit().putString("endpoint", value).apply()
+    override var builtIn: Boolean
+        get() = prefs.getBoolean("builtIn", true)
+        set(value) = prefs.edit().putBoolean("builtIn", value).apply()
 }
 
 /**
@@ -39,6 +45,15 @@ class SharedPrefsPushStore(context: Context) : PushStore {
  */
 class PushRegistrar(private val api: ApiClient, private val store: PushStore) : LogoutHook {
     private val _endpoint = MutableStateFlow(store.endpoint)
+    private val _builtIn = MutableStateFlow(store.builtIn)
+
+    /** 内置通知开没开 */
+    val builtIn: StateFlow<Boolean> = _builtIn.asStateFlow()
+
+    fun setBuiltIn(on: Boolean) {
+        store.builtIn = on
+        _builtIn.value = on
+    }
 
     /** 非空 = 推送已开启（拿到了推送地址）。 */
     val endpoint: StateFlow<String?> = _endpoint.asStateFlow()
@@ -93,8 +108,16 @@ class PushRegistrar(private val api: ApiClient, private val store: PushStore) : 
         fun parse(bytes: ByteArray): PushPayload? {
             val payload = runCatching { QichiJson.decodeFromString(PushPayload.serializer(), bytes.decodeToString()) }.getOrNull()
                 ?: return null
+            return sanitize(payload)
+        }
+
+        /** ntfy 来的和实时通道来的都过一遍：只认 qichi 深链，长度截断。 */
+        fun sanitize(payload: PushPayload): PushPayload? {
             if (!payload.link.startsWith("qichi://room/")) return null
-            return payload.copy(title = payload.title.take(40), body = payload.body.take(120), tag = payload.tag.take(80))
+            return payload.copy(
+                title = payload.title.take(40), body = payload.body.take(PushPayload.PREVIEW_MAX), tag = payload.tag.take(80),
+                sender = payload.sender?.take(40), roomName = payload.roomName?.take(40),
+            )
         }
     }
 }

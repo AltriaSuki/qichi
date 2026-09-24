@@ -70,9 +70,11 @@
 {"type":"hello","userId":"…","rooms":[{"roomId":"…","lastSeq":180}]}
 {"type":"changed","roomId":"…","seq":181}
 {"type":"ai.done","roomId":"…","jobId":"…","status":"done"}
+{"type":"notify","roomId":"…","payload":{"title":"小迟","body":"到家了吗","kind":"message",…}}
 ```
 
 - `changed` 只是提示，客户端收到后调用 `sync` 拉取，不在通道里传实体内容。
+- `notify` 是内置通知（内容同经 ntfy 发的推送，见 `shared/api/Push.kt`），只发给要通知的那个人，并且只发给连接地址带 `?caps=notify` 的连接（旧版 App 不认识它）。App 在后台时据此弹通知。客户端遇到不认识的事件类型要跳过，不能断开。
 - 客户端 → 服务端不发业务消息；心跳用 WebSocket 的 ping/pong 帧（30 秒）。
 - **没有**「正在输入」「在线」等事件（产品明确不做）。
 

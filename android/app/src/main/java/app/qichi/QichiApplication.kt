@@ -17,6 +17,8 @@ import app.qichi.core.auth.SessionState
 import app.qichi.core.database.QichiDatabase
 import app.qichi.core.network.ApiClient
 import app.qichi.core.network.NetworkMonitor
+import app.qichi.core.push.BackgroundConnectionService
+import app.qichi.core.push.PushNotifier
 import app.qichi.core.push.PushRegistrar
 import app.qichi.core.sync.RealtimeClient
 import app.qichi.core.sync.SyncEngine
@@ -76,7 +78,8 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
 
             override fun onStop(owner: LifecycleOwner) {
                 inForeground = false
-                realtime.stop()
+                // 开着「后台接收消息」时连接留着（由后台服务撑着），否则断开
+                if (!(push.builtIn.value && session.currentUserId != null)) realtime.stop()
             }
         })
 
@@ -89,9 +92,19 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
                         launch { push.upload() }
                         if (inForeground) onForegroundLoggedIn()
                     }
-                    SessionState.LoggedOut -> realtime.stop()
+                    SessionState.LoggedOut -> {
+                        realtime.stop()
+                        BackgroundConnectionService.stop(this@QichiApplication)
+                    }
                     SessionState.Loading -> Unit
                 }
+            }
+        }
+
+        appScope.launch {
+            // 内置通知：App 不在前台时弹出来（在前台时聊天页、今天页已经实时显示了）
+            realtime.notifications.collect { e ->
+                if (!inForeground && session.currentUserId != null) PushRegistrar.sanitize(e.payload)?.let { PushNotifier.show(this@QichiApplication, it) }
             }
         }
 
@@ -105,6 +118,8 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
 
     private fun onForegroundLoggedIn() {
         realtime.start()
+        // 后台服务只能在 App 在前台时启动（安卓的限制）
+        if (push.builtIn.value) BackgroundConnectionService.start(this) else BackgroundConnectionService.stop(this)
         scheduler.kickOutbox(now = true)
         appScope.launch { pullAll() }
     }

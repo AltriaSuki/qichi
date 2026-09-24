@@ -5,6 +5,11 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 内置通知：后台保持连接（常驻一条低调的通知）、开机后恢复、申请不被省电策略杀掉 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:name=".QichiApplication"
@@ -41,6 +46,20 @@
                 <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
             </intent-filter>
         </service>
+
+        <!-- 内置通知：后台保持和服务器的连接 -->
+        <service
+            android:name=".core.push.BackgroundConnectionService"
+            android:exported="false"
+            android:foregroundServiceType="remoteMessaging" />
+        <receiver
+            android:name=".core.push.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- 在通知上直接回复聊天消息 -->
         <receiver

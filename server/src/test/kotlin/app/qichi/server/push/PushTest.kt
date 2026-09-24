@@ -14,6 +14,14 @@ import app.qichi.shared.api.Message
 import app.qichi.shared.api.NotificationPrefs
 import app.qichi.shared.api.Patch
 import app.qichi.shared.api.PushPayload
+import app.qichi.shared.api.QichiJson
+import app.qichi.shared.api.WsEvent
+import io.ktor.client.plugins.websocket.webSocket
+import io.ktor.client.request.bearerAuth
+import io.ktor.websocket.Frame
+import io.ktor.websocket.readText
+import kotlinx.coroutines.withTimeout
+import io.ktor.client.plugins.websocket.WebSockets as ClientWebSockets
 import app.qichi.shared.api.RegisterDeviceRequest
 import app.qichi.shared.api.SendMessageRequest
 import app.qichi.shared.api.UpdateMeRequest
@@ -123,6 +131,33 @@ class PushTest {
         assertEquals(HttpStatusCode.OK, aqi.device("https://push.example.com/new").status)
         chi.delete("/api/v1/devices/${mine.id}").assertProblem(HttpStatusCode.NotFound, ProblemCode.NotFound)
         assertEquals(HttpStatusCode.NoContent, aqi.delete("/api/v1/devices/${mine.id}").status)
+    }
+
+    @Test fun `内置通知：带 caps=notify 的连接收到发给自己的通知，自己发的和旧版连接都收不到`() = serverTest(testContext(clock = clock)) { client ->
+        val (aqi, chi, room) = Api(client).pair()
+        val ws = createClient { install(ClientWebSockets) }
+        suspend fun io.ktor.client.plugins.websocket.DefaultClientWebSocketSession.next(): WsEvent =
+            QichiJson.decodeFromString(WsEvent.serializer(), (withTimeout(5_000) { incoming.receive() } as Frame.Text).readText())
+
+        ws.webSocket("/api/v1/ws?caps=notify", request = { bearerAuth(aqi.tokens.accessToken) }) {
+            next() // hello
+            chi.post("/api/v1/rooms/$room/messages", SendMessageRequest(UuidV7.generate(), "text", "到家了吗"))
+            val events = listOf(next(), next())
+            val notify = events.filterIsInstance<WsEvent.Notify>().single()
+            assertEquals("到家了吗", notify.payload.body)
+            assertEquals(room, notify.roomId)
+            // 自己发的不通知自己
+            aqi.post("/api/v1/rooms/$room/messages", SendMessageRequest(UuidV7.generate(), "text", "到了"))
+            assertTrue(next() is WsEvent.Changed)
+        }
+        // 旧版连接（没带 caps）：只有 changed
+        ws.webSocket("/api/v1/ws", request = { bearerAuth(aqi.tokens.accessToken) }) {
+            next()
+            chi.post("/api/v1/rooms/$room/messages", SendMessageRequest(UuidV7.generate(), "text", "晚安"))
+            assertTrue(next() is WsEvent.Changed)
+            chi.post("/api/v1/rooms/$room/messages", SendMessageRequest(UuidV7.generate(), "text", "晚安2"))
+            assertTrue(next() is WsEvent.Changed)
+        }
     }
 
     @Test fun `只往允许的主机发`() {

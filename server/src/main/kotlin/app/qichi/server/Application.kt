@@ -179,7 +179,7 @@ class AppContext(
     /** 截到微秒：PostgreSQL 只存到微秒，这样写入与读回的时间完全相等。 */
     val clock: Clock = MicrosClock(baseClock)
     val realtime = RealtimeHub()
-    val push = PushService(database, pushSender, clock)
+    val push = PushService(database, pushSender, clock, realtime = realtime)
     val writer = RoomWriter(CompositeNotifier(realtime, push))
     val devices = DeviceService(database, clock)
     val tokens = TokenService(config.jwtSecret, clock)

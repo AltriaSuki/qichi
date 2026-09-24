@@ -25,7 +25,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * 前台实时通道：App 在前台且已登录时保持一条 WebSocket。
+ * 实时通道：App 在前台时保持一条 WebSocket；开了「后台接收消息」时由 [app.qichi.core.push.BackgroundConnectionService] 在后台也保持着。
  * 收到 hello / changed 且服务端 seq 比本地新时拉取；断开后指数退避重连（1 秒到 1 分钟）。
  * 没有「正在输入」「在线」等事件。
  */
@@ -43,6 +43,10 @@ class RealtimeClient(
     /** AI 任务结束（成功或失败）：聊天里据此收起「正在想」或显示「没有得到回答」 */
     private val _aiDone = MutableSharedFlow<WsEvent.AiDone>(extraBufferCapacity = 8)
     val aiDone: SharedFlow<WsEvent.AiDone> = _aiDone.asSharedFlow()
+
+    /** 内置通知：服务端发给我的通知（App 在后台时弹出来） */
+    private val _notifications = MutableSharedFlow<WsEvent.Notify>(extraBufferCapacity = 16)
+    val notifications: SharedFlow<WsEvent.Notify> = _notifications.asSharedFlow()
 
     fun start() {
         if (job?.isActive == true) return
@@ -65,7 +69,9 @@ class RealtimeClient(
                     backoffMs = 1_000L
                     for (frame in incoming) {
                         if (frame !is Frame.Text) continue
-                        handle(QichiJson.decodeFromString(WsEvent.serializer(), frame.readText()))
+                        // 不认识的事件（服务端比 App 新）跳过，不断开
+                        val event = runCatching { QichiJson.decodeFromString(WsEvent.serializer(), frame.readText()) }.getOrNull() ?: continue
+                        handle(event)
                     }
                 }
             } catch (e: CancellationException) {
@@ -90,6 +96,7 @@ class RealtimeClient(
                     _aiDone.tryEmit(event)
                     syncEngine.pull(event.roomId)
                 }
+                is WsEvent.Notify -> _notifications.tryEmit(event)
             }
         } catch (e: CancellationException) {
             throw e
@@ -99,7 +106,8 @@ class RealtimeClient(
     }
 
     private fun wsUrl(): String {
-        val http = baseUrl.trimEnd('/') + API_PREFIX + "/ws"
+        // caps=notify：告诉服务端这个 App 认识内置通知
+        val http = baseUrl.trimEnd('/') + API_PREFIX + "/ws?caps=notify"
         return when {
             http.startsWith("https://") -> "wss://" + http.removePrefix("https://")
             http.startsWith("http://") -> "ws://" + http.removePrefix("http://")

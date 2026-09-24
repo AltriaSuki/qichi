@@ -130,6 +130,14 @@ sealed interface WsEvent {
     @Serializable
     @SerialName("ai.done")
     data class AiDone(val roomId: Id, val jobId: Id, val status: String) : WsEvent
+
+    /**
+     * 内置通知：和经 ntfy 发的推送内容一样，只发给要通知的那个人，
+     * 并且只发给连接时带了 `?caps=notify` 的连接（旧版 App 不认识这种事件）。App 在后台时据此弹通知。
+     */
+    @Serializable
+    @SerialName("notify")
+    data class Notify(val roomId: Id, val payload: PushPayload) : WsEvent
 }
 
 @Serializable

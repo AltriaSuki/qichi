@@ -27,6 +27,7 @@ class PushRegistrarTest {
     private class MemoryStore : PushStore {
         override var deviceId: String? = null
         override var endpoint: String? = null
+        override var builtIn: Boolean = true
     }
 
     private val requests = mutableListOf<HttpRequestData>()

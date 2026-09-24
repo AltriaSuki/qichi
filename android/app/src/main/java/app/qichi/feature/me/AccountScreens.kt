@@ -361,6 +361,11 @@ class NotificationsViewModel @Inject constructor(
     /** 非空 = 推送已开启。 */
     val pushEndpoint: StateFlow<String?> = push.endpoint
 
+    /** 内置通知（App 自己在后台接收） */
+    val builtIn: StateFlow<Boolean> = push.builtIn
+
+    fun setBuiltIn(on: Boolean) = push.setBuiltIn(on)
+
     fun pushTurnedOff() = viewModelScope.launch { push.onUnregistered(session.currentUserId != null) }
 
     val prefs: StateFlow<NotificationPrefs?> = kotlinx.coroutines.flow.combine(rooms.me, flowOf(Unit)) { me, _ -> me?.user?.notificationPrefs?.let(NotificationPrefs::from) }
@@ -397,7 +402,7 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
     Column(Modifier.fillMaxSize().background(colors.background)) {
         BackBar("通知", onBack)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
-            PushSection(vm)
+            BuiltInSection(vm)
             SectionLabel("提醒我", modifier = Modifier.padding(top = Spacing.l))
             @Composable
             fun toggle(label: String, value: Boolean, change: (Boolean) -> NotificationPrefs) {
@@ -427,6 +432,8 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
                     TextAction("到 ${p.quietEnd}", { picking = false }, color = colors.ink)
                 }
             }
+            Spacer(Modifier.height(Spacing.l))
+            PushSection(vm)
             Spacer(Modifier.height(Spacing.xl))
         }
     }
@@ -481,14 +488,14 @@ private fun PushSection(vm: NotificationsViewModel) {
         if (granted) register() else hint = "没有通知权限就收不到提醒，可以在系统设置里打开"
     }
 
-    SectionLabel("后台推送")
+    SectionLabel("备用：通过 ntfy 接收")
     val pushHost = BuildConfig.BASE_URL.substringAfter("://").substringBefore('/').substringBefore(':')
     val server = if (pushHost.contains('.') && !pushHost.first().isDigit()) "https://push.$pushHost" else "你的推送服务器地址"
     val status = when {
         endpoint != null && !canNotify -> "推送已开启，但系统通知被关掉了，收不到提醒。"
         endpoint != null -> "推送已开启。App 不在前台时，对方做的事会通知你。"
-        !hasDistributor -> "要收到推送，先在手机上装 ntfy（F-Droid 或 GitHub 下载），在 ntfy 设置里把默认服务器改成 $server，再回来点「开启推送」。"
-        else -> "推送还没有开启。"
+        !hasDistributor -> "一般用不到：上面的「后台接收消息」开着就能收到。手机总是把栖迟的后台杀掉时，可以另装 ntfy（F-Droid 或 GitHub 下载），在 ntfy 设置里把默认服务器改成 $server，再回来点「开启推送」。"
+        else -> "一般用不到：上面的「后台接收消息」开着就能收到。"
     }
     Text(status, style = type.body.copy(color = colors.ink), modifier = Modifier.padding(top = Spacing.xs))
     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.m), verticalAlignment = Alignment.CenterVertically) {
@@ -522,4 +529,58 @@ private fun PushSection(vm: NotificationsViewModel) {
         style = type.caption.copy(color = colors.muted),
         modifier = Modifier.padding(top = Spacing.xs),
     )
+}
+
+/**
+ * 内置通知：App 自己在后台和服务器保持连接，有消息直接弹出来，不用装别的软件。
+ * 安卓要求常驻一条通知（「栖迟正在接收消息」，最低调的类别）；手机省电时可能被杀，所以给一个「允许后台运行」的入口。
+ */
+@Composable
+private fun BuiltInSection(vm: NotificationsViewModel) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    val context = LocalContext.current
+    val on by vm.builtIn.collectAsStateWithLifecycle()
+    var resumed by remember { mutableStateOf(0) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { resumed++ }
+    val canNotify = remember(resumed) { PushNotifier.canNotify(context) }
+    val power = remember(resumed) { context.getSystemService(android.os.PowerManager::class.java) }
+    val unrestricted = remember(resumed) { power?.isIgnoringBatteryOptimizations(context.packageName) == true }
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { resumed++ }
+
+    SectionLabel("接收消息")
+    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("后台接收消息", style = type.bodyLarge.copy(color = colors.ink), modifier = Modifier.weight(1f))
+        Switch(on, { enabled ->
+            vm.setBuiltIn(enabled)
+            if (enabled) {
+                if (android.os.Build.VERSION.SDK_INT >= 33 && !canNotify) permission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                app.qichi.core.push.BackgroundConnectionService.start(context)
+            } else {
+                app.qichi.core.push.BackgroundConnectionService.stop(context)
+            }
+        }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent))
+    }
+    Text(
+        if (on) "栖迟在后台和服务器保持连接，对方发消息会像 QQ 那样弹出来，不用装别的软件。通知栏会常驻一条「栖迟正在接收消息」（安卓的要求），可以长按它把这类通知设为静默。"
+        else "关掉后，只有打开栖迟时才能收到新消息（或者用下面的 ntfy）。",
+        style = type.caption.copy(color = colors.muted),
+    )
+    if (on && !canNotify) {
+        TextAction("打开系统通知", {
+            if (android.os.Build.VERSION.SDK_INT >= 33) permission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            else context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName))
+        })
+    }
+    if (on && !unrestricted) {
+        Text("手机省电时可能会把栖迟的后台停掉，就收不到了。", style = type.caption.copy(color = colors.accent), modifier = Modifier.padding(top = Spacing.xs))
+        TextAction("允许后台运行", {
+            runCatching {
+                context.startActivity(
+                    android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, android.net.Uri.parse("package:${context.packageName}")),
+                )
+            }
+        })
+        Text("有的手机（小米、华为、OPPO、vivo）还要在系统设置里给栖迟打开「自启动」和「后台运行」。", style = type.caption.copy(color = colors.faint))
+    }
 }

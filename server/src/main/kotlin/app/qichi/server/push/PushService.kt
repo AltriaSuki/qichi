@@ -59,13 +59,15 @@ class PushService(
     private val sender: PushSender?,
     private val clock: Clock,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    /** 内置通知：经实时通道发给开着后台连接的 App（不用装 ntfy） */
+    private val realtime: app.qichi.server.sync.RealtimeHub? = null,
 ) : ChangeNotifier {
     private val json = Json { encodeDefaults = true }
 
     override suspend fun roomChanged(roomId: UUID, seq: Long) = Unit
 
     override suspend fun entityChanged(change: CommittedChange) {
-        if (sender == null || change.op != ChangeOp.Upsert) return
+        if ((sender == null && realtime == null) || change.op != ChangeOp.Upsert) return
         scope.launch {
             try {
                 deliver(change)
@@ -86,9 +88,13 @@ class PushService(
                 .map { it[Users.id] to NotificationPrefs.from(it[Users.notificationPrefs]) }
                 .filter { (_, prefs) -> prefs.allows(intent.category) && !prefs.isQuiet(now) }
                 .associate { (id, prefs) -> id to prefs.showPreview }
-            if (wanted.isEmpty()) emptyList() else Devices.select(Devices.id, Devices.token, Devices.userId)
+            wanted to (if (wanted.isEmpty() || sender == null) emptyList() else Devices.select(Devices.id, Devices.token, Devices.userId)
                 .where { (Devices.userId inList wanted.keys) and (Devices.provider eq PushProvider.UnifiedPush.wireName) }
-                .map { Triple(it[Devices.id], it[Devices.token], wanted[it[Devices.userId]] == true) }
+                .map { Triple(it[Devices.id], it[Devices.token], wanted[it[Devices.userId]] == true) })
+        }.let { (wanted, devices) ->
+            // 内置通知：发给开着后台连接的 App（手机上和 ntfy 来的同一条会去重）
+            realtime?.let { hub -> wanted.forEach { (user, preview) -> hub.notify(change.roomId, user, if (preview) intent.payload else intent.plain) } }
+            devices
         }
         val full = json.encodeToString(PushPayload.serializer(), intent.payload)
         val plain = json.encodeToString(PushPayload.serializer(), intent.plain)
