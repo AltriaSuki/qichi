@@ -92,6 +92,7 @@ class AiStopTest {
             assertTrue(answer.aiStopped)
             assertEquals("", answer.body)
             assertEquals("周六去哪？", answer.aiPrompt)
+            assertEquals(aqi.userId(), answer.aiAskedBy)
         }
     }
 

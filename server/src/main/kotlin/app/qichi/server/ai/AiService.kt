@@ -938,6 +938,7 @@ class AiService(
             it[aiPrompt] = prompt
             it[aiSources] = sources
             it[aiStopped] = stopped
+            it[aiAskedBy] = askerId
         }
         actions.forEachIndexed { i, action ->
             val actionId = UuidV7.generate()

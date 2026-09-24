@@ -21,6 +21,9 @@ object MessageRules {
         return base.takeCodePoints(Limits.REPLY_EXCERPT_LENGTH)
     }
 
+    /** 照片说明：空白合成一个空格、去掉首尾空白，最多 [Limits.PHOTO_CAPTION_MAX] 个字符（多出的截掉，不切断表情）。 */
+    fun photoCaption(raw: String): String = raw.replace(WHITESPACE, " ").trim().takeCodePoints(Limits.PHOTO_CAPTION_MAX)
+
     /** 搜索词：去掉首尾空白；空的或超过 100 字返回 null。 */
     fun searchQuery(raw: String?): String? =
         raw?.trim()?.takeIf { it.isNotEmpty() && it.length <= Limits.MESSAGE_SEARCH_QUERY_MAX }

@@ -57,6 +57,8 @@ data class Message(
     val aiPrompt: String? = null,
     /** AI 回答里用 [n] 引用到的房间资料（点开能跳到原来那条）；其它消息为空 */
     val aiSources: List<SummarySource> = emptyList(),
+    /** AI 回答是谁问的；其它消息为空 */
+    val aiAskedBy: Id? = null,
     /** AI 回答被提问的人中途停下了（正文是停下时已写出的部分）；其它消息为 false */
     val aiStopped: Boolean = false,
 ) : SyncEntity

@@ -4137,6 +4137,9 @@ components:
               type: array
               description: AI 回答正文里用 [n] 引用到的房间资料（P8-01）；其它消息为空数组
               items: { $ref: '#/components/schemas/SummarySource' }
+            aiAskedBy:
+              $ref: '#/components/schemas/NullableUuid'
+              description: AI 回答是谁问的（显示「阿栖问：…」）；其它消息为空（P10-04）
             aiStopped:
               type: boolean
               description: AI 回答是被提问的人中途停下的（正文是停下时已经写出来的部分，可能为空）；其它消息为 false（P10-04）

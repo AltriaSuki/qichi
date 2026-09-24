@@ -35,4 +35,14 @@ class MessageRulesTest {
         assertNull(MessageRules.searchQuery("   "))
         assertNull(MessageRules.searchQuery("字".repeat(101)))
     }
+
+    @Test
+    fun `照片说明：合并空白、最多 30 个字符、不切断表情`() {
+        assertEquals("那家民宿的窗外", MessageRules.photoCaption("  那家民宿的\n 窗外  ").replace(" ", ""))
+        assertEquals("那家民宿的 窗外", MessageRules.photoCaption("那家民宿的\n\n窗外"))
+        assertEquals(30, MessageRules.photoCaption("海".repeat(40)).length)
+        val emoji = "🌊".repeat(31)
+        assertEquals(30, MessageRules.photoCaption(emoji).codePointCount(0, 60))
+        assertEquals("", MessageRules.photoCaption("   "))
+    }
 }

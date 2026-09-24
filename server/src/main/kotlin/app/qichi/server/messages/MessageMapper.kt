@@ -38,6 +38,7 @@ fun ResultRow.toMessage() = Message(
     aiPrompt = this[Messages.aiPrompt],
     aiSources = this[Messages.aiSources],
     aiStopped = this[Messages.aiStopped],
+    aiAskedBy = this[Messages.aiAskedBy],
 )
 
 fun ResultRow.toReadMarker() = ReadMarker(
