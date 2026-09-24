@@ -11,6 +11,9 @@ import app.qichi.core.sync.LocalStore
 import app.qichi.core.sync.OutboxOp
 import app.qichi.core.sync.SyncScheduler
 import app.qichi.shared.api.CreateDocCommentRequest
+import app.qichi.shared.model.DocCategory
+import app.qichi.shared.api.Patch
+import app.qichi.shared.api.DocumentSearchHit
 import kotlinx.coroutines.delay
 import app.qichi.core.network.post
 import app.qichi.shared.model.AiJobStatus
@@ -54,10 +57,13 @@ class DocumentRepository(
 
     // ── 文稿 ──
 
-    /** 房间里的文稿（不含回收站），最近更新的在前。 */
+    /** 房间里的文稿（不含回收站）：置顶的在前，其余最近更新的在前。 */
     fun observeDocuments(roomId: UUID): Flow<List<Local<Document>>> =
         db.entities().observeByType(roomId.toString(), EntityType.Document.wireName)
-            .map { rows -> rows.map { LocalStore.toLocal<Document>(it) }.sortedByDescending { it.value.updatedAt } }
+            .map { rows ->
+                rows.map { LocalStore.toLocal<Document>(it) }
+                    .sortedWith(compareByDescending<Local<Document>> { it.value.pinned }.thenByDescending { it.value.updatedAt })
+            }
 
     fun observeDocument(roomId: UUID, id: UUID): Flow<Local<Document>?> =
         observeDocuments(roomId).map { list -> list.firstOrNull { it.value.id == id } }
@@ -76,9 +82,29 @@ class DocumentRepository(
         val title = rawTitle.trim().take(Limits.DOCUMENT_TITLE_LENGTH.last)
         if (title.isEmpty() || title == doc.title) return
         store.writeLocal(doc.roomId, doc.copy(title = title, updatedAt = clock.instant()),
-            OutboxOp.patch("rooms/${doc.roomId}/documents/${doc.id}", UpdateDocumentRequest(title)))
+            OutboxOp.patch("rooms/${doc.roomId}/documents/${doc.id}", UpdateDocumentRequest(title = Patch.of(title))))
         scheduler.kickOutbox()
     }
+
+    /** 置顶 / 取消置顶（两个人看到的一样，可以离线改）。 */
+    suspend fun setPinned(doc: Document, pinned: Boolean) {
+        if (doc.pinned == pinned) return
+        store.writeLocal(doc.roomId, doc.copy(pinned = pinned),
+            OutboxOp.patch("rooms/${doc.roomId}/documents/${doc.id}", UpdateDocumentRequest(pinned = Patch.of(pinned))))
+        scheduler.kickOutbox()
+    }
+
+    /** 改分类；null = 不分类。 */
+    suspend fun setCategory(doc: Document, category: DocCategory?) {
+        if (doc.category == category) return
+        store.writeLocal(doc.roomId, doc.copy(category = category),
+            OutboxOp.patch("rooms/${doc.roomId}/documents/${doc.id}", UpdateDocumentRequest(category = Patch.of(category))))
+        scheduler.kickOutbox()
+    }
+
+    /** 正文搜索（要联网；标题在本机就能搜）。 */
+    suspend fun search(roomId: UUID, query: String): List<DocumentSearchHit> =
+        api.get("rooms/$roomId/documents/search?q=" + java.net.URLEncoder.encode(query, "UTF-8"))
 
     suspend fun delete(doc: Document) {
         store.writeLocal(doc.roomId, doc.copy(deletedAt = clock.instant(), deletedBy = me),

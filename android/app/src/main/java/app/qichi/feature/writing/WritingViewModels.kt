@@ -11,6 +11,9 @@ import app.qichi.core.data.WritingSettingsStore
 import app.qichi.core.database.DocumentVersionRow
 import app.qichi.core.database.DraftRow
 import app.qichi.core.network.NetworkMonitor
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import app.qichi.shared.model.DocCategory
 import app.qichi.shared.model.DraftGenre
 import app.qichi.core.network.ApiException
 import app.qichi.shared.model.WriteAssistMode
@@ -60,7 +63,35 @@ data class DocumentListState(
     /** 有未保存内容的文稿 */
     val unsaved: Set<UUID> = emptySet(),
     val loaded: Boolean = false,
+    /** 搜索词（P9-06）；空 = 不搜 */
+    val query: String = "",
+    /** 按分类筛选；null = 全部 */
+    val category: DocCategory? = null,
+    /** 按搜索和分类筛过的，每篇带上正文里命中的一小段（只命中标题时为空） */
+    val shown: List<DocumentHit> = emptyList(),
+    /** 正文搜索离线、没搜成 */
+    val bodySearchOffline: Boolean = false,
 )
+
+data class DocumentHit(val doc: Local<Document>, val snippet: String?)
+
+/**
+ * 列表筛选（P9-06）：先按分类；有搜索词时，标题（本机）或正文（服务端给的 [bodyHits]）里有这个词的留下。
+ * 顺序沿用 [docs]（置顶的在前）。
+ */
+internal fun filterDocuments(docs: List<Local<Document>>, query: String, category: DocCategory?, bodyHits: Map<UUID, String>): List<DocumentHit> {
+    val q = query.trim()
+    return docs.asSequence()
+        .filter { category == null || it.value.category == category }
+        .mapNotNull { d ->
+            when {
+                q.isEmpty() -> DocumentHit(d, null)
+                d.value.id in bodyHits -> DocumentHit(d, bodyHits.getValue(d.value.id))
+                d.value.title.contains(q, ignoreCase = true) -> DocumentHit(d, null)
+                else -> null
+            }
+        }.toList()
+}
 
 @HiltViewModel(assistedFactory = DocumentListViewModel.Factory::class)
 class DocumentListViewModel @AssistedInject constructor(
@@ -120,9 +151,47 @@ class DocumentListViewModel @AssistedInject constructor(
 
     private val people = combine(rooms.observeRoom(roomId), rooms.observeMembers(roomId)) { room, members -> People(room, members, session.currentUserId) }
 
-    val state: StateFlow<DocumentListState> = combine(people, docs.observeDocuments(roomId), docs.observeDraftIds(roomId)) { p, list, drafts ->
+    // ── 搜索、分类（P9-06） ──
+    private val query = MutableStateFlow("")
+    private val category = MutableStateFlow<DocCategory?>(null)
+    /** 正文搜索的结果：搜索词 → (文稿 → 命中的一小段)；null = 离线没搜成 */
+    private val bodyHits = MutableStateFlow<Pair<String, Map<UUID, String>?>>("" to emptyMap())
+
+    fun onQueryChange(text: String) { query.value = text.take(100) }
+
+    fun onCategoryChange(c: DocCategory?) { category.value = c }
+
+    fun setPinned(doc: Document, pinned: Boolean) = viewModelScope.launch { docs.setPinned(doc, pinned) }
+
+    fun setCategory(doc: Document, c: DocCategory?) = viewModelScope.launch { docs.setCategory(doc, c) }
+
+    init {
+        // 停下 400 毫秒再去服务端搜正文
+        viewModelScope.launch {
+            query.map { it.trim() }.distinctUntilChanged().collectLatest { q ->
+                if (q.isEmpty()) { bodyHits.value = "" to emptyMap(); return@collectLatest }
+                delay(400)
+                bodyHits.value = q to try {
+                    if (!network.isOnline.value) null else docs.search(roomId, q).associate { it.documentId to it.snippet }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
+    }
+
+    private val base = combine(people, docs.observeDocuments(roomId), docs.observeDraftIds(roomId)) { p, list, drafts -> Triple(p, list, drafts) }
+
+    val state: StateFlow<DocumentListState> = combine(base, query, category, bodyHits) { (p, list, drafts), q, c, (hitQuery, hits) ->
         val zone = zoneOf(p.room?.timezone)
-        DocumentListState(p, zone, todayIn(zone), list, drafts, loaded = true)
+        val usable = if (hitQuery == q.trim()) hits.orEmpty() else emptyMap()
+        DocumentListState(
+            p, zone, todayIn(zone), list, drafts, loaded = true, query = q, category = c,
+            shown = filterDocuments(list, q, c, usable),
+            bodySearchOffline = q.isNotBlank() && hitQuery == q.trim() && hits == null,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DocumentListState())
 
     fun create(title: String, onCreated: (UUID) -> Unit) = viewModelScope.launch {

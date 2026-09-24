@@ -19,6 +19,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import app.qichi.shared.model.DocCategory
+import app.qichi.core.designsystem.component.decor.Ribbon
+import app.qichi.core.designsystem.component.SwitchRow
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import app.qichi.shared.model.DraftGenre
 import app.qichi.core.ui.MarkdownView
 import app.qichi.core.designsystem.component.SectionLabel
@@ -80,6 +85,8 @@ fun DocumentListScreen(
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     var creating by rememberSaveable { mutableStateOf(false) }
+    // 长按一篇：置顶、分类（P9-06）
+    var organizing by remember { mutableStateOf<Document?>(null) }
     // AI 起草稿（P9-05）
     // 不用 rememberSaveable：用了草稿跳到编辑器再回来时，不该又弹出起草面板
     var drafting by remember { mutableStateOf(false) }
@@ -103,9 +110,26 @@ fun DocumentListScreen(
                 Text("还没有文稿。一封信、一份清单、一篇两个人一起写的东西，都可以从这里开始。",
                     style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
                 TextAction("写一篇", { creating = true })
+            } else if (state.documents.isNotEmpty()) {
+                // 搜索（标题在本机，正文要联网）和分类筛选（P9-06）
+                QichiTextField(state.query, vm::onQueryChange, label = "搜索", placeholder = "标题或正文里的字",
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
+                FlowRow(Modifier.padding(top = Spacing.s), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ChoicePill("全部", state.category == null, { vm.onCategoryChange(null) })
+                    DocCategory.entries.forEach { c -> ChoicePill(c.label(), state.category == c, { vm.onCategoryChange(c) }) }
+                }
+                if (state.bodySearchOffline) {
+                    Text("离线时只搜标题。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.xs))
+                }
+                if (state.shown.isEmpty()) {
+                    Text(if (state.query.isNotBlank()) "没有找到。" else "这个分类下还没有文稿。长按一篇文稿可以给它分类。",
+                        style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
+                }
             }
-            state.documents.forEach { doc ->
-                DocumentRow(doc, doc.value.id in state.unsaved, state.people, state.zone, state.today, onClick = { onOpen(doc.value.id) })
+            state.shown.forEach { hit ->
+                val doc = hit.doc
+                DocumentRow(doc, doc.value.id in state.unsaved, state.people, state.zone, state.today, hit.snippet,
+                    onClick = { onOpen(doc.value.id) }, onLongClick = { organizing = doc.value })
             }
             Spacer(Modifier.height(Spacing.xl))
         }
@@ -119,6 +143,11 @@ fun DocumentListScreen(
             onUse = { drafting = false; vm.useDraft(onCreated = onOpen) },
             onDismiss = { vm.dismissDraft(); drafting = false },
         )
+    }
+    organizing?.let { target ->
+        // 用最新的那份（改了以后面板里立刻反映）
+        val doc = state.documents.firstOrNull { it.value.id == target.id }?.value ?: target
+        OrganizeSheet(doc, onPinned = { vm.setPinned(doc, it) }, onCategory = { vm.setCategory(doc, it) }, onDismiss = { organizing = null })
     }
     if (creating) {
         TitleDialog(
@@ -134,29 +163,79 @@ fun DocumentListScreen(
     }
 }
 
+internal fun DocCategory.label() = when (this) {
+    DocCategory.Letter -> "信"
+    DocCategory.Travel -> "游记"
+    DocCategory.Diary -> "日记"
+    DocCategory.Review -> "回顾"
+    DocCategory.Other -> "其它"
+}
+
+/** 长按文稿：置顶（两个人看到的一样）、选一个分类。 */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-private fun DocumentRow(local: Local<Document>, unsaved: Boolean, people: People, zone: ZoneId, today: LocalDate, onClick: () -> Unit) {
+private fun OrganizeSheet(doc: Document, onPinned: (Boolean) -> Unit, onCategory: (DocCategory?) -> Unit, onDismiss: () -> Unit) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.background) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.page).padding(bottom = Spacing.xl)) {
+            SectionLabel(doc.title)
+            SwitchRow("置顶", doc.pinned, onPinned)
+            Text("分类", style = type.caption.copy(color = colors.faint), modifier = Modifier.padding(top = Spacing.s))
+            FlowRow(Modifier.padding(top = Spacing.xs), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ChoicePill("不分类", doc.category == null, { onCategory(null) })
+                DocCategory.entries.forEach { c -> ChoicePill(c.label(), doc.category == c, { onCategory(c) }) }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DocumentRow(
+    local: Local<Document>,
+    unsaved: Boolean,
+    people: People,
+    zone: ZoneId,
+    today: LocalDate,
+    snippet: String?,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val doc = local.value
-    Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "打开文稿", onClick = onClick).padding(vertical = Spacing.s)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-            Text(doc.title, style = type.feeling.copy(fontSize = 22.tsp, lineHeight = 30.tsp, color = colors.ink),
-                maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            doc.latestAuthorId?.let { PersonMark(people.markChar(it), people.person(it), size = 22.dp) }
-        }
-        Row(Modifier.padding(top = Spacing.xxs), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            if (doc.latestVersion > 0) Text("v${doc.latestVersion}", style = type.numeral.copy(fontSize = 17.tsp, color = colors.muted))
-            val meta = buildList {
-                if (doc.latestVersion == 0) add("还没有保存过") else add("${formatCount(doc.charCount)} 字")
-                add(relativeDay(doc.updatedAt.atZone(zone).toLocalDate(), today).first)
+    Box(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.fillMaxWidth()
+                .combinedClickable(role = Role.Button, onClickLabel = "打开文稿", onLongClickLabel = "置顶、分类", onClick = onClick, onLongClick = onLongClick)
+                .padding(vertical = Spacing.s),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                Text(doc.title, style = type.feeling.copy(fontSize = 22.tsp, lineHeight = 30.tsp, color = colors.ink),
+                    maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                doc.latestAuthorId?.let { PersonMark(people.markChar(it), people.person(it), size = 22.dp) }
             }
-            Text(meta.joinToString(" · "), style = type.caption.copy(color = colors.muted), modifier = Modifier.weight(1f))
-            if (unsaved) {
-                Box(Modifier.size(6.dp).background(colors.accent, CircleShape))
-                Text("未保存", style = type.caption.copy(color = colors.muted))
+            Row(Modifier.padding(top = Spacing.xxs), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                if (doc.latestVersion > 0) Text("v${doc.latestVersion}", style = type.numeral.copy(fontSize = 17.tsp, color = colors.muted))
+                val meta = buildList {
+                    if (doc.latestVersion == 0) add("还没有保存过") else add("${formatCount(doc.charCount)} 字")
+                    add(relativeDay(doc.updatedAt.atZone(zone).toLocalDate(), today).first)
+                }
+                Text(meta.joinToString(" · "), style = type.caption.copy(color = colors.muted), modifier = Modifier.weight(1f))
+                if (unsaved) {
+                    Box(Modifier.size(6.dp).background(colors.accent, CircleShape))
+                    Text("未保存", style = type.caption.copy(color = colors.muted))
+                }
+            }
+            val meta = listOfNotNull(doc.category?.label(), if (doc.pinned) "置顶" else null)
+            if (meta.isNotEmpty()) Text(meta.joinToString(" · "), style = type.caption.copy(color = colors.accent))
+            if (snippet != null && snippet.isNotBlank()) {
+                Text(snippet, style = type.preview.copy(color = colors.muted), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = Spacing.xxs))
             }
         }
+        // 置顶的挂一条书签带
+        if (doc.pinned) Ribbon(Modifier.align(Alignment.TopEnd).padding(end = 44.dp), height = 22.dp)
     }
 }
 
