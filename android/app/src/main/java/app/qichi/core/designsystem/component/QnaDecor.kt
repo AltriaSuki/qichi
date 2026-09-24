@@ -17,7 +17,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import app.qichi.core.designsystem.CormorantGaramond
+import app.qichi.core.designsystem.NotoSerifSc
 import app.qichi.core.designsystem.QichiShapes
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sizes
@@ -29,7 +29,7 @@ fun QuoteMark(modifier: Modifier = Modifier) {
     Text(
         text = "“",
         style = QichiTheme.typography.question.copy(
-            fontFamily = CormorantGaramond,
+            fontFamily = NotoSerifSc,
             fontSize = 80.tsp,
             lineHeight = 80.tsp,
             color = QichiTheme.colors.accent,

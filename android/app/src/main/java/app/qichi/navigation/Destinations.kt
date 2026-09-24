@@ -51,6 +51,8 @@ enum class Page(val slug: String, val title: String, val tab: TopTab, val group:
     Notifications("notifications", "通知", TopTab.Me),
     AiPrefs("ai-prefs", "AI 能看什么", TopTab.Me),
     Security("security", "安全", TopTab.Me),
+    /** 组件陈列（开发用，只在调试版的「我的」里出现） */
+    Showcase("showcase", "组件陈列", TopTab.Me),
     ;
 
     companion object {

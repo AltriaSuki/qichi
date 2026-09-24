@@ -22,7 +22,7 @@ import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import app.qichi.core.designsystem.NotoSerifSc
+import app.qichi.core.designsystem.NotoSansSc
 import app.qichi.core.designsystem.QichiTheme
 
 /** 房间里的两个人：创建者用 personA，另一位用 personB（与名字无关）。 */
@@ -76,8 +76,8 @@ fun PersonMark(
         Text(
             text = char,
             style = TextStyle(
-                fontFamily = NotoSerifSc,
-                fontWeight = FontWeight.W400,
+                fontFamily = NotoSansSc,
+                fontWeight = FontWeight.W500,
                 fontSize = fontSize,
                 lineHeight = fontSize,
                 lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),

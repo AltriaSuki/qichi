@@ -30,6 +30,8 @@ class DesignSystemTest {
         val all = Sky.entries.map(::colorsFor)
         assertEquals(4, all.map { it.background }.toSet().size)
         assertTrue(colorsFor(Sky.Night).isDark)
+        // 新方向加的 card：每种天色都比 paper 亮一点（深夜是更亮的一层）
+        Sky.entries.map(::colorsFor).forEach { c -> assertTrue(c.card.luminanceValue() > c.paper.luminanceValue(), "$c") }
         assertFalse(colorsFor(Sky.Day).isDark)
     }
 
@@ -42,6 +44,9 @@ class DesignSystemTest {
         assertEquals(DefaultTypography.body.fontSize.value * 1.2f, large.body.fontSize.value, 0.001f)
         assertEquals(DefaultTypography.body.lineHeight.value * 1.2f, large.body.lineHeight.value, 0.001f)
         assertEquals(DefaultTypography.dateDisplay, large.dateDisplay)
+        assertEquals(DefaultTypography.hand, large.hand, "手写字不放大")
+        assertEquals(QichiTypography.EDITOR_LINE_SP * 1.2f, large.editor.lineHeight.value, 0.001f, "编辑器的固定行高跟着放大")
+        assertEquals(DefaultTypography.largeTitle, DefaultTypography.hubTitle, "上一版的名字指向新层级")
         assertEquals(DefaultTypography, DefaultTypography.scaled(1f))
     }
 
@@ -52,4 +57,6 @@ class DesignSystemTest {
         assertEquals("n", markCharOf("Ann"))
         assertEquals("?", markCharOf(""))
     }
+
+    private fun androidx.compose.ui.graphics.Color.luminanceValue() = red * 0.2126f + green * 0.7152f + blue * 0.0722f
 }

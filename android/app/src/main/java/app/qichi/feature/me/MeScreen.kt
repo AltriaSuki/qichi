@@ -102,7 +102,7 @@ fun MeScreen(
             .statusBarsPadding(),
     ) {
         Row(
-            Modifier.padding(start = Spacing.page, end = Spacing.page, top = Spacing.xxxl, bottom = 30.dp),
+            Modifier.padding(start = Spacing.page, end = Spacing.page, top = Spacing.xxl, bottom = 30.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(20.dp),
         ) {
@@ -130,6 +130,7 @@ fun MeScreen(
                 listOf(Page.Profile to null, Page.Display to state.display.textSizeLabel, Page.Notifications to null, Page.AiPrefs to null, Page.Security to null),
                 onOpen,
             )
+            if (app.qichi.BuildConfig.DEBUG) MeSection("开发", listOf(Page.Showcase to null), onOpen)
             Column(
                 Modifier
                     .fillMaxWidth()

@@ -105,6 +105,7 @@ private fun animatedColors(target: QichiColors, spec: AnimationSpec<Color>): Qic
         personA = target.personA.animated("personA"),
         personB = target.personB.animated("personB"),
         onPerson = target.onPerson.animated("onPerson"),
+        card = target.card.animated("card"),
         isDark = target.isDark,
     )
 }

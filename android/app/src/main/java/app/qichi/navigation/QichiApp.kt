@@ -44,6 +44,7 @@ import app.qichi.feature.ideas.IdeasScreen
 import app.qichi.feature.me.AiUsageScreen
 import app.qichi.feature.me.MyContentScreen
 import app.qichi.feature.me.NotificationsScreen
+import app.qichi.feature.me.ShowcaseScreen
 import app.qichi.feature.me.AiPrefsScreen
 import app.qichi.feature.me.SecurityScreen
 import app.qichi.feature.me.DisplayScreen
@@ -283,6 +284,7 @@ fun QichiApp(
                                     onOpenChat = { navigator.selectTab(TopTab.Chat) })
                             }
                             Page.Security -> SecurityScreen(onBack = navigator::back)
+                            Page.Showcase -> ShowcaseScreen(onBack = navigator::back)
                             Page.Notifications -> NotificationsScreen(onBack = navigator::back)
                             Page.AiPrefs -> AiPrefsScreen(onBack = navigator::back)
                             Page.RoomSettings -> RoomSettingsScreen(roomId = LocalRoomId.current, onBack = navigator::back)
