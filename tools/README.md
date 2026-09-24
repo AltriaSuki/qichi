@@ -13,6 +13,7 @@
 | `dev_api.py` | 直接调本机服务端的接口准备数据：登录、以某人身份发消息、上传审稿文件 | `python3 tools/dev_api.py send xiaochi password-chi "晚上吃什么"`、`python3 tools/dev_api.py review aqi password-aqi 文件.pdf` |
 | `design/gen_screens.py` | 生成设计稿「新方向」页（`design/screens/New-*.dc.html`），所有画板用同一套组件函数拼出来 | `python3 tools/design/gen_screens.py` |
 | `design/render.js` / `design/sheet.js` | 把设计稿渲染成截图并报告内容溢出；几张截图拼成一张 | `NODE_PATH=$(npm root -g) node tools/design/render.js design/screens 截图目录 New-`（用预装的 Chromium，截图放会话临时目录） |
+| `design/render_local.py` | 同上，但用本机装的 Chromium（不用装 playwright），截图和模拟器截图并排对照用 | `python3 tools/design/render_local.py 截图目录 New-Spec New-Today` |
 
 说明：
 - adb 输入不了中文，界面测试里输入英文；中文内容用 `dev_api.py` 通过接口准备。

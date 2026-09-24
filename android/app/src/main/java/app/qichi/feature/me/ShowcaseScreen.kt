@@ -19,6 +19,23 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import app.qichi.core.designsystem.component.decor.ruledPaper
+import app.qichi.core.designsystem.component.decor.marker
+import app.qichi.core.designsystem.component.decor.Watermark
+import app.qichi.core.designsystem.component.decor.WaxSeal
+import app.qichi.core.designsystem.component.decor.Tape
+import app.qichi.core.designsystem.component.decor.Sticker
+import app.qichi.core.designsystem.component.decor.Stamp
+import app.qichi.core.designsystem.component.decor.Sprig
+import app.qichi.core.designsystem.component.decor.Seal
+import app.qichi.core.designsystem.component.decor.Scene
+import app.qichi.core.designsystem.component.decor.Ribbon
+import app.qichi.core.designsystem.component.decor.Postmark
+import app.qichi.core.designsystem.component.decor.Polaroid
+import app.qichi.core.designsystem.component.decor.Illustration
+import app.qichi.core.designsystem.component.decor.HandNote
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -111,7 +128,86 @@ fun ShowcaseScreen(onBack: () -> Unit) {
                 }
                 Box(Modifier.padding(top = Spacing.l).fillMaxWidth().height(Spacing.l).dashedDivider(colors))
                 Text("分隔线是 1dp 虚线（line2）", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.xs))
+
+                // ── 装饰（P10-02，对照 New-Spec.dc.html 的「装饰」一栏） ──
+                SectionLabel("装饰", modifier = Modifier.padding(top = Spacing.l))
+                DecorGrid()
                 Spacer(Modifier.height(Spacing.xxl))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DecorGrid() {
+    val colors = QichiTheme.colors
+    @Composable
+    fun Cell(title: String, content: @Composable () -> Unit) {
+        Column(Modifier.width(150.dp).padding(bottom = Spacing.m)) {
+            Text(title, style = QichiTheme.typography.sectionLabel.copy(color = colors.ink))
+            Box(Modifier.padding(top = Spacing.xs).fillMaxWidth().height(150.dp).clip(QichiShapes.card).background(colors.ink.copy(alpha = .03f)), contentAlignment = Alignment.Center) {
+                content()
+            }
+        }
+    }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
+        Cell("胶带 + 拍立得") {
+            Polaroid(caption = "绿萝又长了", rotation = -4f, tape = { Tape(Modifier.align(Alignment.TopCenter).offset(y = (-9).dp), color = colors.accent, width = 44.dp, rotation = -6f) }) {
+                Illustration(Scene.Window, Modifier.size(88.dp, 80.dp))
+            }
+        }
+        Cell("邮票 + 邮戳") {
+            Box {
+                Stamp(width = 82.dp, height = 96.dp) { Illustration(Scene.Shelf, Modifier.fillMaxSize()) }
+                Postmark("栖迟", "25.09.24", Modifier.offset(x = 44.dp, y = (-10).dp), size = 50.dp)
+            }
+        }
+        Cell("印章") {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
+                Seal("栖迟", size = 44.dp)
+                Seal("定", size = 30.dp, rotation = 8f)
+            }
+        }
+        Cell("蜡封") {
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.m)) {
+                WaxSeal("迟", size = 56.dp, color = colors.personB)
+                WaxSeal("年", size = 46.dp)
+            }
+        }
+        Cell("绿萝线描") { Sprig(width = 130.dp) }
+        Cell("荧光笔 + 手写") {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("一起", style = QichiTheme.typography.largeTitle.copy(fontSize = QichiTheme.typography.headline.fontSize * 1.3f, color = colors.ink), modifier = Modifier.marker(colors.personA))
+                HandNote("我们的小日子", fontSizeSp = 18f)
+            }
+        }
+        Cell("贴纸") {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                Sticker("需要安慰", rotation = -6f)
+                Sticker("第 41 题", color = colors.personB, rotation = 4f, fontSizeSp = 14f)
+            }
+        }
+        Cell("横线纸 + 书签带") {
+            Box(Modifier.size(120.dp, 100.dp).lift(colors, QichiShapes.paper).clip(QichiShapes.paper).ruledPaper(lineHeight = 22.dp, top = 6.dp)) {
+                Text("窗边的绿萝又长了一截。", style = QichiTheme.typography.caption.copy(color = colors.ink, lineHeight = 22.sp),
+                    modifier = Modifier.padding(start = 48.dp, top = 6.dp, end = 20.dp))
+                Ribbon(Modifier.align(Alignment.TopEnd).offset(x = (-10).dp, y = (-4).dp), height = 30.dp)
+            }
+        }
+        Cell("水印数字") {
+            Box(contentAlignment = Alignment.Center) {
+                Watermark("09", fontSizeSp = 96f, alpha = .06f)
+                Text("九月", style = QichiTheme.typography.headline.copy(color = colors.ink))
+            }
+        }
+    }
+    Text("占位插画", style = QichiTheme.typography.sectionLabel.copy(color = colors.ink))
+    FlowRow(Modifier.padding(top = Spacing.xs), horizontalArrangement = Arrangement.spacedBy(Spacing.xs), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+        Scene.entries.forEach { scene ->
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Illustration(scene, Modifier.size(64.dp, 78.dp), shape = QichiShapes.paper)
+                Text(scene.label, style = QichiTheme.typography.caption.copy(color = colors.muted))
             }
         }
     }
