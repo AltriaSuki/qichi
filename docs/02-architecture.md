@@ -171,7 +171,7 @@ qichi/
 - **离线优先**：`Repository` 对外只暴露 Room 的 `Flow`。写操作 = 先写 Room（标记为待发送）→ 放进发件箱 → 由 `OutboxWorker` 发到服务端 → 服务端返回后更新 Room。详见 `05-sync-offline.md`。
 - **深链格式**：`qichi://room/{roomId}/{page}[/{id}]`，例如 `qichi://room/r1/chat`、`qichi://room/r1/mood/m9`。通知点击、分享链接都走这个。
 - **天色主题**：`core/designsystem` 根据本机时间选择清晨/白天/黄昏/深夜四套配色，整页淡入切换；「减少动画」开启时直接切换。
-- **字体打包进 App**：思源黑体（Noto Sans SC，可变字重）、IBM Plex Mono、思源宋体（Noto Serif SC，只用于书页）、龙藏体（Long Cang，只保留界面手写短句用到的字）放进 `res/font/`（D13）。不用谷歌的「可下载字体」，因为没有谷歌服务的手机加载不了。字体合计约 45MB，个人使用可以接受。
+- **字体打包进 App**：思源黑体（Noto Sans SC，可变字重）、IBM Plex Mono、思源宋体（Noto Serif SC，只用于书页）、龙藏体（Long Cang，手写短句）放进 `res/font/`（D13）。不用谷歌的「可下载字体」，因为没有谷歌服务的手机加载不了。字体合计约 49MB，个人使用可以接受。
 - **服务器地址**：从 `android/local.properties` 的 `qichi.baseUrl` 读入 `BuildConfig`，不写死在代码里。
 
 ## 5. 服务端架构
@@ -229,4 +229,4 @@ App 在前台时靠 WebSocket 实时收到变更，不需要推送。App 在后�
 | D10 | 推送只实现 UnifiedPush + 自建 ntfy，暂不实现 FCM（2026-09-23，人类确认两台手机要代理才能用 Google Play） | FCM 依赖谷歌服务，国内网络下不可靠；以后需要时再按 D8 补上 |
 | D11 | 审稿的文档转换用单独的 converter 容器（Gotenberg 镜像，内含 LibreOffice），服务端用 PDFBox 渲染（2026-09-23，人类同意单独容器） | LibreOffice 很大、解析不可信文件有风险，放在不对外的单独容器里；Gotenberg 提供现成的 HTTP 接口，不用自己包装 |
 | D12 | 内置通知：App 在后台用前台服务保持 WebSocket，服务端经实时通道发 `notify`，不用另装 ntfy；ntfy 保留为备选（2026-09-24，人类选择） | 人类不想让两台手机再装别的软件；代价是通知栏常驻一条低调通知、耗电略多，仍要加电池白名单。厂商推送（小米、华为等）要在各家平台注册，暂不做 |
-| D13 | 界面换成「新方向」：正文改用思源黑体、数字用 IBM Plex Mono、手写短句用龙藏体（只保留用到的字），思源宋体只留给书页；删掉 Cormorant Garamond（2026-09-24，人类选定新方向） | 字和层次参考 Day One、iA Writer、Bear，更好读；代价是安装包约多 17MB（加黑体约 18MB 和等宽字、龙藏体子集，减 Cormorant 约 2MB）。如果嫌大，可以让书页也改用黑体、删掉宋体，再省约 25MB |
+| D13 | 界面换成「新方向」：正文改用思源黑体、数字用 IBM Plex Mono、手写短句和拍立得说明、书页批注用龙藏体（完整打包），思源宋体只留给书页；删掉 Cormorant Garamond（2026-09-24，人类选定新方向，并确认「一切按设计稿」） | 字和层次参考 Day One、iA Writer、Bear，更好读；代价是安装包约多 22MB（加黑体约 18MB、龙藏体约 5MB、等宽字不到 1MB，减 Cormorant 约 2MB） |
