@@ -10,6 +10,11 @@ import io.ktor.server.application.install
 import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.calllogging.processingTimeMillis
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.http.ContentType
+import io.ktor.server.plugins.compression.Compression
+import io.ktor.server.plugins.compression.gzip
+import io.ktor.server.plugins.compression.matchContentType
+import io.ktor.server.plugins.compression.minimumSize
 import io.ktor.server.plugins.defaultheaders.DefaultHeaders
 import io.ktor.server.request.httpMethod
 import io.ktor.server.request.path
@@ -17,6 +22,13 @@ import io.ktor.server.request.header
 import org.slf4j.event.Level
 
 fun Application.installSerialization() {
+    // 文本（JSON 等）压缩：同步数据能小 6–9 倍。图片、安装包、压缩包本来就压缩过，不再压
+    install(Compression) {
+        gzip {
+            minimumSize(1024)
+            matchContentType(ContentType.Application.Json, ContentType.Application.ProblemJson, ContentType.Text.Any, ContentType("text", "calendar"))
+        }
+    }
     install(ContentNegotiation) {
         json(QichiJson)
     }

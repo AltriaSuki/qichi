@@ -80,7 +80,8 @@ class ApiClient(
             connectTimeoutMillis = 15.seconds.inWholeMilliseconds
             requestTimeoutMillis = 60.seconds.inWholeMilliseconds
         }
-        install(WebSockets) { pingIntervalMillis = 30.seconds.inWholeMilliseconds }
+        // 心跳 60 秒：后台常驻连接（内置通知）时少唤醒手机；手机网络的连接一般 5 分钟以上才会被断
+        install(WebSockets) { pingIntervalMillis = 60.seconds.inWholeMilliseconds }
         defaultRequest {
             url(baseUrl.trimEnd('/') + API_PREFIX + "/")
             header(CLIENT_HEADER, "android/$clientVersion")

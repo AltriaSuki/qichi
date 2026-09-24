@@ -405,13 +405,15 @@ class AiService(
         } ?: return fail(jobId, roomId, "审稿文件已经删除了")
 
         // 原文：每块前面带编号；太长时只发前面一部分
-        val lines = input.pages.flatMap { p -> p.blocks.filter { it.text.isNotBlank() }.map { "[${it.id}] ${it.text.replace(Regex("\\s+"), " ").trim()}" } }
+        val lines = input.pages.flatMap { p -> p.blocks.filter { it.text.isNotBlank() }.map { p.page to "[${it.id}] ${it.text.replace(Regex("\\s+"), " ").trim()}" } }
         if (lines.isEmpty()) return fail(jobId, roomId, "这一版里没有能读的文字（可能是扫描件）")
         val text = StringBuilder()
         var truncated = false
-        for (line in lines) {
+        var lastPage = 0
+        for ((page, line) in lines) {
             if (text.length + line.length > Limits.REVIEW_AI_TEXT_MAX) { truncated = true; break }
             text.appendLine(line)
+            lastPage = page
         }
         val rendered = prompts.render(
             "review_findings",
@@ -460,7 +462,8 @@ class AiService(
                 it[model] = result.model
                 it[inputTokens] = result.inputTokens
                 it[outputTokens] = result.outputTokens
-                it[resultRef] = "ai_finding:${parsed.size}"
+                // 文件太长只发了前面一部分：记下读到第几页，App 审完时告诉人
+                it[resultRef] = "ai_finding:${parsed.size}" + (if (truncated) ";read_pages:$lastPage" else "")
                 it[error] = null
                 it[finishedAt] = now
                 it[updatedAt] = now

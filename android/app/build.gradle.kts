@@ -53,6 +53,8 @@ android {
         release {
             if (releaseStore != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
+            // 删掉没用到的资源，安装包更小
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         // 性能测试用：和正式版一样经过 R8、不可调试，但用调试签名，并允许用 HTTP 连本机开发服务端

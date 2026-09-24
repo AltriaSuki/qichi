@@ -33,6 +33,7 @@ dependencies {
     implementation(libs.ktor.server.forwarded.header)
     implementation(libs.ktor.server.websockets)
     implementation(libs.ktor.server.partial.content)
+    implementation(libs.ktor.server.compression)
     // 调用大模型接口（AiGateway）
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.cio)

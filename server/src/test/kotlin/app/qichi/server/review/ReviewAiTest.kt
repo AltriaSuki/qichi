@@ -186,4 +186,22 @@ class ReviewAiTest {
         assertNull(oldPrice.goneInVersion)
         assertEquals(2, all.single { it.versionId == versionId && it.title == "首付比例前后不一致" }.goneInVersion)
     }
+
+    @Test fun `文件太长：只把前面一部分发给 AI，结果里记下读到第几页`() = serverTest(ctx) { client ->
+        val (aqi, _, room) = Api(client).pair()
+        // 50 页，每页 25 段 60 个字符：超过 4 万字
+        val long = TestPdf.pages(*Array(50) { p -> List(25) { i -> "Page $p paragraph $i " + "x".repeat(40) } })
+        val (doc, versionId) = aqi.review(room, long)
+        ctx.jobs.drain()
+        gateway.answer = "[]"
+        val jobId = UuidV7.generate()
+        aqi.post("/api/v1/rooms/$room/ai/review-findings", AiReviewFindingsRequest(jobId, doc.id, versionId))
+        ctx.jobs.drain()
+        val prompt = gateway.requests.last().messages.single().content
+        assertTrue(prompt.contains("文件太长"))
+        assertTrue(prompt.length < 45_000, "发给 AI 的原文被截断了：${prompt.length}")
+        val ref = aqi.get("/api/v1/rooms/$room/ai/jobs/$jobId").body<AiJob>().resultRef!!
+        val pages = ref.substringAfter(";read_pages:").toInt()
+        assertTrue(pages in 20..45, ref)
+    }
 }

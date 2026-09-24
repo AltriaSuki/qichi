@@ -76,7 +76,7 @@ object AppModule {
         engine = OkHttp.create {
             config {
                 retryOnConnectionFailure(true)
-                pingInterval(30, TimeUnit.SECONDS)
+                pingInterval(60, TimeUnit.SECONDS)
             }
         },
         baseUrl = BuildConfig.BASE_URL,

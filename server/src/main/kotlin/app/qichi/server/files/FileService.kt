@@ -152,14 +152,13 @@ class FileService(
         }
     }
 
-    /**
-     * 服务端自己生成的文件（审稿预览页）：写盘并建记录，在调用方的事务里执行。返回提交前已写好的相对路径，
-     * 事务失败时调用方负责删掉。
-     */
-    fun insertGenerated(roomId: UUID, uploadedBy: UUID, kind: FileKind, fileName: String, mimeType: String, bytes: ByteArray, width: Int?, height: Int?): Pair<UUID, String> {
+    /** 服务端自己生成、已经写到磁盘上的文件（还没建记录）。 */
+    class GeneratedFile(val id: UUID, val path: String, val size: Long, val sha256: String)
+
+    /** 先把生成的内容写到最终位置（不在事务里；事务失败时调用方用 [deleteStored] 删掉）。 */
+    fun writeGenerated(roomId: UUID, bytes: ByteArray): GeneratedFile {
         val id = UuidV7.generate()
-        val now = clock.instant()
-        val date = now.atOffset(ZoneOffset.UTC)
+        val date = clock.instant().atOffset(ZoneOffset.UTC)
         val path = "%s/%04d/%02d/%s".format(roomId, date.year, date.monthValue, id)
         val staged = storage.stageBytes(bytes)
         try {
@@ -167,21 +166,25 @@ class FileService(
         } finally {
             storage.discard(staged)
         }
+        return GeneratedFile(id, path, staged.size, staged.sha256)
+    }
+
+    /** 事务内调用：给已经写好的文件建记录。 */
+    fun insertGeneratedRow(roomId: UUID, uploadedBy: UUID, kind: FileKind, fileName: String, mimeType: String, file: GeneratedFile, width: Int?, height: Int?) {
         Files.insert {
-            it[Files.id] = id
+            it[Files.id] = file.id
             it[Files.roomId] = roomId
             it[Files.uploadedBy] = uploadedBy
             it[Files.kind] = kind.wireName
             it[Files.fileName] = fileName
             it[Files.mimeType] = mimeType
-            it[sizeBytes] = staged.size
-            it[sha256] = staged.sha256
-            it[storagePath] = path
+            it[sizeBytes] = file.size
+            it[sha256] = file.sha256
+            it[storagePath] = file.path
             it[Files.width] = width
             it[Files.height] = height
-            it[createdAt] = now
+            it[createdAt] = clock.instant()
         }
-        return id to path
     }
 
     /** 事务内调用：删掉文件记录，返回提交后要从磁盘删除的路径（审稿彻底删除时用）。 */

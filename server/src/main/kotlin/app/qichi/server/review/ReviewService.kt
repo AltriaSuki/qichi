@@ -313,26 +313,28 @@ class ReviewService(
                 c.toPdf(source, extensionFor(v), out)
                 out
             }
-            val rendered = mutableListOf<Pair<Int, PdfPreview.Page>>()
+            // 一页一页写盘，内存里只留尺寸和文字层（300 页的图片全放内存要几十 MB）
+            class RenderedPage(val n: Int, val width: Double, val height: Double, val file: FileService.GeneratedFile, val px: Pair<Int, Int>, val blocks: List<TextBlock>, val images: List<app.qichi.shared.api.NormRect>)
+            val rendered = mutableListOf<RenderedPage>()
             val count = withContext(Dispatchers.IO) {
-                PdfPreview.render(pdf, v.format, Limits.REVIEW_MAX_PAGES) { n, page -> rendered += n to page }
+                PdfPreview.render(pdf, v.format, Limits.REVIEW_MAX_PAGES) { n, page ->
+                    val file = files.writeGenerated(v.roomId, page.jpeg)
+                    written += file.path
+                    rendered += RenderedPage(n, page.width, page.height, file, page.pixelWidth to page.pixelHeight, page.blocks, page.images)
+                }
             }
-            db.tx {
-                val current = version(versionId) ?: return@tx
-                if (current.previewStatus != PreviewStatus.Pending) return@tx
+            val saved = db.tx {
+                val current = version(versionId) ?: return@tx false
+                if (current.previewStatus != PreviewStatus.Pending) return@tx false
                 val base = v.fileName.substringBeforeLast('.').take(60)
-                for ((n, page) in rendered) {
-                    val (fileId, path) = files.insertGenerated(
-                        v.roomId, v.uploadedBy, FileKind.Review, "$base-v${v.version}-p$n.jpg", "image/jpeg",
-                        page.jpeg, page.pixelWidth, page.pixelHeight,
-                    )
-                    written += path
+                for (page in rendered) {
+                    files.insertGeneratedRow(v.roomId, v.uploadedBy, FileKind.Review, "$base-v${v.version}-p${page.n}.jpg", "image/jpeg", page.file, page.px.first, page.px.second)
                     ReviewPages.insert {
                         it[ReviewPages.versionId] = versionId
-                        it[pageNo] = n
+                        it[pageNo] = page.n
                         it[width] = page.width
                         it[height] = page.height
-                        it[imageFileId] = fileId
+                        it[imageFileId] = page.file.id
                         it[textLayer] = page.blocks
                         it[images] = page.images
                     }
@@ -341,7 +343,10 @@ class ReviewService(
                 val pages = loadPages(versionId)
                 carryAnnotations(this, current, pages)
                 carryFindings(this, current, pages)
+                true
             }
+            // 版本在生成期间被删了、或者已经有结果了：刚写的图片不要了
+            if (!saved) files.deleteStored(written)
         } catch (e: PreviewFailure) {
             markFailed(v, e.message ?: "预览没能生成")
             files.deleteStored(written)

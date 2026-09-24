@@ -249,7 +249,7 @@ class ReviewViewModel @AssistedInject constructor(
         // 等的 AI 审稿有结果了（实时通道通知；万一漏了，每 5 秒问一次）
         viewModelScope.launch {
             realtime.aiDone.collect { e ->
-                if (e.jobId == ai.value.pending) finishAi(e.status == AiJobStatus.Done.wireName)
+                if (e.jobId == ai.value.pending) finishAi(e.jobId, e.status == AiJobStatus.Done.wireName)
             }
         }
         viewModelScope.launch {
@@ -259,7 +259,7 @@ class ReviewViewModel @AssistedInject constructor(
                     delay(5_000)
                     val job = runCatching { reviews.aiJob(roomId, jobId) }.getOrNull() ?: return@repeat
                     if (job.status == AiJobStatus.Done || job.status == AiJobStatus.Failed) {
-                        finishAi(job.status == AiJobStatus.Done, job.error)
+                        finishAi(jobId, job.status == AiJobStatus.Done, job.error)
                         return@collectLatest
                     }
                 }
@@ -370,14 +370,18 @@ class ReviewViewModel @AssistedInject constructor(
         return null
     }
 
-    private fun finishAi(done: Boolean, error: String? = null) {
+    private fun finishAi(jobId: UUID, done: Boolean, error: String? = null) {
         val before = ai.value.lastCount ?: 0
         ai.update { it.copy(pending = null, failed = if (done) null else (error ?: "AI 没有给出结果")) }
         if (done) viewModelScope.launch {
+            // 文件太长时服务端只发了前面一部分（结果里记着读到第几页）
+            val readPages = runCatching { reviews.aiJob(roomId, jobId) }.getOrNull()?.resultRef
+                ?.substringAfter(";read_pages:", "")?.toIntOrNull()
             // 等同步把新的发现带回来再说有几条
             delay(1_500)
             val added = state.value.findings.size - before
-            _message.value = if (added > 0) "AI 找到 $added 个值得看的地方" else "AI 没发现明显的问题"
+            val result = if (added > 0) "AI 找到 $added 个值得看的地方" else "AI 没发现明显的问题"
+            _message.value = if (readPages != null) "$result（文件太长，AI 只看了前 $readPages 页）" else result
         }
     }
 

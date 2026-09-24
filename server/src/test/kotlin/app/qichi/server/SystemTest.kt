@@ -3,6 +3,7 @@ package app.qichi.server
 import app.qichi.shared.api.Health
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
@@ -43,5 +44,15 @@ class SystemTest {
             )
             assertTrue(tables.containsAll(expected), "缺少的表：${expected - tables}")
         }
+    }
+
+    @Test
+    fun `JSON 回复按请求压缩：说能收 gzip 就压，不说就不压`() = serverTest { client ->
+        val (aqi, _, room) = Api(client).pair()
+        repeat(20) { aqi.post("/api/v1/rooms/$room/messages", app.qichi.shared.api.SendMessageRequest(app.qichi.shared.util.UuidV7.generate(), "text", "压缩测试第 $it 条，长一点才会压缩。")) }
+        val gz = aqi.get("/api/v1/rooms/$room/bootstrap") { header(io.ktor.http.HttpHeaders.AcceptEncoding, "gzip") }
+        kotlin.test.assertEquals("gzip", gz.headers[io.ktor.http.HttpHeaders.ContentEncoding])
+        val plain = aqi.get("/api/v1/rooms/$room/bootstrap")
+        kotlin.test.assertEquals(null, plain.headers[io.ktor.http.HttpHeaders.ContentEncoding])
     }
 }

@@ -75,6 +75,7 @@ ktor-server-auth-jwt = { module = "io.ktor:ktor-server-auth-jwt" }
 ktor-server-forwarded-header = { module = "io.ktor:ktor-server-forwarded-header" }
 ktor-server-websockets = { module = "io.ktor:ktor-server-websockets" }
 ktor-server-partial-content = { module = "io.ktor:ktor-server-partial-content" }
+ktor-server-compression = { module = "io.ktor:ktor-server-compression" }
 imageio-jpeg = { module = "com.twelvemonkeys.imageio:imageio-jpeg", version.ref = "twelvemonkeys" }
 imageio-webp = { module = "com.twelvemonkeys.imageio:imageio-webp", version.ref = "twelvemonkeys" }
 bouncycastle = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
