@@ -1771,6 +1771,30 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /app/latest:
+    get:
+      tags: [system]
+      operationId: latestAppRelease
+      summary: App 的最新版本（内置更新用）；还没发布过时 404
+      responses:
+        '200': { description: 最新版本, content: { application/json: { schema: { $ref: '#/components/schemas/AppRelease' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /app/apk:
+    get:
+      tags: [system]
+      operationId: downloadAppApk
+      summary: 下载最新版本的安装包（下载后核对 sha256）
+      responses:
+        '200':
+          description: 安装包
+          content:
+            application/vnd.android.package-archive:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /rooms/{roomId}/timeline:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -4125,6 +4149,17 @@ components:
       required: [annotationId]
       properties:
         annotationId: { $ref: '#/components/schemas/Uuid' }
+
+    AppRelease:
+      type: object
+      required: [versionCode, versionName, notes, sizeBytes, sha256, publishedAt]
+      properties:
+        versionCode: { type: integer }
+        versionName: { type: string }
+        notes: { type: string, description: 这一版改了什么 }
+        sizeBytes: { type: integer, format: int64 }
+        sha256: { type: string }
+        publishedAt: { $ref: '#/components/schemas/Instant' }
 
     # ── 回收站 ──
     TrashType:

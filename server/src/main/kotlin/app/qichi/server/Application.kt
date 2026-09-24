@@ -38,6 +38,8 @@ import app.qichi.server.review.DocumentConverter
 import app.qichi.server.review.GotenbergConverter
 import app.qichi.server.review.ReviewService
 import app.qichi.server.review.reviewRoutes
+import app.qichi.server.app.AppReleases
+import app.qichi.server.app.appReleaseRoutes
 import app.qichi.server.summaries.summaryRoutes
 import app.qichi.server.reading.ReadingService
 import app.qichi.server.reading.readingRoutes
@@ -158,6 +160,7 @@ fun Application.module(ctx: AppContext) {
             deviceRoutes(ctx)
             calendarRoutes(ctx)
             reviewRoutes(ctx)
+            appReleaseRoutes(ctx)
         }
     }
 }
@@ -184,6 +187,7 @@ class AppContext(
     val devices = DeviceService(database, clock)
     val tokens = TokenService(config.jwtSecret, clock)
     val fileStorage: FileStorage = LocalFileStorage(config.filesDir)
+    val appReleases = AppReleases(config.filesDir)
     val files = FileService(database, fileStorage, clock)
     val rooms = RoomService(database, writer, clock, files)
     val auth = AuthService(database, hasher, tokens, rooms, clock)

@@ -6,6 +6,7 @@
 |---|---|---|
 | `uix.py` | 操作模拟器：列出屏幕上的文字、按文字点击、输入英文、截图 | `python3 tools/uix.py texts`、`python3 tools/uix.py tap 聊天`、`python3 tools/uix.py shot 截图.png`；也可以在脚本里 `from uix import *` |
 | `fake_ai.py` | 本机假 AI（兼容 OpenAI 的 `/v1/chat/completions`），按提示词里的关键字回固定内容 | `python3 tools/fake_ai.py`，服务端用 `AI_PROVIDER=openai-compatible AI_BASE_URL=http://127.0.0.1:9099/v1 AI_API_KEY=local-test AI_MODEL=mock` 启动 |
+| `publish_release.sh` | 打正式包并发布给 App 内置更新（版本号按提交次数自动增加） | 发到 VPS：`QICHI_SSH_HOST=root@服务器 QICHI_SSH_PORT=端口 tools/publish_release.sh "这一版改了什么"`（会改动服务器，先经人类同意）；本机测试：`QICHI_VARIANT=debug QICHI_BASE_URL=http://127.0.0.1:8080 QICHI_RELEASE_DIR=server/data/files/app-releases tools/publish_release.sh "说明"` |
 | `dev_api.py` | 直接调本机服务端的接口准备数据：登录、以某人身份发消息、上传审稿文件 | `python3 tools/dev_api.py send xiaochi password-chi "晚上吃什么"`、`python3 tools/dev_api.py review aqi password-aqi 文件.pdf` |
 
 说明：

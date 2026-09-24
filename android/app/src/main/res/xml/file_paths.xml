@@ -2,4 +2,6 @@
 <!-- FileProvider 能分享的目录：聊天里下载的附件 -->
 <paths>
     <cache-path name="attachments" path="attachments/" />
+    <!-- 内置更新下载的安装包，交给系统安装界面 -->
+    <cache-path name="updates" path="updates/" />
 </paths>

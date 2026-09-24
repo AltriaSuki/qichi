@@ -18,6 +18,11 @@ val localProperties = Properties().apply {
 // 打正式包时可以临时指定：./gradlew :app:assembleRelease -Pqichi.baseUrl=https://qichi1.duckdns.org
 val baseUrl: String = (findProperty("qichi.baseUrl") as String?) ?: localProperties.getProperty("qichi.baseUrl") ?: "http://127.0.0.1:8080"
 
+// 版本号跟着提交次数走：每次打包自动变大，内置更新据此判断新旧（不用手动改）
+val commitCount: Int = runCatching {
+    providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }.standardOutput.asText.get().trim().toInt()
+}.getOrDefault(1)
+
 android {
     namespace = "app.qichi"
     compileSdk = 37
@@ -26,8 +31,8 @@ android {
         applicationId = "app.qichi"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = commitCount
+        versionName = "0.2.$commitCount"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "BASE_URL", "\"${baseUrl.trimEnd('/')}\"")
     }

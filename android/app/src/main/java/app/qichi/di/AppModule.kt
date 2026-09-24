@@ -103,4 +103,9 @@ object AppModule {
     @Provides
     @IntoSet
     fun pushLogoutHook(push: PushRegistrar): LogoutHook = push
+
+    @Provides
+    @Singleton
+    fun appUpdater(@ApplicationContext context: Context, api: ApiClient): app.qichi.core.update.AppUpdater =
+        app.qichi.core.update.AppUpdater(context, api)
 }

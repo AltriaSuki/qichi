@@ -113,6 +113,8 @@ fun QichiRoot(
             } else {
                 QichiApp(pendingLink = pendingLink, onLinkHandled = onLinkHandled)
             }
+            // 内置更新：有新版本时的对话框
+            app.qichi.core.update.UpdateDialog()
         }
     }
 }

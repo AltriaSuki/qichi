@@ -142,6 +142,13 @@ fun MeScreen(
                     textAlign = TextAlign.Center,
                 )
                 Text("Rilke", style = type.numeral.copy(fontSize = 15.tsp, letterSpacing = 0.04.em, color = colors.muted))
+                // 版本与检查更新（有新版本时弹出的对话框在 QichiRoot 里）
+                val update: app.qichi.core.update.UpdateViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel()
+                val checking = update.state.collectAsStateWithLifecycle().value is app.qichi.core.update.UpdateState.Checking
+                Row(Modifier.padding(top = Spacing.s), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                    Text("版本 ${app.qichi.BuildConfig.VERSION_NAME}", style = type.caption.copy(color = colors.faint))
+                    app.qichi.core.designsystem.component.TextAction(if (checking) "正在检查…" else "检查更新", { update.check() }, enabled = !checking, color = colors.muted)
+                }
             }
         }
     }

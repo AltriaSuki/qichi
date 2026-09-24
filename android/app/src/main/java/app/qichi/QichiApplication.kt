@@ -48,6 +48,7 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
     @Inject lateinit var network: NetworkMonitor
     @Inject lateinit var api: ApiClient
     @Inject lateinit var push: PushRegistrar
+    @Inject lateinit var updater: app.qichi.core.update.AppUpdater
     @Inject @ApplicationScope lateinit var appScope: CoroutineScope
 
     override val workManagerConfiguration: Configuration
@@ -122,6 +123,8 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
         if (push.builtIn.value) BackgroundConnectionService.start(this) else BackgroundConnectionService.stop(this)
         scheduler.kickOutbox(now = true)
         appScope.launch { pullAll() }
+        // 内置更新：每 6 小时最多看一次有没有新版本
+        appScope.launch { updater.checkAutomatically() }
     }
 
     private suspend fun pullAll() {
