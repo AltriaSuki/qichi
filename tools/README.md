@@ -1,6 +1,6 @@
 # tools/ · 开发时用的小工具
 
-只在开发电脑上用，不进 App、不上服务器。都是 Python 3 标准库，不用装依赖。
+只在开发电脑上用，不进 App、不上服务器。除 `design/*.js`（要全局装的 playwright）外都是 Python 3 标准库，不用装依赖。
 
 | 文件 | 做什么 | 用法 |
 |---|---|---|
@@ -11,6 +11,8 @@
 | `deploy_server.sh` | 更新 VPS 上的服务端：本机构建镜像、先备份、传过去、重启、看健康检查 | `QICHI_SSH_HOST=root@服务器 QICHI_SSH_PORT=端口 tools/deploy_server.sh`（会改动服务器，先经人类同意） |
 | `ai_eval.py` | 拿固定材料对真 AI 跑各个提示词，检查格式并存下回答给人看 | 见文件开头说明（需要 AI 密钥） |
 | `dev_api.py` | 直接调本机服务端的接口准备数据：登录、以某人身份发消息、上传审稿文件 | `python3 tools/dev_api.py send xiaochi password-chi "晚上吃什么"`、`python3 tools/dev_api.py review aqi password-aqi 文件.pdf` |
+| `design/gen_screens.py` | 生成设计稿「新方向」页（`design/screens/New-*.dc.html`），所有画板用同一套组件函数拼出来 | `python3 tools/design/gen_screens.py` |
+| `design/render.js` / `design/sheet.js` | 把设计稿渲染成截图并报告内容溢出；几张截图拼成一张 | `NODE_PATH=$(npm root -g) node tools/design/render.js design/screens 截图目录 New-`（用预装的 Chromium，截图放会话临时目录） |
 
 说明：
 - adb 输入不了中文，界面测试里输入英文；中文内容用 `dev_api.py` 通过接口准备。
