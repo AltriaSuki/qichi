@@ -31,7 +31,8 @@ android {
         applicationId = "app.qichi"
         minSdk = 26
         targetSdk = 37
-        versionCode = commitCount
+        // 测试内置更新时可以临时指定：-Pqichi.versionCode=100
+        versionCode = (findProperty("qichi.versionCode") as String?)?.toInt() ?: commitCount
         versionName = "0.2.$commitCount"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "BASE_URL", "\"${baseUrl.trimEnd('/')}\"")

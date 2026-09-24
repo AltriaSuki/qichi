@@ -12,6 +12,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -71,7 +76,10 @@ fun UpdateDialog(vm: UpdateViewModel = hiltViewModel()) {
             confirmButton = {},
         )
         is UpdateState.ReadyToInstall -> {
-            val canInstall = vm.updater.canInstall()
+            // 从「安装未知应用」设置回来时重新看一眼
+            var resumed by remember { mutableStateOf(0) }
+            LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { resumed++ }
+            val canInstall = remember(resumed) { vm.updater.canInstall() }
             AlertDialog(
                 onDismissRequest = { vm.updater.later(s.release) },
                 containerColor = colors.background,
