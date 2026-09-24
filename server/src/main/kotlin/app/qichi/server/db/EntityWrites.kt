@@ -6,6 +6,7 @@ import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.ProblemCode
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.statements.UpdateBuilder
+import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.update
@@ -80,6 +81,12 @@ class EntityWrites(private val writer: RoomWriter, private val clock: Clock) {
             it[deletedAt] = at
             it[deletedBy] = actorId
         }
+
+    /** 彻底删除（写 op = delete 的变化，客户端收到后删掉本地行）。 */
+    fun hardDelete(tx: Tx, roomId: UUID, actorId: UUID, type: EntityType, id: UUID, table: SyncedTable) {
+        writer.change(tx, roomId, type, id, actorId, now(), app.qichi.shared.model.ChangeOp.Delete)
+        table.deleteWhere { table.id eq id }
+    }
 
     /** 从回收站恢复。 */
     fun restore(tx: Tx, roomId: UUID, actorId: UUID, type: EntityType, id: UUID, table: SyncedTable) =

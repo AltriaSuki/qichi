@@ -124,14 +124,26 @@ class TodoService(
         CompleteTodoResponse(todo(id)!!, next)
     }
 
-    /** 取消完成；已生成的下一次实例保留不动。 */
+    /**
+     * 取消完成。重复待办完成时自动生成的下一次，如果还没被动过（没完成、没改、没删、没有子任务），一起收回（彻底删除）；
+     * 否则反复勾选、取消会一条条多出来。动过的留着。
+     */
     suspend fun reopen(userId: UUID, roomId: UUID, id: UUID): Todo = db.tx {
         rooms.requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId)
         val current = existingInRoom(roomId, id)
         if (current.doneAt != null) {
             writes.update(this, roomId, userId, EntityType.Todo, id, Todos) {
                 it[Todos.doneAt] = null
                 it[Todos.doneBy] = null
+            }
+            nextOf(id)?.takeIf { n ->
+                // 没被动过：变更记录里只有创建那一次
+                n.doneAt == null && n.deletedAt == null &&
+                    app.qichi.server.db.ChangeLog.select(app.qichi.server.db.ChangeLog.seq).where { app.qichi.server.db.ChangeLog.entityId eq n.id }.count() == 1L &&
+                    Todos.select(Todos.id).where { Todos.parentId eq n.id }.empty()
+            }?.let { n ->
+                writes.hardDelete(this, roomId, userId, EntityType.Todo, n.id, Todos)
             }
         }
         todo(id)!!

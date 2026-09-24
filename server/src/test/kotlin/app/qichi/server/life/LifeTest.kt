@@ -18,6 +18,8 @@ import app.qichi.shared.api.Me
 import app.qichi.shared.api.Mood
 import app.qichi.shared.api.MoodReply
 import app.qichi.shared.api.Patch
+import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.isNull
 import app.qichi.shared.api.Todo
 import app.qichi.shared.api.UpdateEventRequest
 import app.qichi.shared.api.UpdateRoomRequest
@@ -125,6 +127,28 @@ class LifeTest {
         val again = member.post("/api/v1/rooms/$roomId/todos/$id/complete", CompleteTodoRequest(UuidV7.generate())).body<CompleteTodoResponse>()
         assertEquals(nextId, again.next!!.id)
         assertEquals(1L, TestDatabase.database.tx { Todos.selectAll().where { Todos.recurrencePrevId eq id }.count() })
+    }
+
+    @Test
+    fun `重复待办取消完成时收回还没动过的下一次；反复勾选也只有一条；下一次被改过就留着`() = serverTest { client ->
+        val (owner, member, roomId) = Api(client).pair()
+        val id = UuidV7.generate()
+        owner.post("/api/v1/rooms/$roomId/todos", CreateTodoRequest(id, "背单词", dueDate = LocalDate.parse("2026-09-24"), recurrence = "FREQ=DAILY"))
+        fun open() = TestDatabase.database.let { db -> kotlinx.coroutines.runBlocking { db.tx { Todos.selectAll().where { (Todos.title eq "背单词") and Todos.doneAt.isNull() }.count() } } }
+
+        repeat(3) {
+            owner.post("/api/v1/rooms/$roomId/todos/$id/complete", CompleteTodoRequest(UuidV7.generate()))
+            owner.post("/api/v1/rooms/$roomId/todos/$id/reopen")
+        }
+        // 只剩最初那一条（没完成），自动生成的下一次都收回了
+        assertEquals(1L, open())
+        assertEquals(0L, TestDatabase.database.tx { Todos.selectAll().where { Todos.recurrencePrevId eq id }.count() })
+
+        // 下一次被人改过（加了备注）：取消完成时留着
+        val next = owner.post("/api/v1/rooms/$roomId/todos/$id/complete", CompleteTodoRequest(UuidV7.generate())).body<CompleteTodoResponse>().next!!
+        member.patch("/api/v1/rooms/$roomId/todos/${next.id}", app.qichi.shared.api.UpdateTodoRequest(note = Patch.of("早上背")))
+        owner.post("/api/v1/rooms/$roomId/todos/$id/reopen")
+        assertEquals(2L, open())
     }
 
     @Test

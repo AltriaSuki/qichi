@@ -15,6 +15,7 @@ import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.wireName
 import app.qichi.shared.util.UuidV7
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.time.Clock
 import java.time.Instant
@@ -101,9 +102,20 @@ class TodoRepository(
         scheduler.kickOutbox()
     }
 
+    /**
+     * 取消完成。重复待办完成时生成的下一次，如果还没被动过，服务端会收回；本机先把它拿掉，界面不用等同步。
+     */
     suspend fun reopen(todo: Todo) {
         val now = clock.instant()
-        store.writeLocal(todo.roomId, todo.copy(doneAt = null, doneBy = null, updatedAt = now), OutboxOp.action("rooms/${todo.roomId}/todos/${todo.id}/reopen"))
+        db.transaction {
+            store.writeLocal(todo.roomId, todo.copy(doneAt = null, doneBy = null, updatedAt = now), OutboxOp.action("rooms/${todo.roomId}/todos/${todo.id}/reopen"))
+            if (todo.recurrence != null) {
+                db.entities().observeByType(todo.roomId.toString(), EntityType.Todo.wireName).first()
+                    .map { LocalStore.toLocal<Todo>(it) }
+                    .firstOrNull { it.value.recurrencePrevId == todo.id && it.value.doneAt == null && it.value.deletedAt == null && !it.isPending }
+                    ?.let { store.deleteLocal(EntityType.Todo, it.value.id) }
+            }
+        }
         scheduler.kickOutbox()
     }
 
