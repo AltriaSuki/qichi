@@ -180,6 +180,7 @@ private fun kindLabel(kind: AiJobKind): String = when (kind) {
     AiJobKind.ReviewFindings -> "审稿发现"
     AiJobKind.Summary -> "总结"
     AiJobKind.YearlyReview -> "年度回顾"
+    AiJobKind.WriteAssist -> "写作时请 AI 帮忙"
 }
 
 private fun statusLabel(status: AiJobStatus): String = when (status) {

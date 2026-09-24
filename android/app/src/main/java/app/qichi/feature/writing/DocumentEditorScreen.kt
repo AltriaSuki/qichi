@@ -30,6 +30,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import app.qichi.core.designsystem.Sizes
+import app.qichi.shared.model.WriteAssistMode
 import app.qichi.shared.rules.Limits
 import app.qichi.core.ui.BlockComments
 import coil3.compose.AsyncImage
@@ -192,6 +194,18 @@ fun DocumentEditorScreen(
     val threads = remember(comments, blocks) { commentThreads(comments, blocks) }
     val threadsByBlock = remember(threads) { threads.filter { it.block != null }.groupBy { it.block!! } }
     var newCommentQuote by remember { mutableStateOf<String?>(null) }
+    // 写作助手（P9-04 / P9-05）
+    val assist by vm.assist.collectAsStateWithLifecycle()
+    /** 用 AI 的建议换掉原来那段（原文被改过就在正文里重新找；找不到就不换）。 */
+    fun useAssist(a: AssistState, result: String) {
+        val t = field.text
+        val start = if (a.end <= t.length && t.substring(a.start, a.end) == a.original) a.start else t.indexOf(a.original)
+        if (start < 0) {
+            Toast.makeText(context, "原文已经改了，没法替换", Toast.LENGTH_SHORT).show()
+            return
+        }
+        applyEdit(MarkdownEdits.Edit(t.substring(0, start) + result + t.substring(start + a.original.length), start, start + result.length))
+    }
     // 打开的留言列表：某一块的下标，或 [ALL_COMMENTS] 全部
     var showThreads by remember { mutableStateOf<Int?>(null) }
     viewingImage?.let { id -> ImageViewer(id, vm.urls, onDismiss = { viewingImage = null }) }
@@ -234,6 +248,14 @@ fun DocumentEditorScreen(
                     IconAction(QichiIcons.More, "更多", { menu = true })
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = colors.paper) {
                         DropdownMenuItem(text = { Text("大纲", style = type.body) }, onClick = { menu = false; showOutline = true })
+                        DropdownMenuItem(text = { Text("帮我起标题", style = type.body) }, onClick = {
+                            menu = false
+                            if (field.text.isBlank()) {
+                                Toast.makeText(context, "先写点内容再起标题", Toast.LENGTH_SHORT).show()
+                            } else {
+                                vm.requestAssist(WriteAssistMode.Titles, field.text.take(Limits.WRITE_TITLES_TEXT_MAX), 0, 0)
+                            }
+                        })
                         val open = threads.count { !it.resolved }
                         DropdownMenuItem(
                             text = { Text(if (open > 0) "留言（$open 条没解决）" else "留言", style = type.body) },
@@ -347,6 +369,15 @@ fun DocumentEditorScreen(
                     canRedo = history.canRedo,
                     uploadingImage = uploadingImage,
                     canComment = !field.selection.collapsed,
+                    onAssist = { mode ->
+                        val sel = field.selection
+                        val text = field.text.substring(sel.min, sel.max)
+                        if (text.length > Limits.WRITE_ASSIST_TEXT_MAX) {
+                            Toast.makeText(context, "一次最多选 ${Limits.WRITE_ASSIST_TEXT_MAX} 字", Toast.LENGTH_SHORT).show()
+                        } else {
+                            vm.requestAssist(mode, text, sel.min, sel.max)
+                        }
+                    },
                     onComment = {
                         newCommentQuote = field.text.substring(field.selection.min, field.selection.max).trim().take(Limits.DOC_COMMENT_QUOTE_MAX).ifEmpty { null }
                     },
@@ -394,6 +425,16 @@ fun DocumentEditorScreen(
         }
     }
 
+    assist?.let { a ->
+        AssistSheet(
+            a,
+            onUse = { result ->
+                if (a.mode == WriteAssistMode.Titles) vm.rename(result) else useAssist(a, result)
+                vm.dismissAssist()
+            },
+            onDismiss = vm::dismissAssist,
+        )
+    }
     newCommentQuote?.let { quote ->
         NewCommentSheet(quote, onSubmit = { body -> vm.addComment(quote, body); newCommentQuote = null }, onDismiss = { newCommentQuote = null })
     }
@@ -472,18 +513,45 @@ private fun FormatBar(
     onImage: () -> Unit,
     canComment: Boolean,
     onComment: () -> Unit,
+    onAssist: (WriteAssistMode) -> Unit,
     onEdit: ((MarkdownEdits.Edit) -> MarkdownEdits.Edit) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
 ) {
     val colors = QichiTheme.colors
+    var assistChoices by remember { mutableStateOf(false) }
+    if (assistChoices && canComment) {
+        // AI 的几种帮法，代替格式按钮这一行
+        Row(
+            Modifier.fillMaxWidth().background(colors.background).padding(horizontal = Spacing.s, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+        ) {
+            Text("AI", style = QichiTheme.typography.numeral.copy(fontSize = 18.tsp, color = colors.personB), modifier = Modifier.padding(horizontal = Spacing.xs))
+            listOf(WriteAssistMode.Polish, WriteAssistMode.Proofread, WriteAssistMode.Shorten).forEach { mode ->
+                TextAction(mode.label(), { assistChoices = false; onAssist(mode) }, color = colors.ink)
+            }
+            Spacer(Modifier.weight(1f))
+            TextAction("取消", { assistChoices = false }, color = colors.muted)
+        }
+        return
+    }
     Row(
         Modifier.fillMaxWidth().background(colors.background).padding(horizontal = Spacing.xs, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
             // 选中文字时最前面多一个「留言」
-            if (canComment) IconAction(QichiIcons.Comment, "给选中的文字留言", onComment, tint = colors.accent)
+            if (canComment) {
+                IconAction(QichiIcons.Comment, "给选中的文字留言", onComment, tint = colors.accent)
+                // 选中文字时：请 AI 润色、改错别字、缩短（P9-04）。不用弹出菜单——弹窗会抢走焦点、键盘一收格式栏就没了
+                Box(
+                    Modifier.size(Sizes.touchTarget).clickable(role = Role.Button, onClickLabel = "请 AI 帮忙") { assistChoices = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("AI", style = QichiTheme.typography.numeral.copy(fontSize = 18.tsp, color = colors.personB))
+                }
+            }
             IconAction(QichiIcons.Heading, "标题", { onEdit(MarkdownEdits::cycleHeading) })
             IconAction(QichiIcons.Bold, "加粗", { onEdit(MarkdownEdits::toggleBold) })
             IconAction(QichiIcons.BulletList, "列表", { onEdit { MarkdownEdits.toggleLinePrefix(it, "- ") } })

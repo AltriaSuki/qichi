@@ -11,6 +11,9 @@ import app.qichi.core.data.WritingSettingsStore
 import app.qichi.core.database.DocumentVersionRow
 import app.qichi.core.database.DraftRow
 import app.qichi.core.network.NetworkMonitor
+import app.qichi.core.network.ApiException
+import app.qichi.shared.model.WriteAssistMode
+import app.qichi.shared.api.AiWriteRequest
 import app.qichi.shared.api.DocComment
 import app.qichi.shared.util.UuidV7
 import app.qichi.core.network.FileUrls
@@ -117,6 +120,9 @@ data class EditorState(
 private data class Edit(val text: String, val baseVersion: Int, val baseBody: String?)
 
 @OptIn(ExperimentalCoroutinesApi::class)
+/** 写作助手的一次请求：[result] 为空时还在等。 */
+data class AssistState(val mode: WriteAssistMode, val original: String, val start: Int, val end: Int, val result: String?)
+
 @HiltViewModel(assistedFactory = DocumentEditorViewModel.Factory::class)
 class DocumentEditorViewModel @AssistedInject constructor(
     @Assisted("roomId") private val roomId: UUID,
@@ -167,6 +173,42 @@ class DocumentEditorViewModel @AssistedInject constructor(
 
     private val people = combine(rooms.observeRoom(roomId), rooms.observeMembers(roomId)) { room, members -> People(room, members, session.currentUserId) }
     private val document = docs.observeDocument(roomId, documentId)
+
+    // ── 写作助手（P9-04 / P9-05） ──
+    private val _assist = MutableStateFlow<AssistState?>(null)
+
+    /** 正在请 AI 帮忙 / AI 的建议（等人决定用不用）；null = 没有 */
+    val assist: StateFlow<AssistState?> = _assist
+    private var assistJob: kotlinx.coroutines.Job? = null
+
+    /** 请 AI 处理 [text]（选区 [start]～[end]；起标题时是整篇）。 */
+    fun requestAssist(mode: WriteAssistMode, text: String, start: Int, end: Int) {
+        if (!network.isOnline.value) {
+            _message.value = "离线时不能请 AI 帮忙"
+            return
+        }
+        assistJob?.cancel()
+        _assist.value = AssistState(mode, text, start, end, result = null)
+        assistJob = viewModelScope.launch {
+            try {
+                val result = docs.assist(roomId, AiWriteRequest(UuidV7.generate(), mode, text, documentId))
+                _assist.value = _assist.value?.copy(result = result)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ApiException) {
+                _assist.value = null
+                _message.value = e.userMessage
+            } catch (e: Exception) {
+                _assist.value = null
+                _message.value = (e as? DocumentRepository.AssistFailed)?.message ?: "AI 没有给出结果，再试一次"
+            }
+        }
+    }
+
+    fun dismissAssist() {
+        assistJob?.cancel()
+        _assist.value = null
+    }
 
     // ── 段落旁留言（P9-03） ──
     val comments: StateFlow<List<Local<DocComment>>> = docs.observeComments(roomId, documentId)

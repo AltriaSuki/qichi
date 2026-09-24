@@ -11,6 +11,12 @@ import app.qichi.core.sync.LocalStore
 import app.qichi.core.sync.OutboxOp
 import app.qichi.core.sync.SyncScheduler
 import app.qichi.shared.api.CreateDocCommentRequest
+import kotlinx.coroutines.delay
+import app.qichi.core.network.post
+import app.qichi.shared.model.AiJobStatus
+import app.qichi.shared.api.AiWriteRequest
+import app.qichi.shared.api.AiJobAccepted
+import app.qichi.shared.api.AiJob
 import app.qichi.shared.api.CreateDocumentRequest
 import app.qichi.shared.api.DocComment
 import app.qichi.shared.api.Document
@@ -130,6 +136,29 @@ class DocumentRepository(
         scheduler.kickOutbox()
     }
 
+    // ── 写作助手（P9-04 / P9-05，要联网；结果只是建议，由人决定用不用） ──
+
+    /**
+     * 请 AI 帮忙并等结果：发出请求后每 1.5 秒问一次，最多等 3 分钟。
+     * 失败时抛 [ApiException]（AI 没开、额度用完）或 [AssistFailed]（没得到结果）。
+     */
+    suspend fun assist(roomId: UUID, req: AiWriteRequest): String {
+        api.post<AiJobAccepted>("rooms/$roomId/ai/write-assist", req)
+        val deadline = clock.millis() + ASSIST_TIMEOUT_MS
+        while (clock.millis() < deadline) {
+            delay(ASSIST_POLL_MS)
+            val job = runCatching { api.get<AiJob>("rooms/$roomId/ai/jobs/${req.jobId}") }.getOrNull() ?: continue
+            when (job.status) {
+                AiJobStatus.Done -> return job.resultText ?: throw AssistFailed("没有得到结果")
+                AiJobStatus.Failed -> throw AssistFailed(job.error ?: "没有得到结果")
+                else -> Unit
+            }
+        }
+        throw AssistFailed("AI 想得太久了，再试一次")
+    }
+
+    class AssistFailed(message: String) : Exception(message)
+
     // ── 草稿 ──
 
     fun observeDraft(roomId: UUID, documentId: UUID): Flow<DraftRow?> = drafts.observeRow(roomId, DraftStore.documentKey(documentId))
@@ -235,6 +264,8 @@ class DocumentRepository(
     }
 
     private companion object {
+        const val ASSIST_POLL_MS = 1_500L
+        const val ASSIST_TIMEOUT_MS = 180_000L
         const val MAX_VERSION_PAGES = 20
     }
 }
