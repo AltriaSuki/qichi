@@ -23,6 +23,7 @@ import app.qichi.core.sync.RealtimeClient
 import app.qichi.core.sync.SyncEngine
 import app.qichi.di.ApplicationScope
 import app.qichi.shared.api.FileMeta
+import app.qichi.shared.api.AiAction
 import app.qichi.shared.api.Message
 import app.qichi.shared.model.AiJobStatus
 import app.qichi.shared.model.ProblemCode
@@ -67,6 +68,8 @@ data class PendingAi(
     val jobId: UUID,
     val prompt: String,
     val failed: Boolean = false,
+    /** 「让 AI 整理」的那条消息 */
+    val sourceMessageId: UUID? = null,
 )
 
 /** 正在上传的附件（还没成为消息），显示在列表最下面。[id] 就是文件 id，重试时沿用。 */
@@ -374,6 +377,27 @@ class ChatViewModel @AssistedInject constructor(
         }
     }
 
+    /** 长按一条消息「让 AI 整理」：请 AI 把它整理成日程、待办等草稿，点「好」才记下。 */
+    fun organize(message: Message) {
+        when {
+            !state.value.aiEnabled -> _events.tryEmit(ChatEvent.Toast("AI 还没有开启"))
+            !network.isOnline.value -> _events.tryEmit(ChatEvent.Toast("离线时不能让 AI 整理"))
+            else -> {
+                val pending = PendingAi(UuidV7.generate(), ORGANIZE_PROMPT, sourceMessageId = message.id)
+                _pendingAi.update { it + pending }
+                submitAi(pending)
+            }
+        }
+    }
+
+    /** AI 提议的动作，按所属的 AI 回答分组。 */
+    val aiActions: StateFlow<Map<UUID, List<AiAction>>> = chat.observeAiActions(roomId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    fun acceptAiAction(a: AiAction) = viewModelScope.launch { chat.acceptAiAction(a) }
+
+    fun dismissAiAction(a: AiAction) = viewModelScope.launch { chat.dismissAiAction(a) }
+
     /** 「没有得到回答 · 重试」：同一个 jobId 重新提交，服务端会重新排队。 */
     fun retryAi(jobId: UUID) {
         val pending = _pendingAi.value.firstOrNull { it.jobId == jobId } ?: return
@@ -394,7 +418,7 @@ class ChatViewModel @AssistedInject constructor(
         aiWatchers.remove(pending.jobId)?.cancel()
         aiWatchers[pending.jobId] = viewModelScope.launch {
             try {
-                chat.askAi(roomId, pending.jobId, pending.prompt)
+                chat.askAi(roomId, pending.jobId, pending.prompt, pending.sourceMessageId)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ApiException) {
@@ -476,5 +500,6 @@ class ChatViewModel @AssistedInject constructor(
         const val OFFLINE_ATTACH = "离线时不能发图片和文件"
         const val AI_PROMPT_MAX = 2000
         const val AI_POLL_MS = 3_000L
+        const val ORGANIZE_PROMPT = "帮我整理这条消息"
     }
 }

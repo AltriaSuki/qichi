@@ -16,6 +16,9 @@ import app.qichi.core.sync.SyncFixtures.roomId
 import app.qichi.core.sync.SyncScheduler
 import app.qichi.core.sync.bodyText
 import app.qichi.core.ui.chatDay
+import app.qichi.shared.api.AcceptAiActionRequest
+import app.qichi.shared.api.AiAction
+import app.qichi.shared.api.AiActionDraft
 import app.qichi.shared.api.AiChatRequest
 import app.qichi.shared.api.AiJobAccepted
 import app.qichi.shared.api.Message
@@ -24,6 +27,8 @@ import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.ReadMarker
 import app.qichi.shared.api.SendMessageRequest
 import app.qichi.shared.api.UpdateReadMarkerRequest
+import app.qichi.shared.model.AiActionKind
+import app.qichi.shared.model.AiActionStatus
 import app.qichi.shared.model.AiJobStatus
 import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.MessageKind
@@ -211,6 +216,36 @@ class ChatRepositoryTest {
         assertEquals(false, chat.observeHasMessage(jobId).first())
         store.applyServer(serverMessage(3).copy(id = jobId, kind = MessageKind.Ai, authorId = null, aiPrompt = "周六去哪片海？"))
         assertEquals(true, chat.observeHasMessage(jobId).first())
+    }
+
+    @Test
+    fun `AI 提议：好、不用都先改本机再走发件箱；好带上客户端生成的 id；处理过的不重复发`() = runTest {
+        val t0 = java.time.Instant.parse("2026-09-24T02:00:00Z")
+        val jobId = UUID.randomUUID()
+        fun action(position: Int, title: String) = AiAction(
+            UUID.randomUUID(), roomId, 10L + position, t0, t0, null, null, jobId, position, AiActionKind.Todo,
+            AiActionDraft(title), AiActionStatus.Proposed, null, null, partner,
+        )
+        val coat = action(0, "带外套")
+        val tickets = action(1, "买票")
+        store.applyServer(tickets)
+        store.applyServer(coat)
+        assertEquals(listOf("带外套", "买票"), chat.observeAiActions(roomId).first()[jobId]!!.map { it.draft.title }, "按在回答里的顺序")
+
+        server.online = false
+        chat.acceptAiAction(coat)
+        chat.dismissAiAction(tickets)
+        val local = chat.observeAiActions(roomId).first()[jobId]!!
+        assertEquals(listOf(AiActionStatus.Accepted, AiActionStatus.Dismissed), local.map { it.status })
+        val ops = db.outbox().all()
+        assertEquals(listOf("/api/v1/rooms/$roomId/ai-actions/${coat.id}/accept", "/api/v1/rooms/$roomId/ai-actions/${tickets.id}/dismiss").map { it.removePrefix("/api/v1/") },
+            ops.map { it.path })
+        assertEquals(local[0].resultId, QichiJson.decodeFromString(AcceptAiActionRequest.serializer(), ops[0].bodyJson!!).resultId)
+
+        // 已经处理过的：再点不会多一条发件箱
+        chat.acceptAiAction(local[0])
+        chat.dismissAiAction(local[1])
+        assertEquals(2, db.outbox().all().size)
     }
 
     @Test

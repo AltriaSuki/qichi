@@ -19,7 +19,10 @@ import app.qichi.core.sync.Local
 import app.qichi.core.sync.LocalStore
 import app.qichi.core.sync.OutboxOp
 import app.qichi.core.sync.SyncScheduler
+import app.qichi.shared.api.AcceptAiActionRequest
+import app.qichi.shared.api.AiAction
 import app.qichi.shared.api.AiChatRequest
+import app.qichi.shared.model.AiActionStatus
 import app.qichi.shared.api.AiJob
 import app.qichi.shared.api.AiJobAccepted
 import app.qichi.shared.api.FileMeta
@@ -187,8 +190,38 @@ class ChatRepository(
      * 问 AI（需要联网，不进发件箱）：服务端立即接受，回答稍后成为一条 id 等于 [jobId] 的 AI 消息。
      * 同一个 jobId 再请求：失败的会重新排队（「重试」）。
      */
-    suspend fun askAi(roomId: UUID, jobId: UUID, prompt: String): AiJobAccepted =
-        api.post("rooms/$roomId/ai/chat", AiChatRequest(jobId, prompt))
+    suspend fun askAi(roomId: UUID, jobId: UUID, prompt: String, sourceMessageId: UUID? = null): AiJobAccepted =
+        api.post("rooms/$roomId/ai/chat", AiChatRequest(jobId, prompt, sourceMessageId))
+
+    // ── AI 提议（P8-02）：点「好」「不用」可以离线，经发件箱补发 ──
+
+    /** 这个房间里 AI 提议的动作，按所属的 AI 回答分组、按顺序排。 */
+    fun observeAiActions(roomId: UUID): Flow<Map<UUID, List<AiAction>>> =
+        db.entities().observeByType(roomId.toString(), EntityType.AiAction.wireName)
+            .map { rows -> rows.map { LocalStore.toLocal<AiAction>(it).value }.filter { it.deletedAt == null }.groupBy { it.messageId }.mapValues { (_, v) -> v.sortedBy { it.position } } }
+            .distinctUntilChanged()
+
+    /** 接受：本机先标成「建好了」，真正的日程 / 待办……由服务端建，同步回来。 */
+    suspend fun acceptAiAction(a: AiAction) {
+        if (a.status == AiActionStatus.Accepted) return
+        val resultId = UuidV7.generate()
+        store.writeLocal(
+            a.roomId,
+            a.copy(status = AiActionStatus.Accepted, resultId = resultId, decidedBy = me, updatedAt = clock.instant()),
+            OutboxOp.post("rooms/${a.roomId}/ai-actions/${a.id}/accept", AcceptAiActionRequest(resultId)),
+        )
+        scheduler.kickOutbox()
+    }
+
+    suspend fun dismissAiAction(a: AiAction) {
+        if (a.status != AiActionStatus.Proposed) return
+        store.writeLocal(
+            a.roomId,
+            a.copy(status = AiActionStatus.Dismissed, decidedBy = me, updatedAt = clock.instant()),
+            OutboxOp.action("rooms/${a.roomId}/ai-actions/${a.id}/dismiss"),
+        )
+        scheduler.kickOutbox()
+    }
 
     suspend fun aiJob(roomId: UUID, jobId: UUID): AiJob = api.get("rooms/$roomId/ai/jobs/$jobId")
 

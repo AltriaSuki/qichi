@@ -69,6 +69,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import app.qichi.core.ui.sourceLabel
 import app.qichi.core.ui.sourceKind
+import app.qichi.shared.api.AiAction
 import app.qichi.shared.api.SummarySource
 import app.qichi.core.designsystem.Spacing
 import androidx.compose.ui.text.withLink
@@ -185,6 +186,14 @@ fun ChatScreen(
     var unseen by remember { mutableStateOf(false) }
     var highlighted by remember { mutableStateOf<UUID?>(null) }
     var menuFor by remember { mutableStateOf<Local<Message>?>(null) }
+    val aiActions by viewModel.aiActions.collectAsStateWithLifecycle()
+    val actionHandlers = remember(viewModel) {
+        AiActionHandlers(
+            onAccept = viewModel::acceptAiAction,
+            onDismiss = viewModel::dismissAiAction,
+            onOpen = { src -> if (src.type == "message") viewModel.jumpTo(src.id) else onOpenSource(src) },
+        )
+    }
 
     LaunchedEffect(Unit) {
         viewModel.events.collect { event ->
@@ -301,6 +310,7 @@ fun ChatScreen(
                         } == true,
                         onRetry = viewModel::retry, onAbandon = viewModel::abandon,
                         onLongPress = { menuFor = local }, onQuoteClick = viewModel::jumpTo,
+                        aiActions = aiActions[local.value.id].orEmpty(), actionHandlers = actionHandlers,
                         onOpenSource = { src -> if (src.type == "message") viewModel.jumpTo(src.id) else onOpenSource(src) },
                         attachments = AttachmentActions(
                             urls = viewModel.urls,
@@ -373,6 +383,7 @@ fun ChatScreen(
             onRetract = { retracting = target.value },
             onDelete = { viewModel.delete(target.value) },
             onArchive = { onArchive(target.value) },
+            onOrganize = if (state.aiEnabled) ({ viewModel.organize(target.value) }) else null,
         )
     }
     retracting?.let { message ->
@@ -441,6 +452,8 @@ private fun MessageRow(
     onLongPress: () -> Unit,
     onQuoteClick: (UUID) -> Unit,
     onOpenSource: (SummarySource) -> Unit,
+    aiActions: List<AiAction>,
+    actionHandlers: AiActionHandlers,
     attachments: AttachmentActions,
 ) {
     val m = local.value
@@ -471,7 +484,7 @@ private fun MessageRow(
             Box(Modifier.size(16.dp))
         }
         Column(Modifier.background(flash, RoundedCornerShape(8.dp))) {
-            MessageBody(local, mine, groupedWithNewer, people, zone, maxBubble, onRetry, onAbandon, onLongPress, onQuoteClick, onOpenSource, attachments)
+            MessageBody(local, mine, groupedWithNewer, people, zone, maxBubble, onRetry, onAbandon, onLongPress, onQuoteClick, onOpenSource, aiActions, actionHandlers, attachments)
         }
     }
 }
@@ -489,6 +502,8 @@ private fun MessageBody(
     onLongPress: () -> Unit,
     onQuoteClick: (UUID) -> Unit,
     onOpenSource: (SummarySource) -> Unit,
+    aiActions: List<AiAction>,
+    actionHandlers: AiActionHandlers,
     attachments: AttachmentActions,
 ) {
     val m = local.value
@@ -497,6 +512,7 @@ private fun MessageBody(
         m.kind == MessageKind.System -> Notice(m.body)
         m.kind == MessageKind.Ai -> AiBlock(prompt = m.aiPrompt, modifier = Modifier.combinedClickable(onClick = {}, onLongClickLabel = "更多操作", onLongClick = onLongPress)) {
             AiAnswer(m, onOpenSource)
+            AiActionCards(aiActions, people, zone, actionHandlers)
         }
         else -> {
             val file = m.file
@@ -844,7 +860,7 @@ private fun ReplyStrip(message: Message, people: People, onCancel: () -> Unit) {
     }
 }
 
-/** 长按消息：回复、复制、存进档案、撤回（自己的）、删除。待发送或发送失败的消息只能复制。 */
+/** 长按消息：回复、复制、存进档案、让 AI 整理、撤回（自己的）、删除。待发送或发送失败的消息只能复制。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MessageActions(
@@ -856,6 +872,8 @@ private fun MessageActions(
     onRetract: () -> Unit,
     onDelete: () -> Unit,
     onArchive: () -> Unit,
+    /** 「让 AI 整理」；AI 没开时为空 */
+    onOrganize: (() -> Unit)?,
 ) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
@@ -873,6 +891,9 @@ private fun MessageActions(
             if (synced) ActionRow("回复") { onReply(); onDismiss() }
             if (m.body.isNotEmpty()) ActionRow("复制") { onCopy(); onDismiss() }
             if (synced && m.body.isNotEmpty() && m.retractedAt == null) ActionRow("存进档案") { onArchive(); onDismiss() }
+            if (onOrganize != null && synced && m.kind == MessageKind.Text && m.body.isNotBlank() && m.retractedAt == null) {
+                ActionRow("让 AI 整理") { onOrganize(); onDismiss() }
+            }
             if (synced && m.authorId == people.myUserId && m.retractedAt == null) ActionRow("撤回") { onRetract(); onDismiss() }
             if (synced) ActionRow("删除") { onDelete(); onDismiss() }
         }
