@@ -139,7 +139,7 @@ docker compose start server
 | `AI_PROVIDER` | `openai-compatible`（大多数模型服务兼容这种接口）或 `anthropic` |
 | `AI_BASE_URL` | 模型服务的接口地址 |
 | `AI_API_KEY` | 密钥，只放在服务器上 |
-| `AI_MODEL` | 模型名 |
+| `AI_MODEL` | 模型名；现在用 `gpt-6-sol`（比较结果见 `docs/10-ai-assistant.md` 第五节） |
 | `AI_MONTHLY_TOKEN_LIMIT` | 每月用量上限，防止意外花费 |
 
 选择你的 VPS 所在地区能合规访问的模型服务。改完执行 `docker compose up -d` 生效。留空时 App 里的 AI 按钮显示为不可用。
