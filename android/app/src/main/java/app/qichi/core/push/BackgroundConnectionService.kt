@@ -16,9 +16,16 @@ import androidx.core.content.ContextCompat
 import app.qichi.MainActivity
 import app.qichi.R
 import app.qichi.core.auth.SessionManager
+import app.qichi.core.auth.SessionState
 import app.qichi.core.sync.RealtimeClient
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
  * 内置通知（不用装 ntfy）：App 不在前台时也保持和服务器的实时连接，有人发消息就直接弹通知（见 QichiApplication）。
@@ -31,21 +38,44 @@ class BackgroundConnectionService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (session.currentUserId == null) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
-        ServiceCompat.startForeground(
-            this, NOTIFICATION_ID, notification(this),
-            if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING else 0,
-        )
-        realtime.start()
-        // 被系统杀掉后，有机会就重启
-        return START_STICKY
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = onStart(
+        foreground = {
+            ServiceCompat.startForeground(
+                this, NOTIFICATION_ID, notification(this),
+                if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING else 0,
+            )
+        },
+        whenLoaded = { decide ->
+            scope.launch { decide(session.state.first { it !is SessionState.Loading } is SessionState.LoggedIn) }
+        },
+        connect = { realtime.start() },
+        stop = { stopSelf() },
+    )
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
     }
 
     companion object {
+        /**
+         * 启动时的顺序：**先**挂上通知（startForegroundService 启动的服务必须在几秒内这样做，哪怕马上要停，
+         * 否则安卓让 App 崩溃），再等登录状态读出来（开机、装新版本后系统重启服务时它还在读），登录了就连上，没登录就停。
+         */
+        internal fun onStart(
+            foreground: () -> Unit,
+            whenLoaded: (decide: (loggedIn: Boolean) -> Unit) -> Unit,
+            connect: () -> Unit,
+            stop: () -> Unit,
+        ): Int {
+            foreground()
+            whenLoaded { loggedIn -> if (loggedIn) connect() else stop() }
+            // 被系统杀掉后，有机会就重启（停掉的不会重启）
+            return START_STICKY
+        }
+
         private const val CHANNEL = "connection"
         private const val NOTIFICATION_ID = 7
 
