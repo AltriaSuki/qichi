@@ -48,6 +48,10 @@ class RealtimeClient(
     private val _notifications = MutableSharedFlow<WsEvent.Notify>(extraBufferCapacity = 16)
     val notifications: SharedFlow<WsEvent.Notify> = _notifications.asSharedFlow()
 
+    /** 问 AI 边生成边显示：到目前为止的回答全文（P8-03）。 */
+    private val _aiDeltas = MutableSharedFlow<WsEvent.AiDelta>(extraBufferCapacity = 32)
+    val aiDeltas: SharedFlow<WsEvent.AiDelta> = _aiDeltas.asSharedFlow()
+
     fun start() {
         if (job?.isActive == true) return
         job = scope.launch { runLoop() }
@@ -97,6 +101,7 @@ class RealtimeClient(
                     syncEngine.pull(event.roomId)
                 }
                 is WsEvent.Notify -> _notifications.tryEmit(event)
+                is WsEvent.AiDelta -> _aiDeltas.tryEmit(event)
             }
         } catch (e: CancellationException) {
             throw e
@@ -106,8 +111,8 @@ class RealtimeClient(
     }
 
     private fun wsUrl(): String {
-        // caps=notify：告诉服务端这个 App 认识内置通知
-        val http = baseUrl.trimEnd('/') + API_PREFIX + "/ws?caps=notify"
+        // 告诉服务端这个 App 认识的事件：内置通知、问 AI 边生成边显示
+        val http = baseUrl.trimEnd('/') + API_PREFIX + "/ws?caps=notify,ai_stream"
         return when {
             http.startsWith("https://") -> "wss://" + http.removePrefix("https://")
             http.startsWith("http://") -> "ws://" + http.removePrefix("http://")

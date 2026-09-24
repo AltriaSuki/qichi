@@ -781,6 +781,9 @@ private fun PendingAiItem(pending: PendingAi, onRetry: () -> Unit, onDismiss: ()
                     TextAction("重试", onClick = onRetry)
                     TextAction("算了", onClick = onDismiss, color = colors.muted)
                 }
+            } else if (!pending.partial.isNullOrEmpty()) {
+                // 边生成边显示（P8-03）：引用编号和提议卡片等正式回答同步下来再出现
+                Text(pending.partial, style = aiAnswerStyle(), modifier = Modifier.fillMaxWidth())
             } else {
                 Text("正在想…", style = aiAnswerStyle().copy(color = colors.muted))
             }
