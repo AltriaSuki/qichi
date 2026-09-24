@@ -56,9 +56,9 @@ val DawnColors = QichiColors(
 )
 
 val DayColors = QichiColors(
-    background = Color(0xFFE9ECEA), surface = white(0.62f), paper = Color(0xFFF5F6F3),
-    ink = Color(0xFF2B323A), muted = Color(0xFF5C646C), faint = Color(0xFF9CA3A7),
-    line = Color(0xFFD6DBD9), line2 = Color(0xFFBEC5C5), accent = Color(0xFF9A5552),
+    background = Color(0xFFECEBE6), surface = white(0.60f), paper = Color(0xFFF7F6F2),
+    ink = Color(0xFF2A2F35), muted = Color(0xFF5D6167), faint = Color(0xFF9DA0A3),
+    line = Color(0xFFDAD9D3), line2 = Color(0xFFC4C4BE), accent = Color(0xFF9A5552),
     personA = Color(0xFFA8625F), personB = Color(0xFF4F6B7A), onPerson = Color.White,
     isDark = false,
 )

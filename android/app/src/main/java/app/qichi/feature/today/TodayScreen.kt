@@ -1,5 +1,13 @@
 package app.qichi.feature.today
 
+import app.qichi.core.designsystem.component.HeroLayout
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.background
 import app.qichi.core.designsystem.QichiShapes
 import androidx.compose.ui.draw.clip
@@ -22,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
@@ -101,21 +110,42 @@ fun TodayScreen(
     val type = QichiTheme.typography
     val people = state.people
 
+    val scroll = rememberScrollState()
+    val density = LocalDensity.current
+    Box(Modifier.fillMaxSize().background(colors.background)) {
     Column(
         Modifier
             .fillMaxSize()
-            .background(colors.background)
-            // 先让出状态栏再滚动：内容不会滑到状态栏图标下面
-            .statusBarsPadding()
-            .verticalScroll(rememberScrollState())
+            // 主视觉铺到状态栏下面；往下滚过主视觉后，状态栏那一条盖上底色（见最下面）
+            .verticalScroll(scroll)
             .padding(bottom = 48.dp),
     ) {
-        // ── 日期 ──
-        Column(Modifier.padding(start = Spacing.page, end = Spacing.page, top = Spacing.xxxl)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        // ── 主视觉（按 Main.dc.html：整幅插画或房间照片，星期与两人标记、日期大字叠在上面）──
+        Box(Modifier.fillMaxWidth().height(HERO_HEIGHT)) {
+            val hero = state.people.room?.heroFileId
+            FogSeaHero(Modifier.fillMaxSize(), layout = HeroLayout.Wide)
+            if (hero != null) {
+                // 照片还没加载出来、或离线读不到时仍是插画
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(viewModel.urls.thumbnail(hero))
+                        .crossfade(!QichiTheme.reduceMotion)
+                        .build(),
+                    contentDescription = "主视觉照片",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                // 照片上下各压一层底色，字看得清，也和下面的内容接得上
+                Box(Modifier.fillMaxWidth().height(140.dp).background(Brush.verticalGradient(listOf(colors.background.copy(alpha = 0.55f), Color.Transparent))))
+                Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(170.dp).background(Brush.verticalGradient(listOf(Color.Transparent, colors.background))))
+            }
+            Row(
+                Modifier.fillMaxWidth().statusBarsPadding().padding(start = Spacing.page, end = 24.dp, top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
                     weekdayName(state.today.dayOfWeek),
-                    style = type.caption.copy(letterSpacing = 0.34.em, color = colors.muted),
+                    style = type.caption.copy(letterSpacing = 0.36.em, color = colors.ink),
                     modifier = Modifier.weight(1f),
                 )
                 val marks = listOfNotNull(people.room?.createdBy?.let { people.members.firstOrNull { m -> m.userId == it } }, people.members.firstOrNull { it.userId != people.room?.createdBy })
@@ -124,7 +154,8 @@ fun TodayScreen(
             }
             Row(
                 Modifier
-                    .padding(top = Spacing.l)
+                    .align(Alignment.BottomStart)
+                    .padding(start = 22.dp, bottom = 18.dp)
                     // 日期大字是旧式数字，只占字身下方的 x 高度；裁掉字身上方的空白，位置贴近设计稿
                     .layout { measurable, constraints ->
                         val placeable = measurable.measure(constraints)
@@ -135,7 +166,7 @@ fun TodayScreen(
                         contentDescription = "${state.today.year} 年 ${state.today.monthValue} 月 ${state.today.dayOfMonth} 日"
                     },
                 verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Text(state.today.dayOfMonth.toString(), style = type.dateDisplay.copy(color = colors.ink))
                 Column(Modifier.padding(bottom = 4.dp)) {
@@ -149,32 +180,11 @@ fun TodayScreen(
             }
         }
 
-        // ── 主视觉：房间设了照片就显示照片（盖在雾海上：照片还没加载出来、或离线读不到时仍是插画）──
-        Box(
-            Modifier
-                .padding(start = 100.dp, top = Spacing.xxl)
-                .fillMaxWidth()
-                .height(300.dp),
-        ) {
-            FogSeaHero(Modifier.fillMaxSize())
-            state.people.room?.heroFileId?.let { hero ->
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(viewModel.urls.thumbnail(hero))
-                        .crossfade(!QichiTheme.reduceMotion)
-                        .build(),
-                    contentDescription = "主视觉照片",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-
         Column(
-            Modifier.padding(top = Spacing.todaySection),
+            Modifier.padding(top = 40.dp),
             verticalArrangement = Arrangement.spacedBy(Spacing.todaySection),
         ) {
-            // ── 心情 ──
+            // ── 心情：对方和自己左右两栏，对方写的几句放在下面 ──
             if (state.partnerMood != null || state.myMood != null) {
                 Column(
                     Modifier
@@ -182,35 +192,26 @@ fun TodayScreen(
                         .clickable(role = Role.Button) { onOpen(Page.Mood) },
                 ) {
                     SectionLabel("心情")
-                    state.partnerMood?.value?.let { mood ->
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            PersonMark(people.markChar(mood.authorId), people.person(mood.authorId), size = 22.dp)
-                            Text(people.name(mood.authorId), style = type.caption.copy(letterSpacing = 0.14.em, color = colors.muted))
-                            Spacer(Modifier.weight(1f))
-                            if (mood.needsComfort) ComfortFlag()
+                    val partner = state.partnerMood?.value
+                    val mine = state.myMood?.value
+                    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+                        partner?.let { mood ->
+                            MoodColumn(mood.authorId, people.name(mood.authorId), mood, people, Modifier.weight(1f))
                         }
-                        Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(feelingWord(mood.label, mood.intensity), style = type.feeling.copy(fontSize = 32.tsp, lineHeight = 42.tsp, color = colors.ink))
-                            Text(mood.intensity.toString(), style = type.numeral.copy(fontSize = 24.tsp, color = colors.muted), modifier = Modifier.padding(bottom = 6.dp))
+                        if (partner != null && mine != null) Box(Modifier.width(1.dp).fillMaxHeight().background(colors.line))
+                        mine?.let { mood ->
+                            MoodColumn(mood.authorId, "我", mood, people, Modifier.weight(1f))
                         }
+                    }
+                    partner?.let { mood ->
                         mood.note?.let {
-                            Text(it, style = type.body.copy(color = colors.muted), modifier = Modifier.padding(top = 4.dp, bottom = 14.dp))
-                        } ?: Spacer(Modifier.height(Spacing.s))
+                            Text("\u201C$it\u201D", style = type.body.copy(fontSize = 15.tsp, lineHeight = 28.tsp, fontWeight = FontWeight.W300, color = colors.muted),
+                                modifier = Modifier.padding(top = 20.dp, bottom = 14.dp))
+                        } ?: Spacer(Modifier.height(Spacing.m))
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             MoodReplyKind.entries.forEach { kind ->
                                 Pill(kind.displayName, onClick = { viewModel.toggleReply(kind) }, selected = state.myRepliesToPartner.any { it.kind == kind })
                             }
-                        }
-                    }
-                    state.myMood?.value?.let { mood ->
-                        Row(
-                            Modifier.padding(top = if (state.partnerMood != null) 30.dp else 0.dp),
-                            verticalAlignment = Alignment.Bottom,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            PersonMark(people.markChar(mood.authorId), people.person(mood.authorId), size = 22.dp, modifier = Modifier.padding(bottom = 6.dp))
-                            Text(feelingWord(mood.label, mood.intensity), style = type.feeling.copy(fontSize = 24.tsp, lineHeight = 31.tsp, color = colors.ink))
-                            Text(mood.intensity.toString(), style = type.numeral.copy(fontSize = 20.tsp, color = colors.muted), modifier = Modifier.padding(bottom = 4.dp))
                         }
                     }
                 }
@@ -405,5 +406,32 @@ fun TodayScreen(
                 }
             }
         }
+    }
+    // 滚过主视觉后，状态栏那一条盖上底色，状态栏图标不压在文字上
+    val heroPx = with(density) { (HERO_HEIGHT - 60.dp).roundToPx() }
+    if (scroll.value > heroPx) {
+        Box(Modifier.fillMaxWidth().windowInsetsTopHeight(WindowInsets.statusBars).background(colors.background))
+    }
+    }
+}
+
+private val HERO_HEIGHT = 430.dp
+
+/** 心情的一栏：谁、情绪词和深浅、对方需要安慰时的标记。 */
+@Composable
+private fun MoodColumn(userId: UUID, name: String, mood: app.qichi.shared.api.Mood, people: app.qichi.core.data.People, modifier: Modifier = Modifier) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PersonMark(people.markChar(userId), people.person(userId), size = 20.dp)
+            Text(name, style = type.caption.copy(letterSpacing = 0.18.em, color = colors.muted), maxLines = 1)
+        }
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(feelingWord(mood.label, mood.intensity), style = type.feeling.copy(fontSize = 30.tsp, lineHeight = 40.tsp, color = colors.ink),
+                modifier = Modifier.weight(1f, fill = false))
+            Text(mood.intensity.toString(), style = type.numeral.copy(fontSize = 22.tsp, color = colors.muted), modifier = Modifier.padding(bottom = 5.dp))
+        }
+        if (mood.needsComfort && userId != people.myUserId) ComfortFlag()
     }
 }

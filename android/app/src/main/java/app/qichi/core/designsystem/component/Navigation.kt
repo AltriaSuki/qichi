@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -174,7 +175,7 @@ fun IconAction(
     }
 }
 
-/** 小标题：12sp、muted、字距 0.34em，右侧可带内容（如「全部」、数字）。 */
+/** 小标题：前面一条 14dp 的强调色短线，12sp、muted、字距 0.34em，右侧可带内容（如「全部」、数字）。 */
 @Composable
 fun SectionLabel(
     text: String,
@@ -184,10 +185,11 @@ fun SectionLabel(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(bottom = Spacing.s),
+            .padding(bottom = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        Box(Modifier.width(14.dp).height(1.dp).background(QichiTheme.colors.accent))
         Text(
             text = text,
             style = QichiTheme.typography.sectionLabel.copy(color = QichiTheme.colors.muted),

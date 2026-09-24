@@ -236,7 +236,7 @@ fun ChatScreen(
             .background(colors.background)
             .imePadding(),
     ) {
-        ChatHeader(online = state.online, onSearch = viewModel::openSearch)
+        ChatHeader(people = people, onSearch = viewModel::openSearch)
         BoxWithConstraints(
             Modifier
                 .weight(1f)
@@ -315,6 +315,13 @@ fun ChatScreen(
                 )
             }
         }
+        // 离线：在输入框上方标出来（按 Chat.dc.html）
+        if (!state.online) {
+            Row(Modifier.fillMaxWidth().padding(start = 28.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.size(5.dp).clip(CircleShape).background(colors.accent))
+                Text("离线", style = QichiTheme.typography.caption.copy(fontSize = 12.tsp, letterSpacing = 0.2.em, color = colors.accent))
+            }
+        }
         replyTo?.let { ReplyStrip(it, people, onCancel = viewModel::cancelReply) }
         InputBar(
             draft = draft,
@@ -373,24 +380,28 @@ fun ChatScreen(
 }
 
 @Composable
-private fun ChatHeader(online: Boolean, onSearch: () -> Unit) {
+/** 聊天页顶部（按 Chat.dc.html）：对方的圆标和名字；房间里还只有自己时写「聊天」。 */
+private fun ChatHeader(people: People, onSearch: () -> Unit) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
+    val partner = people.partner
     Row(
         Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(start = 28.dp, top = 28.dp, end = 12.dp, bottom = 14.dp)
+            .padding(start = 28.dp, top = 30.dp, end = 12.dp, bottom = 12.dp)
             .heightIn(min = 44.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        if (partner != null) PersonMark(people.markChar(partner.userId), people.person(partner.userId), size = 32.dp)
         Text(
-            "聊天",
-            style = type.pageTitle.copy(fontSize = 24.tsp, lineHeight = 32.tsp, letterSpacing = 0.3.em, color = colors.ink),
-            modifier = Modifier.semantics { heading() },
+            partner?.displayName ?: "聊天",
+            style = type.pageTitle.copy(fontSize = 21.tsp, lineHeight = 27.tsp, letterSpacing = 0.26.em, color = colors.ink),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false).semantics { heading() },
         )
-        if (!online) Text("离线", style = type.caption.copy(fontSize = 12.tsp, letterSpacing = 0.2.em, color = colors.accent))
         Box(Modifier.weight(1f))
         IconAction(QichiIcons.Search, contentDescription = "搜索", onClick = onSearch)
     }

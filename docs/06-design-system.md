@@ -26,14 +26,14 @@
 
 | 令牌 | 清晨 | 白天 | 黄昏 | 深夜 | 用途 |
 |---|---|---|---|---|---|
-| `background` | `#EEE7E4` | `#E9ECEA` | `#ECE3D6` | `#1B2027` | 页面底色 |
-| `surface` | 白 60% | 白 62% | 白 55% | 白 5% | 雾层卡片、输入框、气泡 |
-| `paper` | `#F7F2F0` | `#F5F6F3` | `#F6F0E6` | `#222830` | 文稿纸、书页、信封 |
-| `ink` | `#2E2F38` | `#2B323A` | `#2F2B28` | `#E3E6E4` | 正文 |
-| `muted` | `#655E66` | `#5C646C` | `#665D55` | `#9CA5AD` | 次要文字（已验证对比度 ≥ 4.5:1） |
-| `faint` | `#A69BA0` | `#9CA3A7` | `#A89C8E` | `#5F6973` | 装饰、已完成项、占位（**不用于需要阅读的文字**） |
-| `line` | `#DDD3D1` | `#D6DBD9` | `#DDD2C3` | `#2B323B` | 极少量分隔 |
-| `line2` | `#C8BCBC` | `#BEC5C5` | `#C9BBA8` | `#3A434D` | 点线引导、未完成节点 |
+| `background` | `#EEE7E4` | `#ECEBE6` | `#ECE3D6` | `#1B2027` | 页面底色 |
+| `surface` | 白 60% | 白 60% | 白 55% | 白 5% | 雾层卡片、输入框、气泡 |
+| `paper` | `#F7F2F0` | `#F7F6F2` | `#F6F0E6` | `#222830` | 文稿纸、书页、信封 |
+| `ink` | `#2E2F38` | `#2A2F35` | `#2F2B28` | `#E3E6E4` | 正文 |
+| `muted` | `#655E66` | `#5D6167` | `#665D55` | `#9CA5AD` | 次要文字（已验证对比度 ≥ 4.5:1） |
+| `faint` | `#A69BA0` | `#9DA0A3` | `#A89C8E` | `#5F6973` | 装饰、已完成项、占位（**不用于需要阅读的文字**） |
+| `line` | `#DDD3D1` | `#DAD9D3` | `#DDD2C3` | `#2B323B` | 极少量分隔 |
+| `line2` | `#C8BCBC` | `#C4C4BE` | `#C9BBA8` | `#3A434D` | 点线引导、未完成节点 |
 | `accent` | `#9A5552` | `#9A5552` | `#94523A` | `#D8A09C` | 强调文字：「需要安慰」「下一步」「采纳」、罗马数字 |
 | `personA` 阿栖 | `#A8625F` | `#A8625F` | `#A55E45` | `#D39A96` | 人物圆标、已完成勾、进度 |
 | `personB` 小迟 | `#4F6B7A` | `#4F6B7A` | `#4F6B7A` | `#93AEBD` | 人物圆标、AI 标记、对方的高亮 |
@@ -56,9 +56,9 @@ data class QichiColors(
 )
 
 val DayColors = QichiColors(
-    background = Color(0xFFE9ECEA), surface = Color.White.copy(alpha = 0.62f), paper = Color(0xFFF5F6F3),
-    ink = Color(0xFF2B323A), muted = Color(0xFF5C646C), faint = Color(0xFF9CA3A7),
-    line = Color(0xFFD6DBD9), line2 = Color(0xFFBEC5C5), accent = Color(0xFF9A5552),
+    background = Color(0xFFECEBE6), surface = Color.White.copy(alpha = 0.60f), paper = Color(0xFFF7F6F2),
+    ink = Color(0xFF2A2F35), muted = Color(0xFF5D6167), faint = Color(0xFF9DA0A3),
+    line = Color(0xFFDAD9D3), line2 = Color(0xFFC4C4BE), accent = Color(0xFF9A5552),
     personA = Color(0xFFA8625F), personB = Color(0xFF4F6B7A), onPerson = Color.White,
     isDark = false,
 )
@@ -116,7 +116,7 @@ fun skyAt(localTime: LocalTime): Sky = when {
 |---|---|---|
 | `QichiTabBar` | 四个文字标签，选中项上方 4dp 的 accent 圆点；聊天未读数用 Cormorant 斜体小数字 | 任一主标签页 |
 | `BackBar` | 返回箭头 + 标题 + 右侧图标按钮 | 任一详情页 |
-| `SectionLabel` | 12sp、muted、字距 0.34em 的小标题，可带右侧内容 | Main |
+| `SectionLabel` | 前面一条 14dp 强调色短线 + 12sp、muted、字距 0.34em 的小标题，可带右侧内容 | Main |
 | `PersonMark` | 圆形人物标记，内含单字；`hollow` 为虚线空心（未确认） | 多处 |
 | `PersonMarks` | 两个标记叠放（两人一起） | 待办、安排 |
 | `MistCard` | surface 背景、4dp 圆角、无描边 | 问答、下一步 |
@@ -128,7 +128,7 @@ fun skyAt(localTime: LocalTime): Sky = when {
 | `ComfortFlag` | accent 小圆点 +「需要安慰」 | Main、Mood |
 | `WaxSeal` | 蜡封，用于未揭晓的回答 | Qna |
 | `QuoteMark` | Cormorant 大引号，accent 色 | Main、Qna |
-| `FogSeaHero` | 今天页主视觉：有照片时显示照片；没有时显示按天色绘制的雾海插画（Canvas 绘制，参考设计稿 SVG） | Main、Sky-* |
+| `FogSeaHero` | 雾海插画（Canvas 绘制，参考设计稿 SVG），两种构图：`Wide` 是今天页顶部整幅（430 高，铺到状态栏下，贴底对齐、底部渐隐到页面底色，星期与两人标记、日期大字叠在上面；房间设了照片就盖上照片）；`Compact` 用在登录页、房间设置预览、照片占位 | Main、Sky-* |
 | `TocRow` | 目录行：罗马数字 + 标题 + 点线 + 右侧数字 | Together |
 | `IntensityTicks` | 1–10 强度刻度，选中项加粗为 personA 色 | Mood |
 
