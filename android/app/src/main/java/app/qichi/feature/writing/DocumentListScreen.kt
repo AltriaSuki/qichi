@@ -19,6 +19,25 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import app.qichi.shared.model.DraftGenre
+import app.qichi.core.ui.MarkdownView
+import app.qichi.core.designsystem.component.SectionLabel
+import app.qichi.core.designsystem.component.PrimaryButton
+import app.qichi.core.designsystem.component.ChoicePill
+import app.qichi.core.designsystem.Sizes
+import app.qichi.core.designsystem.QichiShapes
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import android.widget.Toast
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -61,9 +80,22 @@ fun DocumentListScreen(
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     var creating by rememberSaveable { mutableStateOf(false) }
+    // AI 起草稿（P9-05）
+    // 不用 rememberSaveable：用了草稿跳到编辑器再回来时，不该又弹出起草面板
+    var drafting by remember { mutableStateOf(false) }
+    val draft by vm.draft.collectAsStateWithLifecycle()
+    val message by vm.message.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    LaunchedEffect(message) { message?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); vm.messageShown() } }
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
         BackBar("共同写作", onBack) {
+            Box(
+                Modifier.size(Sizes.touchTarget).clickable(role = Role.Button, onClickLabel = "请 AI 起草稿") { drafting = true },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("AI", style = type.numeral.copy(fontSize = 18.tsp, color = colors.personB))
+            }
             IconAction(QichiIcons.Plus, "新文稿", { creating = true })
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
@@ -79,6 +111,15 @@ fun DocumentListScreen(
         }
     }
 
+    if (drafting || draft != null) {
+        DraftSheet(
+            today = state.today,
+            draft = draft,
+            onRequest = { genre, range -> vm.requestDraft(genre, range) },
+            onUse = { drafting = false; vm.useDraft(onCreated = onOpen) },
+            onDismiss = { vm.dismissDraft(); drafting = false },
+        )
+    }
     if (creating) {
         TitleDialog(
             heading = "新文稿",
@@ -114,6 +155,68 @@ private fun DocumentRow(local: Local<Document>, unsaved: Boolean, people: People
             if (unsaved) {
                 Box(Modifier.size(6.dp).background(colors.accent, CircleShape))
                 Text("未保存", style = type.caption.copy(color = colors.muted))
+            }
+        }
+    }
+}
+
+/**
+ * AI 起草稿（P9-05）：选体裁和时间范围 → AI 参考那段时间的房间资料写一份草稿 → 先看一眼，
+ * 点「用它开始写」才建文稿（草稿作为还没保存的内容，自己保存了才是 v1），点「不用」什么都不留下。
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun DraftSheet(
+    today: LocalDate,
+    draft: DraftRequest?,
+    onRequest: (DraftGenre, DraftRanges.Range) -> Unit,
+    onUse: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    val ranges = remember(today) { DraftRanges.presets(today) }
+    var genre by rememberSaveable { mutableStateOf(DraftGenre.Travel) }
+    var rangeIndex by rememberSaveable { mutableStateOf(0) }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = colors.background) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.page).padding(bottom = Spacing.xl)) {
+            SectionLabel("AI 起草稿")
+            val result = draft?.result
+            when {
+                draft == null -> {
+                    Text("AI 会参考那段时间里记下的聊天、日程、决定、灵感、心情写一份草稿，你们再自己改。只参考你允许 AI 看的内容。",
+                        style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(vertical = Spacing.xs))
+                    Text("写什么", style = type.caption.copy(color = colors.faint), modifier = Modifier.padding(top = Spacing.s))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = Spacing.xs)) {
+                        DraftGenre.entries.forEach { g -> ChoicePill(g.label(), genre == g, { genre = g }) }
+                    }
+                    Text("哪段时间", style = type.caption.copy(color = colors.faint), modifier = Modifier.padding(top = Spacing.s))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = Spacing.xs)) {
+                        ranges.forEachIndexed { i, r ->
+                            ChoicePill("${r.label} · ${r.start.monthValue}/${r.start.dayOfMonth}–${r.end.monthValue}/${r.end.dayOfMonth}", rangeIndex == i, { rangeIndex = i })
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth().padding(top = Spacing.m), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                        TextAction("取消", onDismiss, color = colors.muted)
+                        Spacer(Modifier.width(Spacing.s))
+                        PrimaryButton("起草", { onRequest(genre, ranges[rangeIndex]) })
+                    }
+                }
+                result == null -> {
+                    Text("正在写「${draft.genre.label()}」（${draft.range.label}）…… 大概要半分钟。", style = type.body.copy(color = colors.muted), modifier = Modifier.padding(vertical = Spacing.m))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { TextAction("取消", onDismiss, color = colors.muted) }
+                }
+                else -> {
+                    Text("这是草稿，用了以后可以随便改；保存了才算你的第一版。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(vertical = Spacing.xs))
+                    Box(Modifier.fillMaxWidth().heightIn(max = 420.dp).clip(QichiShapes.card).background(colors.paper).verticalScroll(rememberScrollState()).padding(Spacing.m)) {
+                        MarkdownView(result, 15.tsp, 1.8f)
+                    }
+                    Row(Modifier.fillMaxWidth().padding(top = Spacing.m), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                        TextAction("不用", onDismiss, color = colors.muted)
+                        Spacer(Modifier.width(Spacing.s))
+                        PrimaryButton("用它开始写", onUse)
+                    }
+                }
             }
         }
     }

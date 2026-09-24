@@ -11,6 +11,7 @@ import app.qichi.core.data.WritingSettingsStore
 import app.qichi.core.database.DocumentVersionRow
 import app.qichi.core.database.DraftRow
 import app.qichi.core.network.NetworkMonitor
+import app.qichi.shared.model.DraftGenre
 import app.qichi.core.network.ApiException
 import app.qichi.shared.model.WriteAssistMode
 import app.qichi.shared.api.AiWriteRequest
@@ -67,7 +68,56 @@ class DocumentListViewModel @AssistedInject constructor(
     private val docs: DocumentRepository,
     rooms: RoomRepository,
     session: SessionManager,
+    private val network: NetworkMonitor,
 ) : ViewModel() {
+    // ── AI 起草稿（P9-05）：草稿先给人看，点「用它开始写」才建文稿，内容作为未保存的草稿 ──
+    private val _draft = MutableStateFlow<DraftRequest?>(null)
+    val draft: StateFlow<DraftRequest?> = _draft
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message
+    private var draftJob: kotlinx.coroutines.Job? = null
+
+    fun messageShown() { _message.value = null }
+
+    fun requestDraft(genre: DraftGenre, range: DraftRanges.Range) {
+        if (!network.isOnline.value) {
+            _message.value = "离线时不能请 AI 起草稿"
+            return
+        }
+        draftJob?.cancel()
+        _draft.value = DraftRequest(genre, range, result = null)
+        draftJob = viewModelScope.launch {
+            try {
+                val text = docs.assist(roomId, AiWriteRequest(UuidV7.generate(), WriteAssistMode.Draft, genre = genre, rangeStart = range.start, rangeEnd = range.end))
+                _draft.value = _draft.value?.copy(result = text)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ApiException) {
+                _draft.value = null
+                _message.value = e.userMessage
+            } catch (e: Exception) {
+                _draft.value = null
+                _message.value = (e as? DocumentRepository.AssistFailed)?.message ?: "AI 没有给出草稿，再试一次"
+            }
+        }
+    }
+
+    fun dismissDraft() {
+        draftJob?.cancel()
+        _draft.value = null
+    }
+
+    /** 用草稿开始写：建一篇文稿（标题取草稿第一行的「# 标题」），草稿作为还没保存的内容。 */
+    fun useDraft(onCreated: (UUID) -> Unit) = viewModelScope.launch {
+        val d = _draft.value ?: return@launch
+        val text = d.result ?: return@launch
+        val title = text.lineSequence().firstOrNull { it.startsWith("# ") }?.removePrefix("# ")?.trim()?.ifEmpty { null } ?: d.genre.defaultTitle()
+        val doc = docs.create(roomId, title) ?: return@launch
+        docs.writeDraft(roomId, doc.id, text, baseVersion = 0, baseBody = "")
+        _draft.value = null
+        onCreated(doc.id)
+    }
+
     private val people = combine(rooms.observeRoom(roomId), rooms.observeMembers(roomId)) { room, members -> People(room, members, session.currentUserId) }
 
     val state: StateFlow<DocumentListState> = combine(people, docs.observeDocuments(roomId), docs.observeDraftIds(roomId)) { p, list, drafts ->
@@ -120,6 +170,21 @@ data class EditorState(
 private data class Edit(val text: String, val baseVersion: Int, val baseBody: String?)
 
 @OptIn(ExperimentalCoroutinesApi::class)
+/** 一次 AI 起草稿：[result] 为空时还在等。 */
+data class DraftRequest(val genre: DraftGenre, val range: DraftRanges.Range, val result: String?)
+
+internal fun DraftGenre.label() = when (this) {
+    DraftGenre.Travel -> "游记"
+    DraftGenre.Letter -> "写给对方的信"
+    DraftGenre.Review -> "回顾"
+}
+
+internal fun DraftGenre.defaultTitle() = when (this) {
+    DraftGenre.Travel -> "游记"
+    DraftGenre.Letter -> "一封信"
+    DraftGenre.Review -> "回顾"
+}
+
 /** 写作助手的一次请求：[result] 为空时还在等。 */
 data class AssistState(val mode: WriteAssistMode, val original: String, val start: Int, val end: Int, val result: String?)
 
