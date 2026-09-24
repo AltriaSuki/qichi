@@ -222,7 +222,7 @@ object RoomContext {
             Moods.selectAll().where { (Moods.roomId eq roomId) and Moods.deletedAt.isNull() and (Moods.createdAt greaterEq from) }
                 .orderBy(Moods.createdAt, SortOrder.DESC).limit(6).forEach { r ->
                     val text = "${r[Moods.label]} ${r[Moods.intensity]}/10" + (r[Moods.note]?.let { "，$it" } ?: "")
-                    val line = "心情（${time(r[Moods.createdAt].atZone(zone), today)}，${who(r[Moods.authorId])}）· $text" +
+                    val line = "心情（${time(r[Moods.createdAt].atZone(zone), today)}，${who(r[Moods.authorId])}）· ${MoodWords.line(r[Moods.label], r[Moods.intensity], r[Moods.note])}" +
                         (if (r[Moods.needsComfort]) " · 想被安慰" else "")
                     hits += Hit(EntityType.Mood, r[Moods.id], r[Moods.createdAt], cut(text, 80), line, 0.7 + score(text, terms))
                 }

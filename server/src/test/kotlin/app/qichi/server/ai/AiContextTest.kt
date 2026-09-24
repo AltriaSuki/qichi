@@ -78,7 +78,7 @@ class AiContextTest {
             assertTrue(user.contains("档案 · 共识 · 旅行预算：一次出游不超过两千"), user)
             assertTrue(user.contains("灵感") && user.contains("海边看日出要带相机"), "按「海边」找到灵感")
             assertFalse(user.contains("阳台种柠檬树"), "和问题无关的灵感不给")
-            assertTrue(user.contains("心情") && user.contains("tired 6/10，加班"), user)
+            assertTrue(user.contains("心情") && user.contains("疲惫 6/10，加班"), "心情用中文，模型才不会照抄英文值")
             assertTrue(user.contains("海边那家民宿要提前一周订"), "更早的聊天按问题找回来")
 
             val numbered = Regex("(?m)^\\[(\\d+)] (.+)$").findAll(user).associate { it.groupValues[1].toInt() to it.groupValues[2] }

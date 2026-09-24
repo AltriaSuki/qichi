@@ -1,5 +1,6 @@
 package app.qichi.server.summaries
 
+import app.qichi.server.ai.MoodWords
 import app.qichi.server.db.ArchiveItems
 import app.qichi.server.db.Decisions
 import app.qichi.server.db.Ideas
@@ -57,7 +58,8 @@ object SummaryData {
     fun gather(roomId: UUID, start: LocalDate, end: LocalDate, zone: ZoneId, names: Map<UUID, String>, prefs: AiPrefs = AiPrefs()): List<SourceLine> {
         val from = start.atStartOfDay(zone).toInstant()
         val until = end.plusDays(1).atStartOfDay(zone).toInstant()
-        data class Raw(val type: EntityType, val id: UUID, val at: Instant, val who: UUID?, val what: String, val text: String)
+        /** [lineText] 是给 AI 看的写法（为空时同 [text]），[text] 也是来源的摘录（App 自己换成中文） */
+        data class Raw(val type: EntityType, val id: UUID, val at: Instant, val who: UUID?, val what: String, val text: String, val lineText: String? = null)
         val raw = mutableListOf<Raw>()
 
         val messages = Messages.selectAll().where {
@@ -68,7 +70,11 @@ object SummaryData {
         if (prefs.chat) raw += if (messages.size <= MESSAGE_SAMPLE) messages else messages.indices.step(messages.size / MESSAGE_SAMPLE + 1).map { messages[it] }
 
         if (prefs.moods) raw += Moods.selectAll().where { (Moods.roomId eq roomId) and Moods.deletedAt.isNull() and (Moods.createdAt greaterEq from) and (Moods.createdAt less until) }
-            .map { Raw(EntityType.Mood, it[Moods.id], it[Moods.createdAt], it[Moods.authorId], "心情", "${it[Moods.label]} ${it[Moods.intensity]}/10" + (it[Moods.note]?.let { n -> "，$n" } ?: "")) }
+            .map {
+                Raw(EntityType.Mood, it[Moods.id], it[Moods.createdAt], it[Moods.authorId], "心情",
+                    "${it[Moods.label]} ${it[Moods.intensity]}/10" + (it[Moods.note]?.let { n -> "，$n" } ?: ""),
+                    lineText = MoodWords.line(it[Moods.label], it[Moods.intensity], it[Moods.note]))
+            }
             .takeLast(MOOD_MAX)
         if (prefs.decisions) raw += Decisions.selectAll().where { (Decisions.roomId eq roomId) and Decisions.deletedAt.isNull() and (Decisions.decidedAt greaterEq from) and (Decisions.decidedAt less until) }
             .map { Raw(EntityType.Decision, it[Decisions.id], it[Decisions.decidedAt]!!, it[Decisions.decidedBy], "定下", "${it[Decisions.question]} → ${it[Decisions.finalChoice]}") }
@@ -85,7 +91,7 @@ object SummaryData {
             val label = cut(r.text, 80)
             SourceLine(
                 SummarySource(i + 1, r.type.wireName, r.id, label, r.at),
-                "[${i + 1}] ${day.monthValue}月${day.dayOfMonth}日 · ${r.who?.let(names::get) ?: "其中一人"} · ${r.what}：${cut(r.text)}",
+                "[${i + 1}] ${day.monthValue}月${day.dayOfMonth}日 · ${r.who?.let(names::get) ?: "其中一人"} · ${r.what}：${cut(r.lineText ?: r.text)}",
             )
         }
     }
