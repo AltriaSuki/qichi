@@ -49,6 +49,7 @@ import app.qichi.server.timeline.timelineRoutes
 import app.qichi.server.decisions.decisionRoutes
 import app.qichi.server.board.boardRoutes
 import app.qichi.server.documents.DocumentService
+import app.qichi.server.documents.DocCommentService
 import app.qichi.server.documents.documentRoutes
 import app.qichi.server.ideas.IdeaService
 import app.qichi.server.ideas.ideaRoutes
@@ -205,6 +206,7 @@ class AppContext(
     val plans = PlanService(database, rooms, writes)
     val ideas = IdeaService(database, rooms, writes)
     val documents = DocumentService(database, rooms, writes)
+    val docComments = DocCommentService(database, rooms, writes)
     val board = BoardService(database, rooms, writes)
     val archive = ArchiveService(database, rooms, writes)
     val aiActions = AiActionService(database, rooms, writes, events, todos, archive, ideas)

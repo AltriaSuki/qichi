@@ -454,6 +454,17 @@ object AiActions : SyncedTable("ai_actions") {
     val requestedBy = javaUUID("requested_by").nullable()
 }
 
+object DocComments : SyncedTable("doc_comments") {
+    val documentId = javaUUID("document_id")
+    val parentId = javaUUID("parent_id").nullable()
+    val authorId = javaUUID("author_id")
+    val body = text("body")
+    val quote = text("quote").nullable()
+    val version = integer("version").nullable()
+    val resolvedAt = timestamp("resolved_at").nullable()
+    val resolvedBy = javaUUID("resolved_by").nullable()
+}
+
 object Devices : Table("devices") {
     val id = javaUUID("id")
     val userId = javaUUID("user_id")

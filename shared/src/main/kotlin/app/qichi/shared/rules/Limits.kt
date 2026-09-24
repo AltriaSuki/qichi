@@ -87,6 +87,11 @@ object Limits {
     val REVIEW_TITLE_LENGTH: IntRange = 1..100
     val ANNOTATION_BODY_LENGTH: IntRange = 1..2_000
     val ANNOTATION_REPLY_LENGTH: IntRange = 1..2_000
+
+    /** 文稿段落旁留言（P9-03） */
+    val DOC_COMMENT_LENGTH: IntRange = 1..2_000
+    /** 留言钉住的原文摘录 */
+    const val DOC_COMMENT_QUOTE_MAX: Int = 200
     const val ANCHOR_QUOTE_MAX: Int = 500
     const val REVIEW_MAX_PAGES: Int = 300
 

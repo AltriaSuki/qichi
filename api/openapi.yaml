@@ -1332,6 +1332,78 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /rooms/{roomId}/documents/{id}/comments:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [documents]
+      operationId: createDocComment
+      summary: 段落旁留言或回复（P9-03）。开头带 quote（钉住的原文），回复带 parentId；同一个 id 重试返回已有的那条
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateDocCommentRequest' } } }
+      responses:
+        '200': { description: 已经有了, content: { application/json: { schema: { $ref: '#/components/schemas/DocComment' } } } }
+        '201': { description: 新建, content: { application/json: { schema: { $ref: '#/components/schemas/DocComment' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/doc-comments/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [documents]
+      operationId: updateDocComment
+      summary: 改留言正文（只有作者能改）
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateDocCommentRequest' } } }
+      responses:
+        '200': { description: 改后的留言, content: { application/json: { schema: { $ref: '#/components/schemas/DocComment' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [documents]
+      operationId: deleteDocComment
+      summary: 删除一条讨论（开头；只有作者能删），进回收站；回复不能单独删
+      responses:
+        '200': { description: 删除后的留言, content: { application/json: { schema: { $ref: '#/components/schemas/DocComment' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/doc-comments/{id}/resolve:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [documents]
+      operationId: resolveDocComment
+      summary: 标为解决（两人都可以；只对开头）
+      responses:
+        '200': { description: 之后的留言, content: { application/json: { schema: { $ref: '#/components/schemas/DocComment' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/doc-comments/{id}/reopen:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [documents]
+      operationId: reopenDocComment
+      summary: 重新打开已解决的讨论
+      responses:
+        '200': { description: 之后的留言, content: { application/json: { schema: { $ref: '#/components/schemas/DocComment' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /rooms/{roomId}/export:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -2933,7 +3005,7 @@ components:
     EntityType:
       type: string
       description: 与 `shared/model/EntityType` 一致，后续阶段追加
-      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document, board_topic, board_post, board_reaction, archive_item, decision, book, reading_progress, highlight, summary, review_document, review_version, annotation, annotation_reply, ai_finding, ai_action]
+      enum: [room, member, message, read_marker, mood, mood_response, todo, event, question, qna_round, answer, plan, plan_stage, milestone, plan_log, idea, document, board_topic, board_post, board_reaction, archive_item, decision, book, reading_progress, highlight, summary, review_document, review_version, annotation, annotation_reply, ai_finding, ai_action, doc_comment]
     ChangeOp:
       type: string
       description: '`upsert` 包括软删除与恢复；只有彻底删除是 `delete`'
@@ -2987,6 +3059,7 @@ components:
             - $ref: '#/components/schemas/AnnotationReply'
             - $ref: '#/components/schemas/AiFinding'
             - $ref: '#/components/schemas/AiAction'
+            - $ref: '#/components/schemas/DocComment'
             - type: 'null'
     SyncResponse:
       type: object
@@ -3000,7 +3073,7 @@ components:
           items: { $ref: '#/components/schemas/Change' }
     Bootstrap:
       type: object
-      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents, boardTopics, boardPosts, boardReactions, archiveItems, decisions, books, readingProgress, highlights, summaries, reviewDocuments, reviewVersions, annotations, annotationReplies, aiFindings, aiActions]
+      required: [room, members, lastSeq, readMarker, moods, moodReplies, todos, events, messages, hasMoreMessages, questions, qnaRounds, answers, plans, planStages, milestones, planLogs, ideas, documents, boardTopics, boardPosts, boardReactions, archiveItems, decisions, books, readingProgress, highlights, summaries, reviewDocuments, reviewVersions, annotations, annotationReplies, aiFindings, aiActions, docComments]
       properties:
         room: { $ref: '#/components/schemas/Room' }
         members:
@@ -3060,6 +3133,7 @@ components:
         annotationReplies: { type: array, items: { $ref: '#/components/schemas/AnnotationReply' } }
         aiFindings: { type: array, items: { $ref: '#/components/schemas/AiFinding' } }
         aiActions: { type: array, items: { $ref: '#/components/schemas/AiAction' } }
+        docComments: { type: array, items: { $ref: '#/components/schemas/DocComment' } }
     WsHello:
       type: object
       required: [type, userId, rooms]
@@ -3761,6 +3835,35 @@ components:
         baseVersion: { type: integer, minimum: 0 }
         body: { type: string, maxLength: 200000 }
         restoredFromVersion: { type: [integer, 'null'] }
+    DocComment:
+      description: 同步实体类型 `doc_comment`（P9-03）：文稿段落旁的留言；parentId 为空的是讨论开头（钉在 quote 上，可以解决、删除进回收站），不为空的是回复
+      allOf:
+        - $ref: '#/components/schemas/SyncFields'
+        - type: object
+          required: [documentId, parentId, authorId, body, quote, version, resolvedAt, resolvedBy]
+          properties:
+            documentId: { $ref: '#/components/schemas/Uuid' }
+            parentId: { $ref: '#/components/schemas/NullableUuid' }
+            authorId: { $ref: '#/components/schemas/Uuid' }
+            body: { type: string, minLength: 1, maxLength: 2000 }
+            quote: { type: [string, 'null'], maxLength: 200 }
+            version: { type: [integer, 'null'], minimum: 0 }
+            resolvedAt: { $ref: '#/components/schemas/NullableInstant' }
+            resolvedBy: { $ref: '#/components/schemas/NullableUuid' }
+    CreateDocCommentRequest:
+      type: object
+      required: [id, body]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        body: { type: string, minLength: 1, maxLength: 2000 }
+        parentId: { $ref: '#/components/schemas/Uuid' }
+        quote: { type: string, minLength: 1, maxLength: 200, description: 开头必填：钉住的原文 }
+        version: { type: integer, minimum: 0 }
+    UpdateDocCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 2000 }
     PlanDetail:
       type: object
       required: [plan, stages, milestones, logs]
@@ -4279,7 +4382,7 @@ components:
     TrashType:
       type: string
       description: 第 3 阶段可恢复的类型，后续阶段追加
-      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post, archive_item, decision, book, summary, plan_stage, milestone, review_document, annotation]
+      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post, archive_item, decision, book, summary, plan_stage, milestone, review_document, annotation, doc_comment]
     TrashItem:
       type: object
       required: [type, id, deletedAt, deletedBy, data]

@@ -185,6 +185,9 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | PATCH · DELETE | `/rooms/{roomId}/documents/{id}` | 改标题（标题不进版本）/ 删除进回收站（彻底删除时连同所有版本） |
 | GET | `/rooms/{roomId}/documents/{id}/versions` | 版本列表（不含正文，版本号从大到小，`cursor` + `limit` 分页） |
 | GET | `/rooms/{roomId}/documents/{id}/versions/{v}` | 某个版本的正文 |
+| POST | `/rooms/{roomId}/documents/{id}/comments` | 段落旁留言（P9-03）：开头带 `quote`（钉住的原文，最多 200 字）和写时的 `version`；回复带 `parentId`；幂等 |
+| PATCH · DELETE | `/rooms/{roomId}/doc-comments/{id}` | 改留言正文 / 删除讨论开头进回收站（都只能作者；回复不能单独删） |
+| POST | `/rooms/{roomId}/doc-comments/{id}/resolve` · `/reopen` | 标为解决 / 重新打开（两人都可以，只对开头） |
 | POST | `/rooms/{roomId}/documents/{id}/versions` | 保存新版本：`{id, baseVersion, body, restoredFromVersion?}`，新文稿的基线是 0；基线落后 409；同 `id` 重试返回已保存的版本 |
 | GET · POST · PATCH · DELETE | `/rooms/{roomId}/board/topics[/{id}]` | 留言主题：列表（置顶在前，其余按最近留言）/ 新建 / 改标题与置顶 / 删除进回收站 |
 | POST | `/rooms/{roomId}/board/topics/{topicId}/posts` | 发帖（可引用，摘录由服务端生成，原文之后修订也不变） |

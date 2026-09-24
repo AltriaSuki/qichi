@@ -20,6 +20,8 @@ import app.qichi.server.db.Summaries
 import app.qichi.server.db.AnnotationReplies
 import app.qichi.server.db.AiFindings
 import app.qichi.server.db.Annotations
+import app.qichi.server.db.DocComments
+import app.qichi.server.documents.toDocComment
 import app.qichi.server.db.ReviewDocuments
 import app.qichi.server.db.ReviewVersions
 import app.qichi.server.review.ReviewService
@@ -215,6 +217,12 @@ class TrashService(
                         val a = row.toAnnotation()
                         add(Candidate(TrashType.Annotation, a, a.deletedAt!!, a.deletedBy!!))
                     }
+                // 文稿留言（P9-03）：文稿本身在回收站里时随它一起，不单独列出
+                DocComments.join(Documents, JoinType.INNER, DocComments.documentId, Documents.id).select(DocComments.columns)
+                    .where { Documents.deletedAt.isNull() }.deleted(DocComments, roomId, cursor, take).forEach { row ->
+                        val c = row.toDocComment()
+                        add(Candidate(TrashType.DocComment, c, c.deletedAt!!, c.deletedBy!!))
+                    }
             }.sortedWith(compareByDescending<Candidate> { it.deletedAt }.thenByDescending { it.sortKey })
 
             val page = candidates.take(limit)
@@ -307,8 +315,18 @@ class TrashService(
                     hardDelete(this, roomId, userId, EntityType.Plan, id, Plans, now)
                 }
                 TrashType.Idea -> hardDelete(this, roomId, userId, EntityType.Idea, id, Ideas, now)
-                // 版本随文稿级联删除
-                TrashType.Document -> hardDelete(this, roomId, userId, EntityType.Document, id, Documents, now)
+                // 版本随文稿级联删除；留言要逐条记下删除，免得手机上留着
+                TrashType.Document -> {
+                    DocComments.select(DocComments.id, DocComments.parentId).where { DocComments.documentId eq id }
+                        .sortedBy { it[DocComments.parentId] == null }.map { it[DocComments.id] }
+                        .forEach { hardDelete(this, roomId, userId, EntityType.DocComment, it, DocComments, now) }
+                    hardDelete(this, roomId, userId, EntityType.Document, id, Documents, now)
+                }
+                TrashType.DocComment -> {
+                    DocComments.select(DocComments.id).where { DocComments.parentId eq id }.map { it[DocComments.id] }
+                        .forEach { hardDelete(this, roomId, userId, EntityType.DocComment, it, DocComments, now) }
+                    hardDelete(this, roomId, userId, EntityType.DocComment, id, DocComments, now)
+                }
                 TrashType.BoardTopic -> {
                     BoardPosts.select(BoardPosts.id).where { BoardPosts.topicId eq id }.map { it[BoardPosts.id] }
                         .forEach { purgeBoardPost(this, roomId, userId, it, now) }
@@ -377,6 +395,8 @@ class TrashService(
             Milestones -> planDeleted(row[Milestones.planId])
             Annotations -> ReviewDocuments.select(ReviewDocuments.deletedAt).where { ReviewDocuments.id eq row[Annotations.documentId] }
                 .singleOrNull()?.get(ReviewDocuments.deletedAt) != null
+            DocComments -> Documents.select(Documents.deletedAt).where { Documents.id eq row[DocComments.documentId] }
+                .singleOrNull()?.get(Documents.deletedAt) != null
             else -> false
         }
         return TrashedRow(parentDeleted)
@@ -391,6 +411,10 @@ class TrashService(
             TrashType.Annotation -> {
                 val author = Annotations.select(Annotations.authorId).where { Annotations.id eq id }.single()[Annotations.authorId]
                 if (author != userId) forbidden("只能处理自己的批注")
+            }
+            TrashType.DocComment -> {
+                val author = DocComments.select(DocComments.authorId).where { DocComments.id eq id }.single()[DocComments.authorId]
+                if (author != userId) forbidden("只能处理自己的留言")
             }
             else -> Unit
         }
@@ -430,6 +454,7 @@ class TrashService(
         TrashType.Milestone -> Milestones.selectAll().where { Milestones.id eq id }.singleOrNull()?.toMilestone()
         TrashType.ReviewDocument -> ReviewDocuments.selectAll().where { ReviewDocuments.id eq id }.singleOrNull()?.toReviewDocument()
         TrashType.Annotation -> Annotations.selectAll().where { Annotations.id eq id }.singleOrNull()?.toAnnotation()
+        TrashType.DocComment -> DocComments.selectAll().where { DocComments.id eq id }.singleOrNull()?.toDocComment()
     }
 
     /** 在查询上加「这个房间、已删除、在游标之后」，按 (deletedAt, id) 降序取 [take] 条。 */
@@ -464,6 +489,7 @@ val TrashType.entityType: EntityType
         TrashType.Milestone -> EntityType.Milestone
         TrashType.ReviewDocument -> EntityType.ReviewDocument
         TrashType.Annotation -> EntityType.Annotation
+        TrashType.DocComment -> EntityType.DocComment
     }
 
 private val TrashType.table: SyncedTable
@@ -486,4 +512,5 @@ private val TrashType.table: SyncedTable
         TrashType.Milestone -> Milestones
         TrashType.ReviewDocument -> ReviewDocuments
         TrashType.Annotation -> Annotations
+        TrashType.DocComment -> DocComments
     }

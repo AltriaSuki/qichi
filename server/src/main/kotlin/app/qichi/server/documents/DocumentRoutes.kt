@@ -7,7 +7,9 @@ import app.qichi.server.plugins.AUTH_JWT
 import app.qichi.server.plugins.intQuery
 import app.qichi.server.plugins.user
 import app.qichi.server.plugins.uuidParam
+import app.qichi.shared.api.CreateDocCommentRequest
 import app.qichi.shared.api.CreateDocumentRequest
+import app.qichi.shared.api.UpdateDocCommentRequest
 import app.qichi.shared.api.SaveDocumentVersionRequest
 import app.qichi.shared.api.UpdateDocumentRequest
 import app.qichi.shared.model.ProblemCode
@@ -24,6 +26,12 @@ import io.ktor.server.routing.route
 
 fun Route.documentRoutes(ctx: AppContext) {
     authenticate(AUTH_JWT) {
+        route("/rooms/{roomId}/doc-comments/{id}") {
+            patch { call.respond(ctx.docComments.update(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id"), call.receive<UpdateDocCommentRequest>())) }
+            delete { call.respond(ctx.docComments.delete(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id"))) }
+            post("/resolve") { call.respond(ctx.docComments.setResolved(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id"), resolved = true)) }
+            post("/reopen") { call.respond(ctx.docComments.setResolved(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id"), resolved = false)) }
+        }
         route("/rooms/{roomId}/documents") {
             get { call.respond(ctx.documents.list(call.user.userId, call.uuidParam("roomId"))) }
             post { call.respondCreated(ctx.documents.create(call.user.userId, call.uuidParam("roomId"), call.receive<CreateDocumentRequest>())) }
@@ -40,6 +48,9 @@ fun Route.documentRoutes(ctx: AppContext) {
                     call.respondCreated(
                         ctx.documents.save(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id"), call.receive<SaveDocumentVersionRequest>()),
                     )
+                }
+                post("/comments") {
+                    call.respondCreated(ctx.docComments.create(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id"), call.receive<CreateDocCommentRequest>()))
                 }
                 get("/versions/{version}") {
                     val version = call.parameters["version"]?.toIntOrNull()

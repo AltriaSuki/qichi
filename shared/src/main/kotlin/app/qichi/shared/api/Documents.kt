@@ -77,3 +77,42 @@ data class SaveDocumentVersionRequest(
     val body: String,
     val restoredFromVersion: Int? = null,
 )
+
+/**
+ * 同步实体 doc_comment（P9-03）：文稿段落旁的留言。[parentId] 为空的是一条讨论的开头，钉在 [quote]（那一段或选中的原文）上；
+ * 不为空的是它下面的回复（回复不钉位置、不能单独删）。文稿改了以后 App 按 [quote] 在最新正文里找回位置。
+ * 开头可以标为解决（[resolvedAt]）；删除开头进回收站（只有作者能删）。
+ */
+@Serializable
+data class DocComment(
+    override val id: Id,
+    val roomId: Id,
+    override val seq: Long,
+    val createdAt: Timestamp,
+    val updatedAt: Timestamp,
+    val deletedAt: Timestamp?,
+    val deletedBy: Id?,
+    val documentId: Id,
+    val parentId: Id?,
+    val authorId: Id,
+    val body: String,
+    /** 钉住的原文（开头才有） */
+    val quote: String?,
+    /** 写留言时看的是哪个版本（开头才有；还没保存过的文稿为 0） */
+    val version: Int?,
+    val resolvedAt: Timestamp?,
+    val resolvedBy: Id?,
+) : SyncEntity
+
+/** 留言或回复：回复带 [parentId]，不带 [quote]。同一个 [id] 重试返回已有的那条。 */
+@Serializable
+data class CreateDocCommentRequest(
+    val id: Id,
+    val body: String,
+    val parentId: Id? = null,
+    val quote: String? = null,
+    val version: Int? = null,
+)
+
+@Serializable
+data class UpdateDocCommentRequest(val body: String)

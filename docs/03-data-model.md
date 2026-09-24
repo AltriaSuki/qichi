@@ -72,6 +72,7 @@
 |---|---|
 | `documents` | 同步实体（`document`）：`title`、`created_by`、`latest_version`（0 = 还没有版本）、`latest_author_id`、`char_count`（最新版本的字数）；正文不进同步 |
 | `document_versions` | **不可变**：`document_id`、`version`（从 1 递增）、`base_version`、`author_id`、`body`（Markdown；照片是单独一行 `![说明](qichi-file:文件id)`，文件是房间里的图片，见 `shared/rules/DocumentImages`）、`char_count`、`restored_from_version`（旧版另存为新版时） |
+| `doc_comments` | 同步实体（`doc_comment`，P9-03）：文稿段落旁的留言。`document_id`、`parent_id`（空 = 讨论开头，否则是回复）、`author_id`、`body`、`quote`（开头钉住的原文，App 按它在最新正文里找回位置）、`version`、`resolved_at/by`；开头可以删进回收站（只有作者），回复不能单独删；文稿彻底删除时逐条记下删除 |
 | `board_topics` | 同步实体（`board_topic`）：`title`、`author_id`、`pinned_at` |
 | `board_posts` | 同步实体（`board_post`）：`topic_id`、`author_id`、`body`、`quote_post_id` + `quote_author_id` + `quote_excerpt`、`revision`（从 1 开始）、`revised_at` |
 | `board_post_revisions` | 修订历史（不可变，不进同步）：`post_id`、`revision`、`body` |

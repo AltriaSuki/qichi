@@ -11,6 +11,8 @@ import app.qichi.server.db.Books
 import app.qichi.server.db.Decisions
 import app.qichi.server.db.DocumentVersions
 import app.qichi.server.db.Documents
+import app.qichi.server.db.DocComments
+import app.qichi.server.documents.toDocComment
 import app.qichi.shared.rules.DocumentImages
 import app.qichi.server.db.Events
 import app.qichi.server.db.Files
@@ -169,6 +171,13 @@ class ExportService(
                 put("annotations", QichiJson.encodeToJsonElement(annotations))
                 put("aiFindings", QichiJson.encodeToJsonElement(AiFindings.selectAll().where { AiFindings.roomId eq roomId }
                     .map { it.toAiFinding() }.filter { it.documentId in liveDocs }))
+                // 文稿留言（P9-03）：不含回收站里的，和已删文稿的
+                val liveDocIds = documents.map { it.id }.toSet()
+                val docComments = DocComments.selectAll().where { (DocComments.roomId eq roomId) and DocComments.deletedAt.isNull() }
+                    .map { it.toDocComment() }.filter { it.documentId in liveDocIds }
+                val liveRoots = docComments.filter { it.parentId == null }.map { it.id }.toSet()
+                put("docComments", QichiJson.encodeToJsonElement(kotlinx.serialization.builtins.ListSerializer(app.qichi.shared.api.DocComment.serializer()),
+                    docComments.filter { it.parentId == null || it.parentId in liveRoots }))
                 put("annotationReplies", QichiJson.encodeToJsonElement(AnnotationReplies.selectAll().where { (AnnotationReplies.roomId eq roomId) and AnnotationReplies.deletedAt.isNull() }
                     .map { it.toAnnotationReply() }.filter { it.annotationId in annotations.map { a -> a.id }.toSet() }))
             }

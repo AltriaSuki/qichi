@@ -42,6 +42,7 @@ enum class EntityType {
     @SerialName("annotation_reply") AnnotationReply,
     @SerialName("ai_finding") AiFinding,
     @SerialName("ai_action") AiAction,
+    @SerialName("doc_comment") DocComment,
 }
 
 /** 变化类型：软删除与恢复都是 upsert，只有彻底删除是 delete。 */
@@ -171,6 +172,7 @@ enum class TrashType {
     @SerialName("milestone") Milestone,
     @SerialName("review_document") ReviewDocument,
     @SerialName("annotation") Annotation,
+    @SerialName("doc_comment") DocComment,
 }
 
 @Serializable

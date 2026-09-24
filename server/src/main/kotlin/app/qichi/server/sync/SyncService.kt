@@ -25,6 +25,8 @@ import app.qichi.server.db.Summaries
 import app.qichi.server.db.AnnotationReplies
 import app.qichi.server.db.AiFindings
 import app.qichi.server.db.AiActions
+import app.qichi.server.db.DocComments
+import app.qichi.server.documents.toDocComment
 import app.qichi.server.ai.toAiAction
 import app.qichi.server.review.toAiFinding
 import app.qichi.server.db.Annotations
@@ -145,6 +147,7 @@ class SyncService(private val db: QichiDatabase) {
                 annotationReplies = AnnotationReplies.selectAll().where { AnnotationReplies.roomId eq roomId }.map { it.toAnnotationReply() },
                 aiFindings = AiFindings.selectAll().where { AiFindings.roomId eq roomId }.map { it.toAiFinding() },
                 aiActions = AiActions.selectAll().where { AiActions.roomId eq roomId }.map { it.toAiAction() },
+                docComments = DocComments.selectAll().where { DocComments.roomId eq roomId }.map { it.toDocComment() },
             )
         }
 
@@ -229,6 +232,7 @@ class SyncService(private val db: QichiDatabase) {
                 EntityType.AnnotationReply -> AnnotationReplies.selectAll().where { AnnotationReplies.id inList ids }.map { it.toAnnotationReply() }
                 EntityType.AiFinding -> AiFindings.selectAll().where { AiFindings.id inList ids }.map { it.toAiFinding() }
                 EntityType.AiAction -> AiActions.selectAll().where { AiActions.id inList ids }.map { it.toAiAction() }
+                EntityType.DocComment -> DocComments.selectAll().where { DocComments.id inList ids }.map { it.toDocComment() }
             }
             loaded.forEach { result[type to it.id] = it }
         }
