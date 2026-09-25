@@ -63,4 +63,12 @@ class TagsTest {
         assertFalse(Tags.isValid("有 空格"))
         assertFalse(Tags.isValid("#出门"))
     }
+
+    @Test
+    fun `显示时去掉标签`() {
+        assertEquals("冬天去看雪", Tags.strip("冬天去看雪 #旅行/北方"))
+        assertEquals("周末 去菜市场", Tags.strip("#家 周末 #吃 去菜市场"))
+        assertEquals("学 C# 编程", Tags.strip("学 C# 编程"))
+        assertEquals("", Tags.strip("#a/b/c/d"))
+    }
 }

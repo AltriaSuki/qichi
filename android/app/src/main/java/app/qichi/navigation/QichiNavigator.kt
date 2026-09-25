@@ -68,7 +68,8 @@ class QichiNavigator(
     }
 
     private fun push(page: Page, id: String?) {
-        if (page.tab != TopTab.Together) {
+        // 标签页是灵感、档案下面的一页：直接压上，返回回到进来的地方
+        if (page.tab != TopTab.Together || page == Page.Tags) {
             navController.navigate(page.route(id))
             return
         }

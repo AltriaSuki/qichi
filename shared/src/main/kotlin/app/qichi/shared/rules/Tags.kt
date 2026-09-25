@@ -47,6 +47,23 @@ object Tags {
         return sb.append(text, last, text.length).toString()
     }
 
+    /** 去掉正文里的标签（显示时标签另外用小标签画），多出来的空白合成一个。 */
+    fun strip(text: String): String {
+        val ms = matches(text)
+        if (ms.isEmpty()) return text
+        val sb = StringBuilder()
+        var last = 0
+        for (m in ms) {
+            sb.append(text, last, m.start)
+            // 标签后面紧跟的 / 和多出的层也一起去掉
+            var end = m.end
+            while (end < text.length && (isTagChar(text[end]) || text[end] == '/')) end++
+            last = end
+        }
+        sb.append(text, last, text.length)
+        return sb.toString().replace(Regex("[ \\t]{2,}"), " ").trim()
+    }
+
     /** 一个合法的标签名（改名时检查新名字）：一到三层，每层是标签字，不含 `#`。 */
     fun isValid(tag: String): Boolean {
         val parts = tag.split('/')

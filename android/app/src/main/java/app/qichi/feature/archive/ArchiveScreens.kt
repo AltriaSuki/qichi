@@ -2,7 +2,6 @@ package app.qichi.feature.archive
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,11 +17,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -35,18 +36,26 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.People
 import app.qichi.core.designsystem.Feature
+import app.qichi.core.designsystem.FeatureTone
+import app.qichi.core.designsystem.QichiShapes
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
+import app.qichi.core.designsystem.color
 import app.qichi.core.designsystem.component.BarAction
 import app.qichi.core.designsystem.component.ChoicePill
 import app.qichi.core.designsystem.component.ConfirmDialog
@@ -59,8 +68,11 @@ import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.SectionLabel
+import app.qichi.core.designsystem.component.TagChip
+import app.qichi.core.designsystem.component.TagFilterRow
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.icon.QichiIcons
+import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.DiffView
@@ -70,6 +82,7 @@ import app.qichi.shared.api.ArchiveRevision
 import app.qichi.shared.api.Message
 import app.qichi.shared.model.ArchiveKind
 import app.qichi.shared.rules.Limits
+import app.qichi.shared.rules.Tags
 import app.qichi.shared.util.Diff
 import java.time.Instant
 import java.time.LocalDate
@@ -102,6 +115,7 @@ fun ArchiveListScreen(
     fromMessageId: UUID?,
     onBack: () -> Unit,
     onOpen: (UUID) -> Unit,
+    onOpenTags: () -> Unit = {},
     vm: ArchiveListViewModel = hiltViewModel<ArchiveListViewModel, ArchiveListViewModel.Factory>(key = "archive-$roomId") { it.create(roomId) },
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -113,31 +127,36 @@ fun ArchiveListScreen(
 
     Box(Modifier.fillMaxSize().background(colors.background)) {
         Column(Modifier.fillMaxSize()) {
-            FeatureTopBar(Feature.Archive, onBack)
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = Spacing.page), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ChoicePill("全部", state.filter == null, { vm.filter(null) })
-                ArchiveKind.entries.forEach { k -> ChoicePill(k.label, state.filter == k, { vm.filter(k) }) }
+            var tag by rememberSaveable { mutableStateOf<String?>(null) }
+            FeatureTopBar(
+                Feature.Archive, onBack,
+                actions = listOf(BarAction("标签", QichiIcons.Tag, onOpenTags)),
+                menu = listOf(MenuAction("所有种类", { vm.filter(null) })) + ArchiveKind.entries.map { k -> MenuAction("只看「${k.label}」", { vm.filter(k) }) },
+            )
+            val tags = remember(state.shown) { app.qichi.feature.ideas.topTags(state.shown.map { it.value.title + "\n" + it.value.body }) }
+            if (tags.isNotEmpty()) TagFilterRow(tags, tag, { tag = it })
+            state.filter?.let { k ->
+                Row(Modifier.padding(horizontal = Spacing.page), verticalAlignment = Alignment.CenterVertically) {
+                    Text("只看「${k.label}」", style = type.caption.copy(color = colors.muted))
+                    TextAction("看全部", { vm.filter(null) }, color = colors.accent)
+                }
             }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
-                if (state.loaded && state.shown.isEmpty()) {
+            val shown = state.shown.filter { tag == null || Tags.has(it.value.title + "\n" + it.value.body, tag!!) }
+            Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = Spacing.cardPage, end = Spacing.cardPage, top = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
+                if (state.loaded && shown.isEmpty()) {
                     Text(
-                        if (state.filter == null) "还没有档案。两个人慢慢确认下来的事——喜欢什么、说好了什么、在意什么——可以记在这里。"
-                        else "还没有「${state.filter!!.label}」。",
+                        when {
+                            tag != null -> "#$tag 下面还没有档案。"
+                            state.filter == null -> "还没有档案。两个人慢慢确认下来的事——喜欢什么、说好了什么、在意什么——可以记在这里。"
+                            else -> "还没有「${state.filter!!.label}」。"
+                        },
                         style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m),
                     )
                 }
-                if (state.filter == null) {
-                    ArchiveKind.entries.forEach { k ->
-                        val group = state.shown.filter { it.value.kind == k }
-                        if (group.isNotEmpty()) {
-                            SectionLabel("${k.label}  ${group.size}", modifier = Modifier.padding(top = Spacing.l))
-                            group.forEach { ItemRow(it, state.people, state.zone, state.today) { onOpen(it.value.id) } }
-                        }
-                    }
-                } else {
-                    Spacer(Modifier.height(Spacing.s))
-                    state.shown.forEach { ItemRow(it, state.people, state.zone, state.today) { onOpen(it.value.id) } }
-                }
+                shown.forEachIndexed { i, item -> FactCard(item, state.people, state.zone, i) { onOpen(item.value.id) } }
                 Spacer(Modifier.height(FabClearance))
             }
         }
@@ -163,29 +182,69 @@ fun ArchiveListScreen(
     }
 }
 
+/** 每种档案的图标和颜色（卡片顶上的色条、小字）。 */
+internal val ArchiveKind.icon: ImageVector
+    get() = when (this) {
+        ArchiveKind.Preference -> QichiIcons.Heart
+        ArchiveKind.Consensus -> QichiIcons.Rings
+        ArchiveKind.Boundary -> QichiIcons.Lock
+        ArchiveKind.Concern -> QichiIcons.Drop
+        ArchiveKind.Milestone -> QichiIcons.Flag
+        ArchiveKind.Decision -> QichiIcons.Sign
+    }
+
+internal val ArchiveKind.tone: FeatureTone
+    get() = when (this) {
+        ArchiveKind.Preference -> FeatureTone.PersonA
+        ArchiveKind.Consensus, ArchiveKind.Milestone -> FeatureTone.PersonB
+        ArchiveKind.Boundary, ArchiveKind.Decision -> FeatureTone.Accent
+        ArchiveKind.Concern -> FeatureTone.Muted
+    }
+
+private val MD = DateTimeFormatter.ofPattern("MM.dd")
+private val YMD = DateTimeFormatter.ofPattern("yyyy.MM.dd")
+
+/**
+ * 一条档案是一张卡片（按 New-Archive）：顶上一道种类色条，小字种类 + 谁；那句话；
+ * 下面是 #标签、「来自聊天」、日期和第几版。卡片轻轻左右倾斜。
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ItemRow(local: Local<ArchiveItem>, people: People, zone: ZoneId, today: LocalDate, onClick: () -> Unit) {
+private fun FactCard(local: Local<ArchiveItem>, people: People, zone: ZoneId, index: Int, onClick: () -> Unit) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val item = local.value
-    Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "打开", onClick = onClick).padding(vertical = Spacing.s)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-            Text(item.title, style = type.feeling.copy(fontSize = 20.tsp, lineHeight = 28.tsp, color = colors.ink),
-                maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            PersonMark(people.markChar(item.revisedBy), people.person(item.revisedBy), size = 20.dp)
+    val tint = item.kind.tone.color
+    val rotation = listOf(-.4f, .4f, -.3f, .3f, 0f)[index % 5]
+    val tags = Tags.parse(item.title + "\n" + item.body)
+    Column(
+        Modifier.rotate(rotation).fillMaxWidth().lift(colors, QichiShapes.paper).clip(QichiShapes.paper).background(colors.card)
+            .drawBehind { drawRect(tint.copy(alpha = .7f), size = androidx.compose.ui.geometry.Size(size.width, 3.dp.toPx())) }
+            .clickable(role = Role.Button, onClickLabel = "打开", onClick = onClick)
+            .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(item.kind.icon, contentDescription = null, tint = tint, modifier = Modifier.size(13.dp))
+            Text(item.kind.label, style = type.sectionLabel.copy(fontSize = 12.tsp, letterSpacing = 0.em, color = tint), modifier = Modifier.weight(1f))
+            PersonMark(people.markChar(item.revisedBy), people.person(item.revisedBy), size = 18.dp)
         }
-        if (item.body.isNotEmpty()) {
-            Text(item.body, style = type.caption.copy(color = colors.muted), maxLines = 2, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = Spacing.xxs))
+        Text(Tags.strip(item.title).ifBlank { item.title }, style = type.bodyLarge.copy(lineHeight = 26.4.tsp, color = colors.ink), modifier = Modifier.padding(top = 4.dp))
+        if (item.body.isNotBlank()) {
+            Text(Tags.strip(item.body), style = type.caption.copy(color = colors.muted), maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        Text(
-            buildList {
-                if (item.currentRevision > 1) add("修订 ${item.currentRevision - 1} 次")
-                add(relativeDay(item.updatedAt.atZone(zone).toLocalDate(), today).first)
-                if (local.isPending) add("待发送")
-            }.joinToString(" · "),
-            style = type.caption.copy(color = colors.faint),
-        )
+        FlowRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp), itemVerticalAlignment = Alignment.CenterVertically) {
+            tags.forEach { TagChip(it) }
+            if (item.sourceMessageId != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Icon(QichiIcons.Arrow, contentDescription = null, tint = colors.muted, modifier = Modifier.size(12.dp))
+                    Text("来自聊天", style = type.caption.copy(fontSize = 12.tsp, color = colors.muted))
+                }
+            }
+            val date = item.createdAt.atZone(zone).toLocalDate()
+            Text(date.format(if (date.year == java.time.LocalDate.now(zone).year) MD else YMD), style = type.numeral.copy(fontSize = 12.tsp, color = colors.muted))
+            if (item.currentRevision > 1) Text("v${item.currentRevision}", style = type.numeral.copy(fontSize = 12.tsp, color = colors.muted))
+            if (local.isPending) Text("待发送", style = type.caption.copy(fontSize = 12.tsp, color = colors.muted))
+        }
     }
 }
 

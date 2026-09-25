@@ -45,7 +45,7 @@ class NavigationLogicTest {
     fun `页面 slug 不重复，与标签 slug 也不冲突`() {
         val slugs = Page.entries.map { it.slug } + TopTab.entries.map { it.slug }
         assertEquals(slugs.size, slugs.toSet().size)
-        assertTrue(Page.entries.filter { it.tab == TopTab.Together }.all { it.group != null })
+        assertTrue(Page.entries.filter { it.tab == TopTab.Together && it != Page.Tags }.all { it.group != null })
     }
 
     @Test
@@ -119,7 +119,7 @@ class NavigationLogicTest {
 
     @Test
     fun `一起下的页面都有功能颜色和图标`() {
-        Page.entries.filter { it.tab == TopTab.Together }.forEach { assertEquals(it.title, it.feature.title) }
+        Page.entries.filter { it.tab == TopTab.Together && it != Page.Tags }.forEach { assertEquals(it.title, it.feature.title) }
     }
 
     private fun plan(stack: List<TogetherPage>, page: Page, id: String?) =

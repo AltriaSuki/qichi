@@ -164,6 +164,8 @@ fun FeatureTopBar(
     note: String? = feature.note,
     actions: List<BarAction> = emptyList(),
     menu: List<MenuAction> = emptyList(),
+    /** 色块里的图标，默认是功能的图标（「标签」页用标签图标） */
+    icon: ImageVector = feature.icon,
 ) {
     val colors = QichiTheme.colors
     Column(modifier.fillMaxWidth().padding(start = Spacing.xs, end = Spacing.sm, top = topBarInset(), bottom = Spacing.s)) {
@@ -177,7 +179,7 @@ fun FeatureTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Spacing.s),
         ) {
-            FeatureTile(feature, size = 40.dp)
+            FeatureTile(icon, feature.color, size = 40.dp)
             Text(
                 title,
                 style = QichiTheme.typography.featureTitle.copy(color = colors.ink),

@@ -24,6 +24,7 @@ import app.qichi.core.data.DraftStore
 import app.qichi.core.data.EventRepository
 import app.qichi.core.data.FileRepository
 import app.qichi.core.data.IdeaRepository
+import app.qichi.core.data.TagRepository
 import app.qichi.core.data.MoodRepository
 import app.qichi.core.data.PlanRepository
 import app.qichi.core.data.ProfileStore
@@ -112,6 +113,10 @@ object SyncModule {
     @Provides
     @Singleton
     fun fileRepository(api: ApiClient): FileRepository = FileRepository(api)
+
+    @Provides
+    @Singleton
+    fun tagRepository(api: ApiClient): TagRepository = TagRepository(api)
 
     @Provides
     @Singleton

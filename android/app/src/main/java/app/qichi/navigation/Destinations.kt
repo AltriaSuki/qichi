@@ -51,6 +51,9 @@ enum class Page(val slug: String, val title: String, val tab: TopTab, val group:
     Review("review", "审稿", TopTab.Together, TogetherGroup.Look),
     Summary("summary", "总结", TopTab.Together, TogetherGroup.Look),
 
+    /** 标签树（从灵感、档案进来；不在「一起」的目录里） */
+    Tags("tags", "标签", TopTab.Together),
+
     // 我的
     MyContent("my-content", "我写下的内容", TopTab.Me),
     AiUsage("ai-usage", "我发起的 AI 使用", TopTab.Me),
@@ -67,7 +70,11 @@ enum class Page(val slug: String, val title: String, val tab: TopTab, val group:
     ;
 
     /** 「一起」下的页面对应的功能（颜色、图标、标题旁的手写）；「我的」下的页面是 [Feature.Me]。 */
-    val feature: Feature get() = if (tab == TopTab.Me) Feature.Me else Feature.valueOf(name)
+    val feature: Feature get() = when {
+        tab == TopTab.Me -> Feature.Me
+        this == Tags -> Feature.Ideas
+        else -> Feature.valueOf(name)
+    }
 
     companion object {
         fun bySlug(slug: String): Page? = entries.firstOrNull { it.slug == slug }

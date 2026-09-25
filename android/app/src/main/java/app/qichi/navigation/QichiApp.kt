@@ -191,7 +191,8 @@ fun QichiApp(
                                     PlanDetailScreen(roomId = roomId, planId = planId, onBack = navigator::back)
                                 }
                             }
-                            Page.Ideas -> IdeasScreen(roomId = roomId, onBack = navigator::back)
+                            Page.Ideas -> IdeasScreen(roomId = roomId, onBack = navigator::back, onOpenTags = { navigator.open(Page.Tags) })
+                            Page.Tags -> app.qichi.feature.ideas.TagsScreen(roomId = roomId, onBack = navigator::back)
                             Page.Summary -> SummaryScreen(roomId = roomId, onBack = navigator::back, onOpenSource = { src -> navigator.openSource(roomId, src) })
                             Page.Reading -> {
                                 val bookId = route.id?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
@@ -225,7 +226,7 @@ fun QichiApp(
                                 val itemId = raw?.takeIf { !it.startsWith("new:") }?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
                                 if (itemId == null) {
                                     ArchiveListScreen(roomId = roomId, fromMessageId = fromMessage, onBack = navigator::back,
-                                        onOpen = { navigator.open(Page.Archive, it.toString()) })
+                                        onOpen = { navigator.open(Page.Archive, it.toString()) }, onOpenTags = { navigator.open(Page.Tags) })
                                 } else {
                                     ArchiveDetailScreen(roomId = roomId, itemId = itemId, onBack = navigator::back,
                                         onOpenMessage = { navigator.handle(DeepLink.ToTab(roomId.toString(), TopTab.Chat, it.toString())) })
