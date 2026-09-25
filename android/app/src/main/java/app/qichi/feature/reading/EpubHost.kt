@@ -61,7 +61,10 @@ fun EpubHost(
         ReaderFragments.epub = EpubNavigatorFactory(publication).createFragmentFactory(
             initialLocator = initialLocator,
             initialPreferences = preferences,
-            configuration = EpubNavigatorFragment.Configuration { selectionActionModeCallback = callback },
+            configuration = EpubNavigatorFragment.Configuration {
+                selectionActionModeCallback = callback
+                decorationTemplates[WavyUnderline::class] = WavyUnderline.template
+            },
         )
         fm.findFragmentByTag(TAG)?.let { fm.beginTransaction().remove(it).commitNowAllowingStateLoss() }
         fm.beginTransaction().setReorderingAllowed(true)

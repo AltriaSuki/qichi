@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -62,6 +63,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -73,6 +75,7 @@ import app.qichi.core.data.REVIEW_MIME_TYPES
 import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
+import app.qichi.core.designsystem.component.AiMark
 import app.qichi.core.designsystem.component.BarAction
 import app.qichi.core.designsystem.component.ChoicePill
 import app.qichi.core.designsystem.component.ConfirmDialog
@@ -81,7 +84,9 @@ import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.SectionLabel
+import app.qichi.core.designsystem.component.Segmented
 import app.qichi.core.designsystem.component.TextAction
+import app.qichi.core.designsystem.component.dashedBorder
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.DiffView
@@ -244,10 +249,11 @@ fun ReviewScreen(
         }
 
         // 批注 / AI
-        Row(Modifier.padding(horizontal = Spacing.page), horizontalArrangement = Arrangement.spacedBy(30.dp)) {
-            TabLabel("批注", tab == 0, dot = state.open.isNotEmpty()) { tab = 0 }
-            TabLabel("AI", tab == 1, dot = state.newFindings.isNotEmpty()) { tab = 1 }
-        }
+        Segmented(
+            listOf(if (state.open.isNotEmpty()) "批注 ${state.open.size}" else "批注", if (state.newFindings.isNotEmpty()) "AI ${state.newFindings.size}" else "AI"),
+            tab, { tab = it },
+            margin = PaddingValues(start = Spacing.page, end = Spacing.page, top = Spacing.sm, bottom = 4.dp),
+        )
         Column(Modifier.weight(0.42f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
             if (tab == 0) {
                 if (state.annotations.isEmpty()) {
@@ -325,17 +331,6 @@ fun ReviewScreen(
     if (removing && doc != null) {
         ConfirmDialog("删除这份审稿？", "「${doc.title}」连同所有版本和批注会进回收站，可以恢复。", "删除",
             onConfirm = { vm.deleteDocument(); removing = false; onBack() }, onDismiss = { removing = false })
-    }
-}
-
-@Composable
-private fun TabLabel(text: String, selected: Boolean, dot: Boolean, onClick: () -> Unit) {
-    val colors = QichiTheme.colors
-    val type = QichiTheme.typography
-    Box(Modifier.heightIn(min = 46.dp).clickable(role = Role.Tab, onClick = onClick).semantics { contentDescription = if (selected) "$text，已选中" else text },
-        contentAlignment = Alignment.Center) {
-        Text(text, style = type.tab.copy(color = if (selected) colors.ink else colors.muted))
-        if (dot) Box(Modifier.align(Alignment.TopCenter).offset(y = 4.dp).size(4.dp).clip(CircleShape).background(colors.accent))
     }
 }
 
@@ -477,8 +472,10 @@ private fun AnnotationRow(item: AnnotationItem, people: People, onClick: () -> U
     val type = QichiTheme.typography
     val a = item.value
     Row(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(vertical = Spacing.s), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("${item.number}", style = type.numeral.copy(fontSize = 21.tsp, color = if (a.status == AnnotationStatus.Open) colors.accent else colors.faint),
-            modifier = Modifier.width(18.dp))
+        val numberColor = if (a.status == AnnotationStatus.Open) colors.accent else colors.faint
+        Box(Modifier.size(24.dp).border(1.3.dp, numberColor, CircleShape), contentAlignment = Alignment.Center) {
+            Text("${item.number}", style = type.numeral.copy(fontSize = 13.tsp, fontWeight = FontWeight.W500, color = numberColor))
+        }
         Column(Modifier.weight(1f)) {
             Text(a.body, style = type.bodyLarge.copy(color = if (a.status == AnnotationStatus.Open) colors.ink else colors.muted), maxLines = 3, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 2.dp)) {
@@ -747,20 +744,23 @@ private fun FindingCard(item: FindingItem, onEvidence: (FindingEvidence) -> Unit
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val f = item.value
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(colors.surface).padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 8.dp)) {
+    Column(
+        Modifier.fillMaxWidth().dashedBorder(colors.personB.copy(alpha = .45f), 14.dp).clip(RoundedCornerShape(14.dp)).background(colors.card).background(colors.personB.copy(alpha = .06f))
+            .padding(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 6.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("AI", style = type.numeral.copy(fontSize = 19.tsp, color = colors.personB))
-            Text(f.title, style = type.bodyLarge.copy(color = colors.ink), modifier = Modifier.weight(1f))
+            AiMark()
+            Text(f.title, style = type.bodyLarge.copy(fontWeight = FontWeight.W600, color = colors.ink), modifier = Modifier.weight(1f))
         }
         if (f.body.isNotBlank()) Text(f.body, style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = 4.dp))
         // 原文证据：两列排开，点一下跳到那一页并圈出那一段
         f.evidence.chunked(2).forEach { row ->
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
                 row.forEach { e ->
-                    Column(Modifier.weight(1f).clickable(role = Role.Button, onClickLabel = "看原文") { onEvidence(e) }
+                    Column(Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(colors.card).clickable(role = Role.Button, onClickLabel = "看原文") { onEvidence(e) }.padding(horizontal = 10.dp, vertical = 8.dp)
                         .semantics(mergeDescendants = true) { contentDescription = "原文：${e.quote}，第 ${e.page} 页" }) {
                         Text("“${e.quote}”", style = type.body.copy(color = colors.ink), maxLines = 3, overflow = TextOverflow.Ellipsis)
-                        Text(evidenceLabel(e), style = type.numeral.copy(fontSize = 15.tsp, color = colors.muted))
+                        Text(evidenceLabel(e), style = type.numeral.copy(fontSize = 12.tsp, color = colors.muted))
                     }
                 }
                 if (row.size == 1) Spacer(Modifier.weight(1f))

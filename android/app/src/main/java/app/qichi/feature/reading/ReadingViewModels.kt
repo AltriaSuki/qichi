@@ -8,9 +8,9 @@ import app.qichi.core.data.BookCache
 import app.qichi.core.data.People
 import app.qichi.core.data.ReadingRepository
 import app.qichi.core.data.RoomRepository
+import app.qichi.core.network.NetworkMonitor
 import app.qichi.core.reading.EpubException
 import app.qichi.core.reading.EpubOpener
-import app.qichi.core.network.NetworkMonitor
 import app.qichi.core.sync.Local
 import app.qichi.core.sync.RealtimeClient
 import app.qichi.core.ui.todayIn
@@ -23,15 +23,18 @@ import app.qichi.shared.model.HighlightKind
 import app.qichi.shared.model.ReadExplainMode
 import app.qichi.shared.model.wireName
 import app.qichi.shared.util.UuidV7
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.LocalDate
+import java.time.ZoneId
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -45,10 +48,8 @@ import org.json.JSONObject
 import org.readium.r2.shared.publication.Link
 import org.readium.r2.shared.publication.Locator
 import org.readium.r2.shared.publication.Publication
+import org.readium.r2.shared.publication.services.positions
 import org.readium.r2.shared.publication.services.search.search
-import java.time.LocalDate
-import java.time.ZoneId
-import java.util.UUID
 
 // ───────────────────────── 书架 ─────────────────────────
 
@@ -160,6 +161,8 @@ data class ReaderState(
     /** 我的全部，加上对方共享的 */
     val highlights: List<Local<Highlight>> = emptyList(),
     val toc: List<TocItem> = emptyList(),
+    /** 书一共几「页」（Readium 的位置数），页码写成「118 / 286」；还不知道时为 0 */
+    val totalPositions: Int = 0,
     val online: Boolean = true,
     val aiEnabled: Boolean = false,
     /** 正在等 AI 回答的请求 */
@@ -174,6 +177,7 @@ private data class Opened(
     val downloading: Float? = null,
     val error: String? = null,
     val toc: List<TocItem> = emptyList(),
+    val totalPositions: Int = 0,
 )
 
 @OptIn(FlowPreview::class)
@@ -222,6 +226,7 @@ class ReaderViewModel @AssistedInject constructor(
             partner = progress.firstOrNull { it.bookId == bookId && it.userId != p.myUserId },
             highlights = highlights.filter { it.value.bookId == bookId }.sortedBy { it.value.createdAt },
             toc = o.toc,
+            totalPositions = o.totalPositions,
             online = env.first,
             aiEnabled = env.second,
             aiPending = env.third.pending,
@@ -267,7 +272,7 @@ class ReaderViewModel @AssistedInject constructor(
             val pub = epubs.open(file)
             initialLocator = current.value ?: state.value.mine?.locator?.let { parseLocator(it) }
             publication = pub
-            opened.update { Opened(ready = true, toc = flatten(pub.tableOfContents, 0)) }
+            opened.update { Opened(ready = true, toc = flatten(pub.tableOfContents, 0), totalPositions = runCatching<Int> { pub.positions().size }.getOrDefault(0)) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: EpubException) {

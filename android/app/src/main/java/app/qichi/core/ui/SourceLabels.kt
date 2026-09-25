@@ -24,3 +24,16 @@ fun sourceLabel(src: SummarySource): String {
     val label = fromWireOrNull<MoodLabel>(m.groupValues[1]) ?: return src.label
     return feelingWord(label, m.groupValues[2].toInt()) + " " + m.groupValues[2] + m.groupValues[3]
 }
+
+/** 来源的图标和功能色（总结的来源列表、AI 回答的依据）。 */
+fun sourceLook(type: String): Pair<androidx.compose.ui.graphics.vector.ImageVector, app.qichi.core.designsystem.FeatureTone> = when (type) {
+    "message" -> app.qichi.core.designsystem.icon.QichiIcons.Chat to app.qichi.core.designsystem.FeatureTone.PersonA
+    "decision" -> app.qichi.core.designsystem.Feature.Decisions.icon to app.qichi.core.designsystem.Feature.Decisions.tone
+    "idea" -> app.qichi.core.designsystem.Feature.Ideas.icon to app.qichi.core.designsystem.Feature.Ideas.tone
+    "plan" -> app.qichi.core.designsystem.Feature.Plan.icon to app.qichi.core.designsystem.Feature.Plan.tone
+    "archive_item" -> app.qichi.core.designsystem.Feature.Archive.icon to app.qichi.core.designsystem.Feature.Archive.tone
+    "mood" -> app.qichi.core.designsystem.Feature.Mood.icon to app.qichi.core.designsystem.Feature.Mood.tone
+    "event" -> app.qichi.core.designsystem.Feature.Calendar.icon to app.qichi.core.designsystem.Feature.Calendar.tone
+    "todo" -> app.qichi.core.designsystem.Feature.Todo.icon to app.qichi.core.designsystem.Feature.Todo.tone
+    else -> app.qichi.core.designsystem.icon.QichiIcons.Summary to app.qichi.core.designsystem.FeatureTone.Muted
+}

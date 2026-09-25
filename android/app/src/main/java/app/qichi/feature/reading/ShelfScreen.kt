@@ -19,7 +19,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
@@ -34,14 +36,21 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.People
 import app.qichi.core.designsystem.Feature
+import app.qichi.core.designsystem.QichiShapes
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
 import app.qichi.core.designsystem.component.BarAction
@@ -55,7 +64,11 @@ import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
+import app.qichi.core.designsystem.component.color
+import app.qichi.core.designsystem.component.decor.Ribbon
+import app.qichi.core.designsystem.component.decor.Sticker
 import app.qichi.core.designsystem.icon.QichiIcons
+import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.DateChoice
 import app.qichi.core.ui.relativeDay
@@ -93,15 +106,56 @@ fun ShelfScreen(
         Column(Modifier.fillMaxSize()) {
             FeatureTopBar(Feature.Reading, onBack, actions = listOf(BarAction("离线下载", QichiIcons.Down, { cacheSheet = true })))
             adding?.let { Text("正在上传 ${(it * 100).toInt()}%", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(horizontal = Spacing.page)) }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = Spacing.page, end = Spacing.page, top = Spacing.xs)) {
                 if (state.loaded && state.books.isEmpty()) {
                     Text("书架还是空的。右下角可以放一本 EPUB 上来，两个人一起读。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
                 }
-                state.books.forEach { item -> BookRow(item, state.people, state.today, onClick = { onOpen(item.book.value.id) }, onLongClick = { menuFor = item }) }
+                // 在读：我最近读过、还没读完的那本
+                val current = state.books.filter { it.mine?.progress?.let { p -> p > 0 && p < .99 } == true }.maxByOrNull { it.mine!!.updatedAt }
+                current?.let { item ->
+                    SectionLabel("在读", icon = QichiIcons.Bookmark, tint = colors.accent)
+                    CurrentBook(item, state.people, onClick = { onOpen(item.book.value.id) }, onLongClick = { menuFor = item })
+                    Spacer(Modifier.height(Spacing.xl))
+                }
+                val rest = state.books.filter { it != current }
+                if (rest.isNotEmpty()) {
+                    SectionLabel("书架", icon = QichiIcons.Book, tint = colors.personB) {
+                        Text("${rest.size}", style = type.numeral.copy(fontSize = 13.tsp, color = colors.muted))
+                    }
+                    rest.chunked(3).forEach { row ->
+                        Box(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                            // 木板：垫在封面底下
+                            Box(Modifier.fillMaxWidth().padding(top = 118.dp).height(8.dp)
+                                .background(colors.ink.copy(alpha = .12f), RoundedCornerShape(3.dp)).clearAndSetSemantics { })
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                                row.forEach { item ->
+                                    Column(
+                                        Modifier.weight(1f).combinedClickable(role = Role.Button, onClickLabel = "打开", onLongClickLabel = "更多",
+                                            onClick = { onOpen(item.book.value.id) }, onLongClick = { menuFor = item }),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(Spacing.s),
+                                    ) {
+                                        BookCover(item.book.value, 86.dp, 122.dp, 13f)
+                                        val p = item.mine?.progress ?: 0.0
+                                        Text(
+                                            when {
+                                                p >= .99 -> "读完"
+                                                p > 0 -> "读到 ${(p * 100).toInt()}%"
+                                                else -> "想读"
+                                            },
+                                            style = type.caption.copy(fontSize = 12.tsp, color = colors.muted),
+                                        )
+                                    }
+                                }
+                                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                            }
+                        }
+                    }
+                }
                 Spacer(Modifier.height(FabClearance))
             }
         }
-        Fab("加一本书", { picker.launch(arrayOf("application/epub+zip")) }, enabled = adding == null)
+        Fab("加书", { picker.launch(arrayOf("application/epub+zip")) }, enabled = adding == null)
     }
 
     menuFor?.let { item ->
@@ -149,6 +203,71 @@ fun ShelfScreen(
                 Spacer(Modifier.height(Spacing.l))
             }
         }
+    }
+}
+
+/** 在读的那本：大封面（挂书签带）、书名、两个人的进度条、共读计划的贴纸。 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun CurrentBook(item: ShelfBook, people: People, onClick: () -> Unit, onLongClick: () -> Unit) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    val book = item.book.value
+    Row(
+        Modifier.fillMaxWidth().combinedClickable(role = Role.Button, onClickLabel = "接着读", onLongClickLabel = "更多", onClick = onClick, onLongClick = onLongClick),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.l),
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        BookCover(book, 104.dp, 148.dp, 15f, ribbon = true)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column {
+                Text(book.title, style = type.headline.copy(fontSize = 18.tsp, lineHeight = 25.tsp, color = colors.ink), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                book.author?.let { Text(it, style = type.caption.copy(color = colors.muted), maxLines = 1) }
+            }
+            listOfNotNull(item.mine, item.partner).forEach { p ->
+                val tint = people.person(p.userId).color()
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PersonMark(people.markChar(p.userId), people.person(p.userId), size = 18.dp)
+                    Box(Modifier.weight(1f).height(6.dp).background(tint.copy(alpha = .15f), QichiShapes.pill)) {
+                        Box(Modifier.fillMaxWidth(p.progress.toFloat().coerceIn(0f, 1f)).height(6.dp).background(tint, QichiShapes.pill))
+                    }
+                    Text("${(p.progress * 100).toInt()}%", style = type.numeral.copy(fontSize = 13.tsp, color = colors.muted))
+                }
+            }
+            if (book.planTargetDate != null || book.planNote != null) {
+                Sticker("共读" + (book.planNote?.let { " · $it" } ?: ""), rotation = -3f)
+            }
+        }
+    }
+}
+
+/**
+ * 书的封面：纸色底衬一点颜色（按书固定）、左边一道书脊阴影、竖排宋体书名、底下一个小圆；[ribbon] 时挂书签带。
+ */
+@Composable
+internal fun BookCover(book: Book, width: Dp, height: Dp, fontSizeSp: Float, ribbon: Boolean = false) {
+    val colors = QichiTheme.colors
+    val tint = listOf(colors.personB, colors.personA, null, colors.accent)[Math.floorMod(book.id.hashCode(), 4)]
+    val shape = RoundedCornerShape(topStart = 3.dp, bottomStart = 3.dp, topEnd = 6.dp, bottomEnd = 6.dp)
+    val spine = colors.ink.copy(alpha = .08f)
+    val ring = colors.ink.copy(alpha = .3f)
+    Box(
+        Modifier.size(width, height).lift(colors, shape).clip(shape).background(colors.card)
+            .then(if (tint != null) Modifier.background(tint.copy(alpha = .22f)) else Modifier)
+            .drawBehind {
+                drawRect(spine, size = androidx.compose.ui.geometry.Size(6.dp.toPx(), size.height))
+                drawCircle(ring, radius = 6.dp.toPx(), center = androidx.compose.ui.geometry.Offset(size.width / 2, size.height - 16.dp.toPx()), style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
+            }
+            .clearAndSetSemantics { },
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        // 竖排：一个字一行
+        Text(
+            book.title.take(8).toList().joinToString("\n"),
+            style = QichiTheme.typography.reading.copy(fontSize = fontSizeSp.tsp, lineHeight = (fontSizeSp * 1.3f).tsp, letterSpacing = 0.em, color = colors.ink, textAlign = TextAlign.Center),
+            modifier = Modifier.padding(top = height * .14f),
+        )
+        if (ribbon) Ribbon(Modifier.align(Alignment.TopStart).padding(start = 10.dp), height = height * .35f)
     }
 }
 

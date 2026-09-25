@@ -2,22 +2,29 @@ package app.qichi.feature.decisions
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -34,14 +41,20 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.qichi.core.data.People
 import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
@@ -51,13 +64,18 @@ import app.qichi.core.designsystem.component.FabClearance
 import app.qichi.core.designsystem.component.FeatureTopBar
 import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.MenuAction
-import app.qichi.core.designsystem.component.MistCard
 import app.qichi.core.designsystem.component.PersonMark
+import app.qichi.core.designsystem.component.PersonMarks
 import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.QuickInput
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
+import app.qichi.core.designsystem.component.color
+import app.qichi.core.designsystem.component.decor.Seal
+import app.qichi.core.designsystem.component.decor.Sticker
+import app.qichi.core.designsystem.icon.QichiIcons
+import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.DateChoice
@@ -65,6 +83,7 @@ import app.qichi.core.ui.relativeDay
 import app.qichi.shared.api.Decision
 import app.qichi.shared.rules.Limits
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 private fun reviewText(d: Decision, today: LocalDate): String? = d.reviewDate?.let {
@@ -90,24 +109,20 @@ fun DecisionListScreen(
     Box(Modifier.fillMaxSize().background(colors.background)) {
         Column(Modifier.fillMaxSize()) {
             FeatureTopBar(Feature.Decisions, onBack)
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
+            Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = Spacing.cardPage, end = Spacing.cardPage, top = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(Spacing.ml),
+            ) {
                 if (state.loaded && state.open.isEmpty() && state.decided.isEmpty()) {
                     Text("还没有决定记录。要一起拿主意的事，可以把备选和各自在意的地方写下来，慢慢商量。",
                         style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
                     TextAction("记一个", { creating = true })
                 }
-                if (state.open.isNotEmpty()) {
-                    SectionLabel("还没定  ${state.open.size}", modifier = Modifier.padding(top = Spacing.s))
-                    state.open.forEach { DecisionRow(it, state.today) { onOpen(it.value.id) } }
-                }
-                if (state.decided.isNotEmpty()) {
-                    SectionLabel("定下了  ${state.decided.size}", modifier = Modifier.padding(top = Spacing.l))
-                    state.decided.forEach { DecisionRow(it, state.today) { onOpen(it.value.id) } }
-                }
+                (state.open + state.decided).forEachIndexed { i, it -> DecisionCard(it, state.people, state.today, i) { onOpen(it.value.id) } }
                 Spacer(Modifier.height(FabClearance))
             }
         }
-        Fab("新的决定", { creating = true })
+        Fab("新决定", { creating = true })
     }
 
     if (creating) {
@@ -134,21 +149,49 @@ fun DecisionListScreen(
     }
 }
 
+private val MD = DateTimeFormatter.ofPattern("MM.dd")
+
+/**
+ * 一个决定是一张卡片（按 New-Decision-List）：问题、小字（何时提出 / 何时回头看看）；
+ * 定了的右上角盖「定」章，没定的贴「还在想」；下面两人标记 + 现在的状态。
+ */
 @Composable
-private fun DecisionRow(local: Local<Decision>, today: LocalDate, onClick: () -> Unit) {
+private fun DecisionCard(local: Local<Decision>, people: People, today: LocalDate, index: Int, onClick: () -> Unit) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val d = local.value
-    Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "打开", onClick = onClick).padding(vertical = Spacing.s)) {
-        Text(d.question, style = type.feeling.copy(fontSize = 20.tsp, lineHeight = 28.tsp, color = colors.ink), maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Row(Modifier.padding(top = Spacing.xxs), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-            val meta = buildList {
-                if (d.finalChoice != null) add("定了：${d.finalChoice}") else if (d.options.isNotEmpty()) add("${d.options.size} 个备选")
-                if (d.concerns.isNotEmpty()) add("${d.concerns.size} 人写了关注点")
+    val done = d.finalChoice != null
+    val rotation = listOf(-.5f, .6f, -.3f, .4f)[index % 4]
+    val shape = RoundedCornerShape(12.dp)
+    Column(
+        Modifier.rotate(rotation).fillMaxWidth().lift(colors, shape).clip(shape).background(colors.card)
+            .clickable(role = Role.Button, onClickLabel = "打开", onClick = onClick)
+            .padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 14.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s), verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f)) {
+                Text(d.question, style = type.headline.copy(lineHeight = 25.5.tsp, color = colors.ink), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                val meta = when {
+                    d.reviewDate != null && done -> (if (d.reviewDate!!.year == today.year) d.reviewDate!!.format(MD) else "${d.reviewDate!!.year} · ${d.reviewDate!!.format(MD)}") + (if (!d.reviewDate!!.isAfter(today)) " 该回头看看了" else " 回头看看")
+                    else -> d.createdAt.atZone(java.time.ZoneId.systemDefault()).toLocalDate().format(MD) + " 提出"
+                }
+                Text(meta, style = type.caption.copy(color = if (done && d.reviewDate?.let { !it.isAfter(today) } == true) colors.accent else colors.muted), modifier = Modifier.padding(top = 4.dp))
             }
-            Text(meta.joinToString(" · "), style = type.caption.copy(color = colors.muted), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false))
-            reviewText(d, today)?.let { Text(it, style = type.caption.copy(color = if (d.reviewDate!!.isAfter(today)) colors.faint else colors.accent)) }
+            if (done) Seal("定", size = 30.dp, rotation = 10f) else Sticker("还在想", color = colors.personB, rotation = -5f, fontSizeSp = 15f)
+        }
+        Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            val both = listOfNotNull(people.me, people.partner).map { people.markChar(it.userId) to people.person(it.userId) }
+            if (both.isNotEmpty()) PersonMarks(both, size = 18.dp)
+            Text(
+                when {
+                    done -> "选了：${d.finalChoice}"
+                    d.concerns.size >= 2 -> "两个人各自写了在意的事"
+                    d.options.isNotEmpty() -> "${d.options.size} 个备选"
+                    else -> "还没有备选"
+                },
+                style = type.caption.copy(fontSize = 12.tsp, fontWeight = FontWeight.W500, color = if (done) colors.accent else colors.personB),
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -188,38 +231,40 @@ fun DecisionDetailScreen(
         ))
         if (d == null) return@Column
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
-            Text(d.question, style = type.pageTitle.copy(fontSize = 24.tsp, lineHeight = 34.tsp, color = colors.ink),
-                modifier = Modifier.clickable(role = Role.Button, onClickLabel = "改问题") { editingQuestion = true }.semantics { heading() })
-
-            // ── 最终决定 ──
-            if (d.finalChoice != null) {
-                MistCard(Modifier.padding(top = Spacing.l)) {
-                    Text("定了", style = type.caption.copy(color = colors.accent))
-                    Text(d.finalChoice!!, style = type.feeling.copy(fontSize = 22.tsp, lineHeight = 30.tsp, color = colors.ink), modifier = Modifier.padding(top = Spacing.xxs))
-                    Row(Modifier.padding(top = Spacing.xs), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                        d.decidedBy?.let { PersonMark(people.markChar(it), people.person(it), size = 18.dp) }
-                        Text(d.decidedAt?.let { relativeDay(it.atZone(state.zone).toLocalDate(), state.today).first }.orEmpty(),
-                            style = type.caption.copy(color = colors.muted), modifier = Modifier.weight(1f))
-                        TextAction("重新考虑", vm::reopen, color = colors.muted)
+            Box(Modifier.fillMaxWidth().padding(top = Spacing.xs)) {
+                Text("？", style = type.reading.copy(fontSize = 120.tsp, lineHeight = 120.tsp, color = colors.accent.copy(alpha = .1f)),
+                    modifier = Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-30).dp).clearAndSetSemantics { })
+                Column {
+                    Text(d.question, style = type.headline.copy(fontSize = 22.tsp, lineHeight = 33.tsp, color = colors.ink),
+                        modifier = Modifier.clickable(role = Role.Button, onClickLabel = "改问题") { editingQuestion = true }.semantics { heading() })
+                    Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(d.createdAt.atZone(state.zone).toLocalDate().format(MD), style = type.numeral.copy(fontSize = 13.tsp, color = colors.muted))
+                        Text(" 提出", style = type.caption.copy(color = colors.muted))
+                        if (d.finalChoice != null) {
+                            Text(" · 定于 ", style = type.caption.copy(color = colors.muted))
+                            Text(d.decidedAt?.atZone(state.zone)?.toLocalDate()?.format(MD).orEmpty(), style = type.numeral.copy(fontSize = 13.tsp, color = colors.muted))
+                            d.decidedBy?.let { PersonMark(people.markChar(it), people.person(it), size = 16.dp, modifier = Modifier.padding(start = 6.dp)) }
+                            Spacer(Modifier.weight(1f))
+                            TextAction("重新考虑", vm::reopen, color = colors.muted)
+                        }
                     }
                 }
             }
 
-            // ── 备选 ──
-            SectionLabel("备选", modifier = Modifier.padding(top = Spacing.l))
-            if (d.options.isEmpty()) Text("还没有备选。", style = type.caption.copy(color = colors.muted))
-            d.options.forEach { option ->
-                val chosen = option == d.finalChoice
-                Text(
-                    (if (chosen) "✓  " else "·  ") + option,
-                    style = type.bodyLarge.copy(color = if (chosen) colors.accent else colors.ink),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp)
-                        .combinedClickable(role = Role.Button, onClickLabel = "选这个", onLongClickLabel = "删掉这个备选",
-                            onClick = { if (d.finalChoice == null) choosing = option }, onLongClick = { removing = option })
-                        .padding(top = 10.dp),
-                )
+            // ── 备选：卡片，定下的那张衬暮玫瑰、盖「定了」章 ──
+            SectionLabel("备选", Modifier.padding(top = Spacing.l), icon = QichiIcons.BulletList, tint = colors.accent)
+            if (d.options.isEmpty() && d.finalChoice == null) Text("还没有备选。", style = type.caption.copy(color = colors.muted))
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                val shown = if (d.finalChoice != null && d.finalChoice !in d.options) d.options + d.finalChoice!! else d.options
+                shown.forEachIndexed { i, option ->
+                    OptionCard(
+                        letter = ('A' + i).toString(), text = option, chosen = option == d.finalChoice,
+                        onClick = { if (d.finalChoice == null) choosing = option },
+                        onLongClick = { if (option in d.options) removing = option },
+                    )
+                }
             }
-            if (d.options.size < Limits.DECISION_OPTIONS_MAX) {
+            if (d.options.size < Limits.DECISION_OPTIONS_MAX && d.finalChoice == null) {
                 QuickInput(newOption, { newOption = it.take(Limits.DECISION_OPTION_LENGTH.last) }, placeholder = "加一个备选", actionLabel = "加上",
                     onSubmit = { vm.addOption(newOption); newOption = "" }, modifier = Modifier.padding(top = Spacing.xs))
             }
@@ -228,28 +273,33 @@ fun DecisionDetailScreen(
                 TextAction("定下别的……", { deciding = true }, color = colors.muted)
             }
 
-            // ── 关注点 ──
-            SectionLabel("各自在意的", modifier = Modifier.padding(top = Spacing.l))
-            listOfNotNull(people.me, people.partner).forEach { member ->
-                val mine = member.userId == people.myUserId
-                val concern = d.concerns.firstOrNull { it.userId == member.userId }?.text
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = Spacing.xs)
-                        .then(if (mine) Modifier.clickable(role = Role.Button, onClickLabel = "写我在意的") { editingConcern = true } else Modifier),
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-                ) {
-                    PersonMark(people.markChar(member.userId), people.person(member.userId), size = 22.dp)
-                    Text(
-                        concern ?: if (mine) "写下你在意的……" else "${member.displayName}还没写",
-                        style = type.body.copy(color = if (concern != null) colors.ink else colors.faint),
-                        modifier = Modifier.weight(1f),
-                    )
+            // ── 各自在意：两张便签 ──
+            SectionLabel("各自在意", Modifier.padding(top = Spacing.l), icon = QichiIcons.Heart, tint = colors.personA)
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                listOfNotNull(people.me, people.partner).forEachIndexed { i, member ->
+                    val mine = member.userId == people.myUserId
+                    val concern = d.concerns.firstOrNull { it.userId == member.userId }?.text
+                    val tint = people.person(member.userId).color()
+                    val shape = RoundedCornerShape(10.dp)
+                    Column(
+                        Modifier.weight(1f).fillMaxHeight().rotate(if (i == 0) -1f else 1f).lift(colors, shape).clip(shape).background(colors.card).background(tint.copy(alpha = .1f))
+                            .then(if (mine) Modifier.clickable(role = Role.Button, onClickLabel = "写我在意的") { editingConcern = true } else Modifier)
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                    ) {
+                        PersonMark(people.markChar(member.userId), people.person(member.userId), size = 22.dp)
+                        Text(
+                            concern ?: if (mine) "写下你在意的……" else "${member.displayName}还没写",
+                            style = type.body.copy(color = if (concern != null) colors.ink else colors.faint),
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
                 }
             }
 
             // ── 复查 ──
             Column(Modifier.padding(top = Spacing.l)) {
-                DateChoice("复查日期", d.reviewDate, state.today) { vm.setReviewDate(it) }
+                SectionLabel("复查", icon = QichiIcons.Calendar, tint = colors.personB)
+                DateChoice("到时候回头看看这个决定", d.reviewDate, state.today) { vm.setReviewDate(it) }
                 if (d.reviewDue(state.today)) {
                     Text("到了复查的日子：还合适吗？合适就换个下次复查的日子，或者不再复查。", style = type.caption.copy(color = colors.accent),
                         modifier = Modifier.padding(top = Spacing.xs))
@@ -309,4 +359,36 @@ private fun TextDialog(
         confirmButton = { TextAction("保存", { onSave(text) }, enabled = allowEmpty || text.isNotBlank()) },
         dismissButton = { TextAction("取消", onDismiss, color = colors.muted) },
     )
+}
+
+/** 一个备选：字母 + 内容的卡片；定下的衬暮玫瑰、描边，右边盖一枚歪着的「定了」圆章。 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun OptionCard(letter: String, text: String, chosen: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    val shape = RoundedCornerShape(10.dp)
+    Box {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp).lift(colors, shape).clip(shape).background(colors.card)
+                .then(if (chosen) Modifier.background(colors.accent.copy(alpha = .1f)).border(1.3.dp, colors.accent.copy(alpha = .5f), shape) else Modifier)
+                .combinedClickable(role = Role.Button, onClickLabel = "选这个", onLongClickLabel = "删掉这个备选", onClick = onClick, onLongClick = onLongClick)
+                .padding(start = 14.dp, end = if (chosen) 70.dp else 14.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+        ) {
+            Text(letter, style = type.numeral.copy(fontSize = 15.tsp, fontWeight = FontWeight.W500, color = colors.accent))
+            Text(text, style = type.body.copy(lineHeight = 23.tsp, color = colors.ink))
+        }
+        if (chosen) {
+            Box(
+                Modifier.align(Alignment.CenterEnd).padding(end = 10.dp).size(52.dp).rotate(-16f)
+                    .border(2.dp, colors.accent.copy(alpha = .75f), CircleShape)
+                    .padding(3.dp).border(3.dp, colors.accent.copy(alpha = .15f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("定了", style = type.sectionLabel.copy(fontSize = 15.tsp, letterSpacing = 0.1.em, color = colors.accent.copy(alpha = .85f)))
+            }
+        }
+    }
 }

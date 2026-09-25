@@ -14,10 +14,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.GenericShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
@@ -32,8 +36,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -50,11 +59,14 @@ import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.TextAction
+import app.qichi.core.designsystem.component.decor.Sticker
+import app.qichi.core.designsystem.dashedDivider
+import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
-import app.qichi.core.ui.relativeDay
 import app.qichi.shared.api.ReviewDocument
 import app.qichi.shared.model.PreviewStatus
 import app.qichi.shared.rules.Limits
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 /** 审稿列表：每份文件的最新版本、还没处理的批注数；右下角「新建审稿」选一个文件。 */
@@ -93,11 +105,11 @@ fun ReviewListScreen(
                         style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m),
                     )
                 }
-                state.items.forEach { item -> ReviewRow(item, state, onClick = { onOpen(item.doc.id) }, onLongClick = { menuFor = item.doc }) }
+                state.items.forEachIndexed { i, item -> ReviewRow(item, state, first = i == 0, onClick = { onOpen(item.doc.id) }, onLongClick = { menuFor = item.doc }) }
                 Spacer(Modifier.height(FabClearance))
             }
         }
-        Fab("新建审稿", { picker.launch(REVIEW_MIME_TYPES) }, enabled = adding == null)
+        Fab("上传", { picker.launch(REVIEW_MIME_TYPES) }, enabled = adding == null)
     }
 
     menuFor?.let { doc ->
@@ -136,35 +148,69 @@ internal fun RenameSheet(current: String, onSave: (String) -> Unit, onDismiss: (
 }
 
 @OptIn(ExperimentalFoundationApi::class)
+/** 文件缩略图：白纸（右上折角）、两道字线、一个暮玫瑰的圈。 */
 @Composable
-private fun ReviewRow(item: ReviewItem, state: ReviewListState, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun DocThumb() {
+    val colors = QichiTheme.colors
+    val line = Color(0xFFDFE2E0)
+    val head = Color(0xFFCDD2D1)
+    val ring = colors.accent
+    Box(
+        Modifier.size(44.dp, 56.dp).lift(colors, RoundedCornerShape(3.dp)).clip(GenericShape { size, _ ->
+            moveTo(0f, 0f); lineTo(size.width * .75f, 0f); lineTo(size.width, size.height * .2f); lineTo(size.width, size.height); lineTo(0f, size.height); close()
+        }).background(Color.White).drawBehind {
+            val px = 7.dp.toPx()
+            drawRoundRect(head, androidx.compose.ui.geometry.Offset(px, 9.dp.toPx()), androidx.compose.ui.geometry.Size((size.width - 2 * px) * .6f, 3.dp.toPx()), androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()))
+            drawRoundRect(line, androidx.compose.ui.geometry.Offset(px, 16.dp.toPx()), androidx.compose.ui.geometry.Size(size.width - 2 * px, 2.dp.toPx()), androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()))
+            drawRoundRect(line, androidx.compose.ui.geometry.Offset(px, 22.dp.toPx()), androidx.compose.ui.geometry.Size(size.width - 2 * px, 2.dp.toPx()), androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()))
+            rotate(-8f, pivot = androidx.compose.ui.geometry.Offset(24.dp.toPx(), 32.dp.toPx())) {
+                drawOval(ring, androidx.compose.ui.geometry.Offset(14.dp.toPx(), 26.dp.toPx()), androidx.compose.ui.geometry.Size(20.dp.toPx(), 12.dp.toPx()), style = androidx.compose.ui.graphics.drawscope.Stroke(1.3.dp.toPx()))
+            }
+        }.clearAndSetSemantics { },
+    )
+}
+
+private val MD = DateTimeFormatter.ofPattern("MM.dd")
+
+/**
+ * 一份审稿（按 New-Review-List）：文件缩略图、标题、版本号、状态贴纸（有没处理的批注写「讨论中」）；
+ * 小字是页数和讨论条数、谁传的；右边日期。
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ReviewRow(item: ReviewItem, state: ReviewListState, first: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val doc = item.doc
-    Column(
-        Modifier.fillMaxWidth().combinedClickable(role = Role.Button, onClickLabel = "打开", onLongClickLabel = "更多", onClick = onClick, onLongClick = onLongClick)
-            .padding(vertical = Spacing.s),
+    val latest = item.latest
+    Row(
+        Modifier.fillMaxWidth().then(if (first) Modifier else Modifier.dashedDivider(colors, atTop = true)).heightIn(min = 80.dp)
+            .combinedClickable(role = Role.Button, onClickLabel = "打开", onLongClickLabel = "更多", onClick = onClick, onLongClick = onLongClick),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.m),
     ) {
-        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            Text(doc.title, style = type.feeling.copy(fontSize = 21.tsp, lineHeight = 29.tsp, color = colors.ink), maxLines = 2, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false))
-            Text("v${doc.latestVersion}", style = type.numeral.copy(fontSize = 18.tsp, color = colors.muted))
-        }
-        Row(Modifier.padding(top = Spacing.xxs), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            val latest = item.latest
-            latest?.let { PersonMark(state.people.markChar(it.uploadedBy), state.people.person(it.uploadedBy), size = 16.dp) }
-            val meta = buildList {
-                latest?.let { v ->
-                    add(relativeDay(v.createdAt.atZone(state.zone).toLocalDate(), java.time.LocalDate.now(state.zone)).first)
-                    when (v.previewStatus) {
-                        PreviewStatus.Pending -> add("正在生成预览")
-                        PreviewStatus.Failed -> add("预览没能生成")
-                        PreviewStatus.Ready -> add("${v.pageCount ?: 0} 页")
-                    }
-                }
-                if (item.open > 0) add("${item.open} 条待处理")
+        DocThumb()
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(doc.title, style = type.headline.copy(color = colors.ink), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                Text("v${doc.latestVersion}", style = type.numeral.copy(fontSize = 14.tsp, color = colors.muted))
+                if (item.open > 0) Sticker("讨论中", rotation = -4f, fontSizeSp = 14f)
             }
-            Text(meta.joinToString(" · "), style = type.caption.copy(color = if (item.open > 0) colors.accent else colors.muted), maxLines = 1)
+            Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                val meta = buildList {
+                    latest?.let { v ->
+                        when (v.previewStatus) {
+                            PreviewStatus.Pending -> add("正在生成预览")
+                            PreviewStatus.Failed -> add("预览没能生成")
+                            PreviewStatus.Ready -> add("${v.pageCount ?: 0} 页")
+                        }
+                    }
+                    add(if (item.open > 0) "${item.open} 条讨论" else "没有待处理的")
+                }
+                Text(meta.joinToString(" · "), style = type.caption.copy(color = colors.muted), maxLines = 1)
+                latest?.let { PersonMark(state.people.markChar(it.uploadedBy), state.people.person(it.uploadedBy), size = 16.dp) }
+            }
         }
+        latest?.let { Text(it.createdAt.atZone(state.zone).format(MD), style = type.numeral.copy(fontSize = 12.tsp, color = colors.muted)) }
     }
 }

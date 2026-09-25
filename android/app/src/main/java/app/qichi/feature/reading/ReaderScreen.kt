@@ -37,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -48,18 +49,23 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.People
 import app.qichi.core.designsystem.Feature
+import app.qichi.core.designsystem.QichiShapes
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
 import app.qichi.core.designsystem.component.BarAction
 import app.qichi.core.designsystem.component.ConfirmDialog
 import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.MenuAction
+import app.qichi.core.designsystem.component.Person
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.QuickInput
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
+import app.qichi.core.designsystem.component.color
+import app.qichi.core.designsystem.component.decor.Ribbon
 import app.qichi.core.designsystem.icon.QichiIcons
+import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
 import app.qichi.shared.api.Highlight
 import app.qichi.shared.model.HighlightKind
@@ -123,8 +129,8 @@ fun ReaderScreen(
             menu = listOf(MenuAction("书内搜索", { sheet = ReaderSheet.Search }, enabled = state.ready)),
         )
 
-        // ── 正文 ──
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        // ── 正文：一张纸（浮起、圆角），左上挂书签带 ──
+        Box(Modifier.weight(1f).padding(horizontal = Spacing.m).fillMaxWidth().lift(colors, QichiShapes.paper).clip(QichiShapes.paper).background(colors.paper)) {
             val pub = vm.publication
             when {
                 state.ready && pub != null -> {
@@ -132,7 +138,7 @@ fun ReaderScreen(
                     val scale = type.scale
                     val prefs = remember(colors, scale) {
                         EpubPreferences(
-                            backgroundColor = ReadiumColor(colors.background.toArgb()),
+                            backgroundColor = ReadiumColor(colors.paper.toArgb()),
                             textColor = ReadiumColor(colors.ink.toArgb()),
                             fontSize = scale.toDouble(),
                         )
@@ -164,6 +170,7 @@ fun ReaderScreen(
                     style = type.caption.copy(color = colors.faint), modifier = Modifier.align(Alignment.Center),
                 )
             }
+            Ribbon(Modifier.padding(start = 24.dp), height = 58.dp)
         }
 
         // ── AI 正在看 / 没得到回答 ──
@@ -197,12 +204,13 @@ fun ReaderScreen(
         val me = state.people.myUserId
         val decorations = state.highlights.map { it.value }.filter { it.kind != HighlightKind.Bookmark }.mapNotNull { h ->
             val l = vm.parseLocator(h.locator) ?: return@mapNotNull null
-            val tint = when {
-                h.kind == HighlightKind.Ai -> colors.faint
-                h.userId == me -> colors.accent
-                else -> colors.personB
+            // 我的：暮玫瑰淡底；对方共享的：对方颜色的波浪下划线；AI 的：淡灰底
+            val style: Decoration.Style = when {
+                h.kind == HighlightKind.Ai -> Decoration.Style.Highlight(colors.faint.copy(alpha = 0.3f).toArgb(), isActive = h.note != null)
+                h.userId == me -> Decoration.Style.Highlight(colors.accent.copy(alpha = 0.18f).toArgb(), isActive = h.note != null)
+                else -> WavyUnderline((if (state.people.person(h.userId) == Person.A) colors.personA else colors.personB).toArgb())
             }
-            Decoration(h.id.toString(), l, Decoration.Style.Highlight(tint.copy(alpha = 0.35f).toArgb(), isActive = h.note != null))
+            Decoration(h.id.toString(), l, style)
         }
         nav.applyDecorations(decorations, "highlights")
     }
@@ -238,40 +246,43 @@ fun ReaderScreen(
     }
 }
 
-/** 底部：一条进度线，上面是两个人各自读到的位置；右边是页码（有的话）。 */
+/** 底部（按 New-Reading）：一条细进度条，我读到的部分是玫瑰色，上面两个人的标记在各自读到的位置；下面居中页码。 */
 @Composable
 private fun ProgressTrack(state: ReaderState, locator: Locator?) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val people = state.people
     val mine = locator?.locations?.totalProgression ?: state.mine?.progress
-    val partnerId = people.partner?.userId
-    Row(
-        Modifier.fillMaxWidth().navigationBarsPadding().padding(start = Spacing.xl, end = Spacing.page, top = Spacing.xs, bottom = Spacing.m),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.m),
-    ) {
-        BoxWithConstraints(Modifier.weight(1f).height(26.dp).semantics(mergeDescendants = true) {
+    Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 30.dp, end = 30.dp, top = Spacing.l, bottom = Spacing.l)) {
+        BoxWithConstraints(Modifier.fillMaxWidth().height(18.dp).semantics(mergeDescendants = true) {
             contentDescription = buildString {
                 mine?.let { append("我读到 ${(it * 100).toInt()}%") }
                 state.partner?.let { append("，${people.name(it.userId)}读到 ${(it.progress * 100).toInt()}%") }
             }
         }) {
-            Box(Modifier.align(Alignment.CenterStart).fillMaxWidth().height(1.dp).background(colors.line2))
-            mine?.let { Box(Modifier.align(Alignment.CenterStart).width(maxWidth * it.toFloat()).height(1.dp).background(colors.ink)) }
+            Box(Modifier.align(Alignment.CenterStart).fillMaxWidth().height(4.dp).background(colors.ink.copy(alpha = .1f), QichiShapes.pill))
+            mine?.let { Box(Modifier.align(Alignment.CenterStart).width(maxWidth * it.toFloat().coerceIn(0f, 1f)).height(4.dp).background(colors.personA, QichiShapes.pill)) }
             state.partner?.let { p ->
                 PersonMark(people.markChar(p.userId), people.person(p.userId), size = 18.dp,
-                    modifier = Modifier.align(Alignment.CenterStart).offset(x = (maxWidth - 18.dp) * p.progress.toFloat()))
+                    modifier = Modifier.align(Alignment.CenterStart).offset(x = (maxWidth - 18.dp) * p.progress.toFloat().coerceIn(0f, 1f)))
             }
             if (mine != null && people.myUserId != null) {
                 PersonMark(people.markChar(people.myUserId), people.person(people.myUserId), size = 18.dp,
-                    modifier = Modifier.align(Alignment.CenterStart).offset(x = (maxWidth - 18.dp) * mine.toFloat()))
+                    modifier = Modifier.align(Alignment.CenterStart).offset(x = (maxWidth - 18.dp) * mine.toFloat().coerceIn(0f, 1f)))
             }
         }
-        locator?.locations?.position?.let { Text(it.toString(), style = type.numeral.copy(fontSize = 19.tsp, color = colors.muted)) }
-            ?: mine?.let { Text("${(it * 100).toInt()}%", style = type.numeral.copy(fontSize = 17.tsp, color = colors.muted)) }
+        val position = locator?.locations?.position
+        Text(
+            when {
+                position != null && state.totalPositions > 0 -> "$position / ${state.totalPositions}"
+                position != null -> "$position"
+                mine != null -> "${(mine * 100).toInt()}%"
+                else -> ""
+            },
+            style = type.numeral.copy(fontSize = 13.tsp, color = colors.muted),
+            modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = Spacing.m),
+        )
     }
-    if (partnerId == null) Spacer(Modifier.height(0.dp))
 }
 
 @Composable
