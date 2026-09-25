@@ -33,24 +33,22 @@ fun relativeDay(date: LocalDate, today: LocalDate): Pair<String, Boolean> {
         days == 1L -> "明天" to false
         days == -1L -> "昨天" to false
         days in 2..6 -> date.dayOfWeek.chinese to false
-        date.year == today.year -> "${date.monthValue} · ${date.dayOfMonth}" to true
-        else -> "${date.year} · ${date.monthValue} · ${date.dayOfMonth}" to true
+        date.year == today.year -> "%02d.%02d".format(date.monthValue, date.dayOfMonth) to true
+        else -> "%d.%02d.%02d".format(date.year, date.monthValue, date.dayOfMonth) to true
     }
 }
 
 /**
- * 聊天里的日期分隔：今天、昨天；今年的写「9 · 18 周三」；更早的带年份。
- * @return 文字与是否用 Cormorant 数字字体显示
+ * 聊天里的日期分隔：今天、昨天；今年的写「09.18 周三」；更早的带年份「2025.12.31」。
+ * @return 文字与是否用等宽数字字体显示
  */
 fun chatDay(date: LocalDate, today: LocalDate): Pair<String, Boolean> {
     val days = ChronoUnit.DAYS.between(date, today)
     return when {
         days == 0L -> "今天" to false
         days == 1L -> "昨天" to false
-        date.year == today.year -> "${date.monthValue} · ${date.dayOfMonth}  ${date.dayOfWeek.chinese}" to true
-        else -> "${date.year} · ${date.monthValue} · ${date.dayOfMonth}" to true
+        date.year == today.year -> "%02d.%02d  %s".format(date.monthValue, date.dayOfMonth, date.dayOfWeek.chinese) to true
+        else -> "%d.%02d.%02d".format(date.year, date.monthValue, date.dayOfMonth) to true
     }
 }
 
-/** 罗马数字写月份，如 9 月 → ix（设计稿里「3 · ix」这样的写法）。 */
-fun monthRoman(month: Int): String = listOf("i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii")[month - 1]

@@ -24,7 +24,7 @@ import java.time.LocalDate
 import java.time.ZoneOffset
 
 /** 「3 · ix」这样的日期写法（设计稿里的里程碑、记录）。 */
-fun shortDate(date: LocalDate): String = "${date.dayOfMonth} · ${monthRoman(date.monthValue)}"
+fun shortDate(date: LocalDate): String = "%02d.%02d".format(date.monthValue, date.dayOfMonth)
 
 /** 选日期：不设 / 今天 / 明天 / 选日期。 */
 @OptIn(ExperimentalMaterial3Api::class)

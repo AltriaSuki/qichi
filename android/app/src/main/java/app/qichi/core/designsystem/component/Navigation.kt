@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -280,6 +279,3 @@ fun BoxScope.Fab(text: String, onClick: () -> Unit, modifier: Modifier = Modifie
 
 /** 列表最后给新建按钮让出的空白。 */
 val FabClearance = 100.dp
-
-@Composable
-internal fun HorizontalGap(width: Int) = Spacer(Modifier.width(width.dp))

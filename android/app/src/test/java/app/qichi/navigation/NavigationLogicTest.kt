@@ -1,6 +1,5 @@
 package app.qichi.navigation
 
-import app.qichi.core.designsystem.component.romanNumeral
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -74,14 +73,6 @@ class NavigationLogicTest {
         assertEquals(listOf(TopTab.Today), h.entries)
         h.onSwitch(TopTab.Chat, TopTab.Chat)
         assertEquals(listOf(TopTab.Today), h.entries)
-    }
-
-    @Test
-    fun `罗马数字`() {
-        assertEquals(
-            listOf("i", "ii", "iii", "iv", "v", "vi", "ix", "xii", "xl", "mmxxvi"),
-            listOf(1, 2, 3, 4, 5, 6, 9, 12, 40, 2026).map(::romanNumeral),
-        )
     }
 
     @Test

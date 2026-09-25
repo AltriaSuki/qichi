@@ -29,7 +29,6 @@ import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.chinese
-import app.qichi.core.ui.monthRoman
 import java.time.LocalDate
 import java.util.UUID
 
@@ -53,7 +52,7 @@ fun CalendarDayScreen(
                     .map { state.people.markChar(it.userId) to state.people.person(it.userId) }
                 if (marks.isNotEmpty()) PersonMarks(marks)
             }
-            Text("${monthRoman(state.date.monthValue)} · ${state.date.year}",
+            Text("%d.%02d".format(state.date.year, state.date.monthValue),
                 style = QichiTheme.typography.numeral.copy(fontSize = 17.tsp, color = colors.muted),
                 modifier = Modifier.padding(top = Spacing.xs))
             Row(

@@ -41,9 +41,10 @@ import app.qichi.core.designsystem.QichiShapes
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sizes
 import app.qichi.core.designsystem.icon.QichiIcons
+import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
 
-/** 雾层卡片：surface 背景、4dp 圆角、无描边无投影。 */
+/** 浮起的卡片：card 底色、14dp 圆角、lift 阴影（旧名 MistCard 沿用）。 */
 @Composable
 fun MistCard(
     modifier: Modifier = Modifier,
@@ -53,8 +54,9 @@ fun MistCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .lift(QichiTheme.colors)
             .clip(QichiShapes.card)
-            .background(QichiTheme.colors.surface)
+            .background(QichiTheme.colors.card)
             .padding(contentPadding),
         content = content,
     )
@@ -96,7 +98,7 @@ fun Pill(
     }
 }
 
-/** 单选胶囊（如情绪选择）：选中时 surface 底 + accent 字，未选中透明底 + muted 字。 */
+/** 几个里选一个的胶囊（选日期、字号……）：选中的是深色底，其余是浅底带细边，和标签筛选一个样子。 */
 @Composable
 fun ChoicePill(
     text: String,
@@ -107,22 +109,22 @@ fun ChoicePill(
     val colors = QichiTheme.colors
     Box(
         modifier = modifier
-            .heightIn(min = Sizes.buttonHeight)
+            .heightIn(min = Sizes.touchTarget)
             .clip(QichiShapes.pill)
-            .background(if (selected) colors.surface else Color.Transparent)
+            .background(if (selected) colors.ink else colors.surface)
+            .then(if (selected) Modifier else Modifier.border(1.dp, colors.ink.copy(alpha = .06f), QichiShapes.pill))
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .padding(horizontal = 8.dp),
+            .padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
             style = QichiTheme.typography.body.copy(
-                fontSize = 17.tsp,
-                letterSpacing = 0.16.em,
-                fontWeight = if (selected) FontWeight.W400 else FontWeight.W300,
-                color = if (selected) colors.accent else colors.muted,
+                fontSize = 14.tsp,
+                fontWeight = FontWeight.W500,
+                color = if (selected) colors.background else colors.ink,
             ),
-            modifier = Modifier.padding(start = 2.dp),
+            maxLines = 1,
         )
     }
 }

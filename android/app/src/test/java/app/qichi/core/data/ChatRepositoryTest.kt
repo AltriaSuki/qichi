@@ -281,7 +281,7 @@ class ChatRepositoryTest {
         val today = LocalDate.of(2026, 9, 21)
         assertEquals("今天" to false, chatDay(today, today))
         assertEquals("昨天" to false, chatDay(today.minusDays(1), today))
-        assertEquals("9 · 18  周五" to true, chatDay(LocalDate.of(2026, 9, 18), today))
-        assertEquals("2025 · 12 · 31" to true, chatDay(LocalDate.of(2025, 12, 31), today))
+        assertEquals("09.18  周五" to true, chatDay(LocalDate.of(2026, 9, 18), today))
+        assertEquals("2025.12.31" to true, chatDay(LocalDate.of(2025, 12, 31), today))
     }
 }
