@@ -8,6 +8,9 @@ import app.qichi.shared.api.Idea
 import app.qichi.shared.api.Mood
 import app.qichi.shared.api.Plan
 import app.qichi.shared.api.QnaRound
+import app.qichi.shared.api.ReadingProgress
+import app.qichi.shared.api.Summary
+import app.qichi.shared.model.SummaryKind
 import app.qichi.shared.api.Todo
 import app.qichi.shared.model.PlanStatus
 import java.time.Instant
@@ -30,14 +33,29 @@ data class HubData(
     val events: List<Event>,
     val ideas: List<Idea>,
     val decisions: List<Decision> = emptyList(),
+    val documents: Int = 0,
+    val topics: Int = 0,
+    val archiveItems: Int = 0,
+    val reviews: Int = 0,
+    val summaries: List<Summary> = emptyList(),
+    /** 两个人的阅读进度（取我自己最近读的那本） */
+    val progress: List<ReadingProgress> = emptyList(),
 )
+
+/** 心情那一行：对方今天记了心情、说需要安慰时，不显示数字，显示这个（界面上用暮玫瑰小圆点标出来）。 */
+const val NEEDS_COMFORT = "需要安慰"
+
+private val chineseMonths = listOf("一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月")
 
 /**
  * 「一起 · 生活」目录右侧的数字（按房间时区算「今天」），没有就不显示：
  * 心情 = 今天两人记下的心情条数；问答 = 今天的问题我还没确认回答时为 1；
  * 计划 = 进行中的计划数；待办 = 截止在今天或更早、还没完成的顶层待办数；
  * 日历 = 今天接下来第一个有具体时间的日程几点开始；灵感 = 灵感总数。
- * 「回看」里：决定 = 还没定的加上复查日期到了的。
+ * 对方今天的心情说需要安慰时，心情那一行显示 [NEEDS_COMFORT]。
+ * 「创作」里：写作 = 文稿数；留言 = 主题数。
+ * 「回看」里：档案、审稿 = 条数；决定 = 还没定的加上复查日期到了的；
+ * 阅读 = 我最近读的那本读到百分之几；总结 = 最新一份是月总结时写「九月」，否则写份数。
  */
 fun hubCounts(d: HubData): Map<Page, String> {
     val today: LocalDate = d.now.atZone(d.zone).toLocalDate()
@@ -49,7 +67,19 @@ fun hubCounts(d: HubData): Map<Page, String> {
         Page.Todo to d.todos.count { it.parentId == null && it.doneAt == null && dueOf(it)?.let { due -> !due.isAfter(today) } == true },
         Page.Ideas to d.ideas.size,
         Page.Decisions to d.decisions.count { it.finalChoice == null || it.reviewDate?.let { r -> !r.isAfter(today) } == true },
-    ).filterValues { it > 0 }.mapValues { it.value.toString() }
+        Page.Writing to d.documents,
+        Page.Board to d.topics,
+        Page.Archive to d.archiveItems,
+        Page.Review to d.reviews,
+    ).filterValues { it > 0 }.mapValues { it.value.toString() }.toMutableMap()
+    val comfort = d.moods.any { it.authorId != d.me && it.needsComfort && it.createdAt.atZone(d.zone).toLocalDate() == today }
+    if (comfort) counts[Page.Mood] = NEEDS_COMFORT
+    d.progress.filter { it.userId == d.me && it.progress >= 0.01 }.maxByOrNull { it.updatedAt }?.let { p ->
+        counts[Page.Reading] = "${(p.progress * 100).toInt().coerceIn(0, 100)}%"
+    }
+    d.summaries.maxByOrNull { it.createdAt }?.let { latest ->
+        counts[Page.Summary] = if (latest.kind == SummaryKind.Month) chineseMonths[latest.rangeStart.monthValue - 1] else d.summaries.size.toString()
+    }
     val nextEvent = d.events
         .filter { !it.allDay && it.startsAt != null && it.startsAt!! > d.now && today in it.days(d.zone) }
         .minByOrNull { it.startsAt!! }

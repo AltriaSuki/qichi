@@ -51,7 +51,7 @@ class NavigationLogicTest {
     @Test
     fun `一起的三组包含文档规定的页面`() {
         assertEquals(listOf("心情", "问答", "计划", "待办", "日历", "灵感"), Page.inGroup(TogetherGroup.Life).map { it.title })
-        assertEquals(listOf("留言", "写作"), Page.inGroup(TogetherGroup.Create).map { it.title })
+        assertEquals(listOf("写作", "留言"), Page.inGroup(TogetherGroup.Create).map { it.title })
         assertEquals(listOf("档案", "决定", "时间线", "阅读", "审稿", "总结"), Page.inGroup(TogetherGroup.Look).map { it.title })
     }
 

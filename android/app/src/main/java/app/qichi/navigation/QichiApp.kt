@@ -162,7 +162,12 @@ fun QichiApp(
                             hub.saved.collect { android.widget.Toast.makeText(context, "记下了，在「灵感」里", android.widget.Toast.LENGTH_SHORT).show() }
                         }
                         val counts by hub.counts.collectAsStateWithLifecycle()
-                        TogetherHubScreen(group = group, onGroupChange = { group = it }, onOpen = { navigator.open(it) }, counts = counts, onAddIdea = hub::addIdea)
+                        val hubPeople by hub.people.collectAsStateWithLifecycle()
+                        val recent by hub.recent.collectAsStateWithLifecycle()
+                        TogetherHubScreen(
+                            group = group, onGroupChange = { group = it }, onOpen = { navigator.open(it) }, counts = counts,
+                            people = hubPeople, recent = recent, onOpenItem = { page, id -> navigator.open(page, id) }, onAddIdea = hub::addIdea,
+                        )
                     }
                     composable<TogetherPage> { entry ->
                         val route = entry.toRoute<TogetherPage>()

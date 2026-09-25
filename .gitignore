@@ -26,3 +26,4 @@ deploy/secrets/
 # 日志与临时文件
 *.log
 *.hprof
+__pycache__/

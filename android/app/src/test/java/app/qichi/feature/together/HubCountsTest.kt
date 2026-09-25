@@ -6,9 +6,12 @@ import app.qichi.shared.api.Idea
 import app.qichi.shared.api.Mood
 import app.qichi.shared.api.Plan
 import app.qichi.shared.api.QnaRound
+import app.qichi.shared.api.ReadingProgress
+import app.qichi.shared.api.Summary
 import app.qichi.shared.api.Todo
 import app.qichi.shared.model.MoodLabel
 import app.qichi.shared.model.PlanStatus
+import app.qichi.shared.model.SummaryKind
 import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
@@ -78,5 +81,34 @@ class HubCountsTest {
         )
         assertEquals("14:00", c[Page.Calendar])
         assertEquals(null, counts(events = listOf(event(Instant.parse("2026-09-23T16:30:00Z"))))[Page.Calendar], "上海已是明天")
+    }
+
+    @Test
+    fun `对方今天需要安慰时心情一行显示需要安慰；创作和回看的数字`() {
+        val needs = mood(now).copy(authorId = partner, needsComfort = true)
+        val c = hubCounts(
+            HubData(
+                me, zone, now, listOf(needs, mood(now)), emptyList(), emptyList(), emptyList(), emptyList(), emptyList(),
+                documents = 3, topics = 2, archiveItems = 48, reviews = 0,
+                progress = listOf(
+                    ReadingProgress(UUID.randomUUID(), room, 1, now, now.minusSeconds(60), null, null, UUID.randomUUID(), me, "", 0.1),
+                    ReadingProgress(UUID.randomUUID(), room, 1, now, now, null, null, UUID.randomUUID(), me, "", 0.424),
+                    ReadingProgress(UUID.randomUUID(), room, 1, now, now.plusSeconds(60), null, null, UUID.randomUUID(), partner, "", 0.9),
+                ),
+                summaries = listOf(
+                    Summary(UUID.randomUUID(), room, 1, now.minusSeconds(100), now, null, null, SummaryKind.Week, today, today, "", emptyList(), true, false, me),
+                    Summary(UUID.randomUUID(), room, 1, now, now, null, null, SummaryKind.Month, LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 30), "", emptyList(), true, false, me),
+                ),
+            ),
+        )
+        assertEquals(NEEDS_COMFORT, c[Page.Mood])
+        assertEquals("3", c[Page.Writing])
+        assertEquals("2", c[Page.Board])
+        assertEquals("48", c[Page.Archive])
+        assertEquals(null, c[Page.Review])
+        assertEquals("42%", c[Page.Reading], "取我自己最近读的那本")
+        assertEquals("九月", c[Page.Summary])
+        // 自己需要安慰不算
+        assertEquals("1", counts(moods = listOf(mood(now).copy(needsComfort = true)))[Page.Mood])
     }
 }

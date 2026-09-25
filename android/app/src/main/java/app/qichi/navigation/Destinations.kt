@@ -40,8 +40,8 @@ enum class Page(val slug: String, val title: String, val tab: TopTab, val group:
     Ideas("ideas", "灵感", TopTab.Together, TogetherGroup.Life),
 
     // 一起 · 创作
-    Board("board", "留言", TopTab.Together, TogetherGroup.Create),
     Writing("writing", "写作", TopTab.Together, TogetherGroup.Create),
+    Board("board", "留言", TopTab.Together, TogetherGroup.Create),
 
     // 一起 · 回看
     Archive("archive", "档案", TopTab.Together, TogetherGroup.Look),
