@@ -20,14 +20,14 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.LocalDate
+import java.time.ZoneId
+import java.util.UUID
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.LocalDate
-import java.time.ZoneId
-import java.util.UUID
 
 enum class Assignee { Both, Me, Partner }
 enum class Repeat(val label: String) { None("不重复"), Daily("每天"), Weekly("每周"), Monthly("每月") }
@@ -78,6 +78,17 @@ data class TodoForm(
 /** 一条顶层待办和它的子任务。 */
 data class TodoGroup(val todo: Local<Todo>, val children: List<Local<Todo>>)
 
+/** 待办页的三段：今天（含逾期）、这周（到周日）、以后（含没有截止日的）。 */
+data class TodoSections(val today: List<TodoGroup>, val week: List<TodoGroup>, val later: List<TodoGroup>)
+
+fun todoSections(open: List<TodoGroup>, today: LocalDate, zone: ZoneId): TodoSections {
+    val sunday = today.with(java.time.temporal.TemporalAdjusters.nextOrSame(java.time.DayOfWeek.SUNDAY))
+    fun due(t: Todo): LocalDate? = t.dueDate ?: t.dueAt?.atZone(zone)?.toLocalDate()
+    val (todayList, rest) = open.partition { g -> due(g.todo.value)?.let { !it.isAfter(today) } == true }
+    val (week, later) = rest.partition { g -> due(g.todo.value)?.let { !it.isAfter(sunday) } == true }
+    return TodoSections(todayList, week, later)
+}
+
 data class TodoUiState(
     val people: People = People.Empty,
     val zone: ZoneId = ZoneId.systemDefault(),
@@ -86,7 +97,10 @@ data class TodoUiState(
     val done: List<TodoGroup> = emptyList(),
     /** 可以挂靠的计划（进行中的） */
     val plans: List<Plan> = emptyList(),
+    /** 所有计划的标题（待办下面那行小字「⚑ 秋天去一次海边」） */
+    val planTitles: Map<UUID, String> = emptyMap(),
 ) {
+    val sections: TodoSections get() = todoSections(open, today, zone)
     fun find(id: UUID): TodoGroup? = (open + done).firstOrNull { it.todo.value.id == id }
 }
 
@@ -124,6 +138,7 @@ class TodoViewModel @AssistedInject constructor(
                 .sortedByDescending { it.todo.value.doneAt }
                 .take(30),
             plans = allPlans.map { it.value }.filter { it.status != PlanStatus.Done }.sortedBy { it.createdAt },
+            planTitles = allPlans.associate { it.value.id to it.value.title },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TodoUiState())
 

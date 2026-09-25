@@ -2,6 +2,7 @@ package app.qichi.core.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -43,6 +44,8 @@ fun TodoRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     subtask: Boolean = false,
+    /** 标题下面一行小字（待办页：截止、计划、子任务进度、重复）；有它时右边不再显示截止 */
+    meta: (@Composable () -> Unit)? = null,
 ) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
@@ -64,24 +67,24 @@ fun TodoRow(
             contentDescription = if (done) "取消完成" else "完成",
             modifier = Modifier.offset(x = (-12).dp),
         )
-        Text(
-            text = todo.title,
-            style = (if (subtask) type.body.copy(fontSize = 14.tsp) else type.bodyLarge).copy(
-                color = if (done) colors.faint else colors.ink,
-                textDecoration = if (done) TextDecoration.None else null,
-            ),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .weight(1f)
-                .offset(x = (-4).dp),
-        )
+        Column(Modifier.weight(1f).offset(x = (-4).dp).padding(vertical = if (meta != null) 6.dp else 0.dp)) {
+            Text(
+                text = todo.title,
+                style = (if (subtask) type.body.copy(fontSize = 14.tsp) else type.bodyLarge).copy(
+                    color = if (done) colors.faint else colors.ink,
+                    textDecoration = if (done) TextDecoration.LineThrough else null,
+                ),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            meta?.invoke()
+        }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (item.isPending) Icon(QichiIcons.Clock, contentDescription = "待发送", tint = colors.muted, modifier = Modifier.size(13.dp))
             if (item.isFailed) Text("发送失败", style = type.caption.copy(color = colors.accent))
-            if (todo.recurrence != null) Icon(QichiIcons.Repeat, contentDescription = "重复", tint = colors.muted, modifier = Modifier.size(14.dp))
+            if (todo.recurrence != null && meta == null) Icon(QichiIcons.Repeat, contentDescription = "重复", tint = colors.muted, modifier = Modifier.size(14.dp))
             val due = todo.dueDate ?: todo.dueAt?.atZone(zone)?.toLocalDate()
-            if (due != null && !subtask) {
+            if (due != null && !subtask && meta == null) {
                 val (label, numeral) = relativeDay(due, today)
                 val overdue = !done && due.isBefore(today)
                 val color = if (overdue) colors.accent else colors.muted
