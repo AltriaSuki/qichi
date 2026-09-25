@@ -3663,7 +3663,10 @@ components:
         shared: { type: boolean }
     TimelineEntryKind:
       type: string
-      enum: [decision, idea, plan, photo]
+      description: |
+        decision 定下的决定；idea 灵感；plan 计划完成；photo 两人都选中的照片；
+        mood 心情（P10-09）；qna 揭晓了的问答；plan_progress 计划的阶段或里程碑完成；writing 文稿存了新版本（同一篇一天只列最新一版）
+      enum: [decision, idea, plan, photo, mood, qna, plan_progress, writing]
     TimelineEntry:
       type: object
       required: [kind, refId, at, title]
@@ -3675,6 +3678,21 @@ components:
         detail: { type: [string, 'null'] }
         authorId: { $ref: '#/components/schemas/NullableUuid' }
         file: { oneOf: [{ $ref: '#/components/schemas/FileMeta' }, { type: 'null' }] }
+        moodLabel:
+          description: 只有心情有
+          oneOf: [{ $ref: '#/components/schemas/MoodLabel' }, { type: 'null' }]
+        intensity: { type: [integer, 'null'], minimum: 1, maximum: 10, description: 只有心情有 }
+        answers:
+          type: array
+          description: 只有问答有：两个人的回答（只在揭晓后出现）
+          items: { $ref: '#/components/schemas/TimelineAnswer' }
+        version: { type: [integer, 'null'], description: 只有文稿有：这一天存到的版本号 }
+    TimelineAnswer:
+      type: object
+      required: [authorId, body]
+      properties:
+        authorId: { $ref: '#/components/schemas/Uuid' }
+        body: { type: string }
     TimelineMonthCount:
       type: object
       required: [year, month, count]

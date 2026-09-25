@@ -17,7 +17,17 @@ data class TimelineEntry(
     val authorId: Id? = null,
     /** 只有照片有 */
     val file: FileMeta? = null,
+    /** 只有心情有 */
+    val moodLabel: app.qichi.shared.model.MoodLabel? = null,
+    val intensity: Int? = null,
+    /** 只有问答有：两个人的回答（揭晓后） */
+    val answers: List<TimelineAnswer> = emptyList(),
+    /** 只有文稿有：这一天存到的版本号 */
+    val version: Int? = null,
 )
+
+@Serializable
+data class TimelineAnswer(val authorId: Id, val body: String)
 
 /** 某个月有几件事（月份按房间时区算）。 */
 @Serializable

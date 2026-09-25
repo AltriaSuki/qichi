@@ -96,13 +96,17 @@ enum class ReadExplainMode {
     @SerialName("compare") Compare,
 }
 
-/** 时间线上的事：决定、灵感、计划完成、照片。 */
+/** 时间线上的事：决定、灵感、计划完成、照片；心情、揭晓的问答、计划进展、文稿存档（P10-09）。 */
 @Serializable
 enum class TimelineEntryKind {
     @SerialName("decision") Decision,
     @SerialName("idea") Idea,
     @SerialName("plan") Plan,
     @SerialName("photo") Photo,
+    @SerialName("mood") Mood,
+    @SerialName("qna") Qna,
+    @SerialName("plan_progress") PlanProgress,
+    @SerialName("writing") Writing,
 }
 
 /** 档案条目的种类：偏好、共识、决定、边界、担忧、里程碑。 */

@@ -106,4 +106,55 @@ class TimelineTest {
         assertTrue(chi.get("$base/on-this-day?date=2026-09-14").body<OnThisDay>().photos.isEmpty())
         chi.get("$base/on-this-day?date=x").assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
     }
+
+    @Test fun `日记式时间线：没揭晓的问答不出现、揭晓后带着两份回答出现；同一天的心情、决定、照片都在那一天；文稿一天只列最新一版；计划阶段完成也上`() =
+        serverTest(testContext(clock = clock)) { client ->
+            val (aqi, chi, room) = Api(client).pair()
+            val base = "/api/v1/rooms/$room"
+            val zone = java.time.ZoneId.of("Asia/Shanghai")
+            aqi.post("$base/moods", app.qichi.shared.api.CreateMoodRequest(UuidV7.generate(), app.qichi.shared.model.MoodLabel.Calm, 7, "午后晒了会儿太阳"))
+            val d = chi.post("$base/decisions", CreateDecisionRequest(UuidV7.generate(), "国庆怎么过", listOf("先回家再去海边"))).body<Decision>()
+            chi.patch("$base/decisions/${d.id}", UpdateDecisionRequest(finalChoice = Patch.of("先回家再去海边")))
+            val photo = aqi.upload(room, png()).body<FileMeta>()
+            aqi.post("$base/messages", SendMessageRequest(UuidV7.generate(), "image", "绿萝又长了", fileId = photo.id))
+            aqi.put("$base/timeline/picks/${photo.id}", emptyMap<String, String>())
+            chi.put("$base/timeline/picks/${photo.id}", emptyMap<String, String>())
+
+            // 问答：阿栖答了，还没揭晓
+            val today = aqi.get("$base/qna/today").body<app.qichi.shared.api.QnaToday>()
+            aqi.put("$base/qna/rounds/${today.round.id}/answer", app.qichi.shared.api.WriteAnswerRequest(UuidV7.generate(), "你先把我的书都收好了"))
+            aqi.post("$base/qna/rounds/${today.round.id}/confirm")
+            assertTrue(aqi.get("$base/timeline").body<TimelinePage>().entries.none { it.kind == TimelineEntryKind.Qna }, "没揭晓不出现")
+
+            // 文稿同一天存了两版：只列 v2
+            val doc = UuidV7.generate()
+            aqi.post("$base/documents", app.qichi.shared.api.CreateDocumentRequest(doc, "给明年秋天的信"))
+            aqi.post("$base/documents/$doc/versions", app.qichi.shared.api.SaveDocumentVersionRequest(UuidV7.generate(), 0, "第一版"))
+            chi.post("$base/documents/$doc/versions", app.qichi.shared.api.SaveDocumentVersionRequest(UuidV7.generate(), 1, "第二版多了几个字"))
+
+            // 计划阶段完成
+            val planId = UuidV7.generate()
+            aqi.post("$base/plans", CreatePlanRequest(planId, "秋天去一次海边", aqi.userId()))
+            val stageId = UuidV7.generate()
+            aqi.post("$base/plans/$planId/stages", app.qichi.shared.api.CreatePlanStageRequest(stageId, "选地方", 0))
+            aqi.patch("$base/plans/$planId/stages/$stageId", app.qichi.shared.api.UpdatePlanStageRequest(doneAt = Patch.of(clock.instant())))
+
+            // 小迟也答了：揭晓
+            chi.put("$base/qna/rounds/${today.round.id}/answer", app.qichi.shared.api.WriteAnswerRequest(UuidV7.generate(), "那天的纸箱比想象中多"))
+            chi.post("$base/qna/rounds/${today.round.id}/confirm")
+
+            val entries = chi.get("$base/timeline").body<TimelinePage>().entries
+            val qna = entries.single { it.kind == TimelineEntryKind.Qna }
+            assertEquals(today.question.text, qna.title)
+            assertEquals(setOf("你先把我的书都收好了", "那天的纸箱比想象中多"), qna.answers.map { it.body }.toSet())
+            val mood = entries.single { it.kind == TimelineEntryKind.Mood }
+            assertEquals(app.qichi.shared.model.MoodLabel.Calm to 7, mood.moodLabel to mood.intensity)
+            assertEquals("绿萝又长了", entries.single { it.kind == TimelineEntryKind.Photo }.detail, "照片带着说明")
+            assertEquals(listOf(2), entries.filter { it.kind == TimelineEntryKind.Writing }.map { it.version })
+            assertEquals("完成了「选地方」", entries.single { it.kind == TimelineEntryKind.PlanProgress }.detail)
+            // 心情、决定、照片在同一天（房间时区）
+            val days = entries.filter { it.kind in setOf(TimelineEntryKind.Mood, TimelineEntryKind.Decision, TimelineEntryKind.Photo) }
+                .map { it.at.atZone(zone).toLocalDate() }.toSet()
+            assertEquals(1, days.size)
+        }
 }
