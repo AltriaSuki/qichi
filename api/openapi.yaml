@@ -3450,6 +3450,9 @@ components:
             nextStepDue: { $ref: '#/components/schemas/NullableLocalDate' }
             completedAt: { $ref: '#/components/schemas/NullableInstant' }
             completionNote: { type: [string, 'null'], maxLength: 10000 }
+            coverFileId:
+              $ref: '#/components/schemas/NullableUuid'
+              description: 封面照片（房间里的一张图片）；为空时 App 按计划 id 固定选一幅插画（P10-06）
     PlanStage:
       allOf:
         - $ref: '#/components/schemas/SyncFields'
@@ -3984,6 +3987,9 @@ components:
         nextStep: { type: [string, 'null'], maxLength: 1000 }
         nextStepOwnerId: { $ref: '#/components/schemas/NullableUuid' }
         nextStepDue: { $ref: '#/components/schemas/NullableLocalDate' }
+        coverFileId:
+          $ref: '#/components/schemas/NullableUuid'
+          description: 换封面：先上传图片（kind = image）再带上文件 id；null 改回插画。必须是这个房间里的图片，否则 400
     CreatePlanStageRequest:
       type: object
       required: [id, title, sortOrder]

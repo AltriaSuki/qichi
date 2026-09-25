@@ -14,6 +14,8 @@ data class Plan(
     val targetDate: Day?, val nextStep: String?,
     val nextStepOwnerId: Id?, val nextStepDue: Day?,
     val completedAt: Timestamp?, val completionNote: String?,
+    /** 封面照片；为空时按 id 固定选一幅插画 */
+    val coverFileId: Id? = null,
 ) : SyncEntity
 
 @Serializable
@@ -66,6 +68,7 @@ data class UpdatePlanRequest(
     @EncodeDefault(EncodeDefault.Mode.NEVER) val nextStep: Patch<String?> = Patch.Absent,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val nextStepOwnerId: Patch<Id?> = Patch.Absent,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val nextStepDue: Patch<Day?> = Patch.Absent,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val coverFileId: Patch<Id?> = Patch.Absent,
 )
 
 @Serializable data class CreatePlanStageRequest(val id: Id, val title: String, val sortOrder: Int)

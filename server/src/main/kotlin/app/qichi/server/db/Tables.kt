@@ -221,6 +221,7 @@ object Plans : SyncedTable("plans") {
     val nextStepDue = date("next_step_due").nullable()
     val completedAt = timestamp("completed_at").nullable()
     val completionNote = text("completion_note").nullable()
+    val coverFileId = javaUUID("cover_file_id").nullable()
 }
 
 object PlanStages : SyncedTable("plan_stages") {

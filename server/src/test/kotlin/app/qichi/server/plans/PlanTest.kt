@@ -136,4 +136,37 @@ class PlanTest {
         assertTrue(changes.any { it.type == EntityType.Plan && it.id == id && it.data == null })
         assertTrue(changes.any { it.type == EntityType.PlanStage && it.id == stageId && it.data == null })
     }
+
+    private fun png(): ByteArray {
+        val image = java.awt.image.BufferedImage(40, 30, java.awt.image.BufferedImage.TYPE_INT_RGB)
+        return java.io.ByteArrayOutputStream().also { javax.imageio.ImageIO.write(image, "png", it) }.toByteArray()
+    }
+
+    @Test fun `计划封面：换成房间里的一张照片，两人一致；null 改回插画；别的文件 400；撤回那张照片的消息后封面还在`() = serverTest { client ->
+        val api = Api(client)
+        val (aqi, chi, room) = api.pair()
+        val path = "/api/v1/rooms/$room/plans"
+        val id = UuidV7.generate()
+        aqi.post(path, CreatePlanRequest(id, "秋天去海边", aqi.userId()))
+        val photo = aqi.upload(room, png()).body<app.qichi.shared.api.FileMeta>()
+        // 照片先发进聊天，再拿来做封面
+        val msgId = UuidV7.generate()
+        aqi.post("/api/v1/rooms/$room/messages", app.qichi.shared.api.SendMessageRequest(msgId, "image", fileId = photo.id))
+
+        assertEquals(photo.id, aqi.patch("$path/$id", UpdatePlanRequest(coverFileId = Patch.of(photo.id))).body<Plan>().coverFileId)
+        assertEquals(photo.id, chi.get("$path/$id").body<PlanDetail>().plan.coverFileId, "对方看到的一样")
+        assertTrue(chi.get("/api/v1/rooms/$room/sync?since=0").body<SyncResponse>().changes.any { it.type == EntityType.Plan && it.id == id })
+
+        // 撤回那条消息：文件还被封面用着，不删
+        aqi.post("/api/v1/rooms/$room/messages/$msgId/retract")
+        assertEquals(HttpStatusCode.OK, chi.get("/api/v1/files/${photo.id}").status)
+
+        val doc = aqi.upload(room, "hello".toByteArray(), fileName = "a.txt", kind = "file", contentType = "text/plain").body<app.qichi.shared.api.FileMeta>()
+        aqi.patch("$path/$id", UpdatePlanRequest(coverFileId = Patch.of(doc.id))).assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
+        val elsewhere = aqi.upload(aqi.createRoom("另一个").room.id, png()).body<app.qichi.shared.api.FileMeta>()
+        aqi.patch("$path/$id", UpdatePlanRequest(coverFileId = Patch.of(elsewhere.id))).assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
+
+        assertEquals(null, aqi.patch("$path/$id", UpdatePlanRequest(coverFileId = Patch.of(null))).body<Plan>().coverFileId)
+        api.outsider(aqi).patch("$path/$id", UpdatePlanRequest(coverFileId = Patch.of(null))).assertProblem(HttpStatusCode.NotFound, ProblemCode.NotFound)
+    }
 }

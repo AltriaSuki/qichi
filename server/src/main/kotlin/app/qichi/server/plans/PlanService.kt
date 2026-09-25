@@ -1,5 +1,8 @@
 package app.qichi.server.plans
 
+import org.jetbrains.exposed.v1.jdbc.select
+import app.qichi.shared.model.FileKind
+import app.qichi.server.db.Files
 import app.qichi.server.db.EntityWrites
 import app.qichi.server.db.Milestones
 import app.qichi.server.db.PlanLogs
@@ -107,7 +110,13 @@ class PlanService(
             .singleOrNull() ?: notFound()
         validate {
             check(listOf(request.title, request.ownerId, request.status, request.targetDate, request.nextStep,
-                request.nextStepOwnerId, request.nextStepDue).any { it.isPresent }, "body", "至少修改一个字段")
+                request.nextStepOwnerId, request.nextStepDue, request.coverFileId).any { it.isPresent }, "body", "至少修改一个字段")
+            request.coverFileId.ifPresent { fileId ->
+                if (fileId != null) {
+                    val kind = Files.select(Files.kind).where { (Files.id eq fileId) and (Files.roomId eq roomId) }.singleOrNull()?.get(Files.kind)
+                    check(kind == FileKind.Image.wireName || kind == FileKind.Hero.wireName, "coverFileId", "封面要是这个房间里的一张图片")
+                }
+            }
             request.ownerId.ifPresent { check(activeMember(roomId, it), "ownerId", "负责人必须是房间成员") }
             request.nextStepOwnerId.ifPresent { owner ->
                 check(owner == null || activeMember(roomId, owner), "nextStepOwnerId", "负责人必须是房间成员")
@@ -127,6 +136,7 @@ class PlanService(
             if (request.nextStep.isPresent) it[Plans.nextStep] = step
             request.nextStepOwnerId.ifPresent { value -> it[Plans.nextStepOwnerId] = value }
             request.nextStepDue.ifPresent { value -> it[Plans.nextStepDue] = value }
+            request.coverFileId.ifPresent { value -> it[Plans.coverFileId] = value }
         }
         Plans.selectAll().where { Plans.id eq id }.single().toPlan()
     }

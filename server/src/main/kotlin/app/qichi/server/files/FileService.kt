@@ -229,12 +229,14 @@ class FileService(
 
     /** 去掉路径部分和控制字符；过长时保留扩展名截断。 */
     /**
-     * 事务内调用：文件不再被任何消息引用时删掉它的记录，返回提交后要从磁盘删除的路径。
+     * 事务内调用：文件不再被任何消息、书、计划封面引用时删掉它的记录，返回提交后要从磁盘删除的路径。
      * 用于撤回、彻底删除消息。
      */
     fun releaseIfUnused(fileId: UUID): String? {
         val stillUsed = Messages.select(Messages.id).where { Messages.fileId eq fileId }.limit(1).any() ||
-            app.qichi.server.db.Books.select(app.qichi.server.db.Books.id).where { app.qichi.server.db.Books.fileId eq fileId }.limit(1).any()
+            app.qichi.server.db.Books.select(app.qichi.server.db.Books.id).where { app.qichi.server.db.Books.fileId eq fileId }.limit(1).any() ||
+            // 计划封面（P10-06）用着的照片也留着
+            app.qichi.server.db.Plans.select(app.qichi.server.db.Plans.id).where { app.qichi.server.db.Plans.coverFileId eq fileId }.limit(1).any()
         if (stillUsed) return null
         val path = Files.select(Files.storagePath).where { Files.id eq fileId }.singleOrNull()?.get(Files.storagePath) ?: return null
         Files.deleteWhere { Files.id eq fileId }

@@ -17,7 +17,7 @@ fun ResultRow.toPlan() = Plan(
     this[Plans.createdAt], this[Plans.updatedAt], this[Plans.deletedAt], this[Plans.deletedBy],
     this[Plans.title], this[Plans.ownerId], fromWire<PlanStatus>(this[Plans.status]),
     this[Plans.targetDate], this[Plans.nextStep], this[Plans.nextStepOwnerId], this[Plans.nextStepDue],
-    this[Plans.completedAt], this[Plans.completionNote],
+    this[Plans.completedAt], this[Plans.completionNote], this[Plans.coverFileId],
 )
 
 fun ResultRow.toPlanStage() = PlanStage(
