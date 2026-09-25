@@ -58,4 +58,11 @@ class AuthorshipTest {
         assertEquals(" world", textOf(runs, chi))
         assertEquals(emptyList(), Authorship.attribute(emptyList()))
     }
+
+    @Test
+    fun `接着算一版和从头算结果一样`() {
+        val versions = listOf("周六去海边。" to qi, "周六早上去海边。" to chi, "周六早上八点去海边！" to qi)
+        val stepwise = Authorship.extend(Authorship.attribute(versions.take(2)), versions[2].first, qi)
+        assertEquals(Authorship.attribute(versions), stepwise)
+    }
 }

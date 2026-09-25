@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -12,7 +13,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 
 /** 共同写作编辑器的字号与行距：只存在这台手机上（两个人各自习惯不同）。 */
-data class WritingSettings(val fontSize: Int = 17, val lineHeight: Float = 2.1f) {
+/** [showAuthorship]：打开「署名」时对方写的字衬淡色（P10-08），只影响自己这台手机。 */
+data class WritingSettings(val fontSize: Int = 17, val lineHeight: Float = 2.1f, val showAuthorship: Boolean = false) {
     companion object {
         val FONT_SIZES = listOf(15, 17, 19, 21)
         val LINE_HEIGHTS = listOf(1.7f, 2.1f, 2.5f)
@@ -31,6 +33,7 @@ class DataStoreWritingSettingsStore(private val context: Context) : WritingSetti
         WritingSettings(
             fontSize = prefs[FONT_SIZE]?.takeIf { it in WritingSettings.FONT_SIZES } ?: WritingSettings().fontSize,
             lineHeight = prefs[LINE_HEIGHT]?.takeIf { it in WritingSettings.LINE_HEIGHTS } ?: WritingSettings().lineHeight,
+            showAuthorship = prefs[SHOW_AUTHORSHIP] ?: false,
         )
     }
 
@@ -38,12 +41,14 @@ class DataStoreWritingSettingsStore(private val context: Context) : WritingSetti
         context.writingDataStore.edit {
             it[FONT_SIZE] = settings.fontSize
             it[LINE_HEIGHT] = settings.lineHeight
+            it[SHOW_AUTHORSHIP] = settings.showAuthorship
         }
     }
 
     private companion object {
         val FONT_SIZE = intPreferencesKey("font_size")
         val LINE_HEIGHT = floatPreferencesKey("line_height")
+        val SHOW_AUTHORSHIP = booleanPreferencesKey("show_authorship")
     }
 }
 

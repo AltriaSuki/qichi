@@ -3,42 +3,48 @@ package app.qichi.feature.writing
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.qichi.core.auth.SessionManager
+import app.qichi.core.data.AttachmentException
+import app.qichi.core.data.AttachmentPreparer
 import app.qichi.core.data.DocumentRepository
+import app.qichi.core.data.FileRepository
 import app.qichi.core.data.People
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.data.WritingSettings
 import app.qichi.core.data.WritingSettingsStore
 import app.qichi.core.database.DocumentVersionRow
 import app.qichi.core.database.DraftRow
-import app.qichi.core.network.NetworkMonitor
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
-import app.qichi.shared.model.DocCategory
-import app.qichi.shared.model.DraftGenre
 import app.qichi.core.network.ApiException
-import app.qichi.shared.model.WriteAssistMode
-import app.qichi.shared.api.AiWriteRequest
-import app.qichi.shared.api.DocComment
-import app.qichi.shared.util.UuidV7
 import app.qichi.core.network.FileUrls
-import app.qichi.core.data.FileRepository
-import app.qichi.core.data.AttachmentPreparer
-import app.qichi.core.data.AttachmentException
+import app.qichi.core.network.NetworkMonitor
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.todayIn
 import app.qichi.core.ui.zoneOf
+import app.qichi.shared.api.AiWriteRequest
+import app.qichi.shared.api.DocComment
 import app.qichi.shared.api.Document
+import app.qichi.shared.model.DocCategory
+import app.qichi.shared.model.DraftGenre
+import app.qichi.shared.model.WriteAssistMode
+import app.qichi.shared.util.Authorship
 import app.qichi.shared.util.CjkText
+import app.qichi.shared.util.UuidV7
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.LocalDate
+import java.time.ZoneId
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
@@ -49,9 +55,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.time.LocalDate
-import java.time.ZoneId
-import java.util.UUID
+import kotlinx.coroutines.withContext
 
 // ───────────────────────── 列表 ─────────────────────────
 
@@ -253,6 +257,9 @@ internal fun DraftGenre.defaultTitle() = when (this) {
     DraftGenre.Letter -> "一封信"
     DraftGenre.Review -> "回顾"
 }
+
+/** 署名的底子：存到第 [version] 版为止每一段是谁写的；[failed] 为 true 表示离线取不到旧版本。 */
+data class AuthorshipBase(val version: Int, val runs: List<Authorship.Run>, val failed: Boolean)
 
 /** 写作助手的一次请求：[result] 为空时还在等。 */
 data class AssistState(val mode: WriteAssistMode, val original: String, val start: Int, val end: Int, val result: String?)
@@ -461,6 +468,43 @@ class DocumentEditorViewModel @AssistedInject constructor(
     fun delete() = viewModelScope.launch { state.value.document?.value?.let { docs.delete(it) } }
 
     fun setSettings(settings: WritingSettings) = viewModelScope.launch { settingsStore.set(settings) }
+
+    // ── 署名（P10-08） ──
+
+    /** 存过的各版本逐字算出来的署名（最新一版的全文）；没打开署名、还在取、取不到时为空 */
+    private val _authorship = MutableStateFlow<AuthorshipBase?>(null)
+    val authorship: StateFlow<AuthorshipBase?> = _authorship.asStateFlow()
+
+    /** 打开 / 关掉署名（只记在这台手机上）。打开时取齐各版本正文再算。 */
+    fun setAuthorship(on: Boolean) = viewModelScope.launch {
+        settingsStore.set(state.value.settings.copy(showAuthorship = on))
+        if (on) loadAuthorship()
+    }
+
+    /** 取齐 1..最新版的正文（本机有的直接用，没有的在线取）并逐字算出署名。 */
+    fun loadAuthorship() = viewModelScope.launch {
+        val latest = state.value.latestVersion
+        if (latest == 0) {
+            _authorship.value = AuthorshipBase(0, emptyList(), failed = false)
+            return@launch
+        }
+        if (_authorship.value?.let { it.version == latest && !it.failed } == true) return@launch
+        try {
+            docs.refreshVersions(roomId, documentId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+        val authors = docs.observeVersions(documentId).first().associate { it.version to UUID.fromString(it.authorId) }
+        _authorship.value = try {
+            val versions = (1..latest).map { v -> docs.loadBody(roomId, documentId, v) to (authors[v] ?: error("缺版本 $v")) }
+            AuthorshipBase(latest, withContext(Dispatchers.Default) { Authorship.attribute(versions) }, failed = false)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            AuthorshipBase(latest, emptyList(), failed = true)
+        }
+    }
 
     // ── 历史版本 ──
 

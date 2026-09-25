@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -49,11 +48,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -70,6 +71,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.WritingSettings
@@ -81,14 +83,17 @@ import app.qichi.core.designsystem.Spacing
 import app.qichi.core.designsystem.component.BarAction
 import app.qichi.core.designsystem.component.ChoicePill
 import app.qichi.core.designsystem.component.ConfirmDialog
+import app.qichi.core.designsystem.component.FeatureTile
 import app.qichi.core.designsystem.component.IconAction
 import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.MenuAction
-import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
+import app.qichi.core.designsystem.component.decor.Ribbon
+import app.qichi.core.designsystem.component.decor.ruledPaper
 import app.qichi.core.designsystem.icon.QichiIcons
+import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.network.FileUrls
 import app.qichi.core.ui.BlockComments
@@ -100,6 +105,7 @@ import app.qichi.core.ui.MarkdownView
 import app.qichi.shared.model.WriteAssistMode
 import app.qichi.shared.rules.DocumentImages
 import app.qichi.shared.rules.Limits
+import app.qichi.shared.util.Authorship
 import coil3.compose.AsyncImage
 import java.util.UUID
 import kotlinx.coroutines.launch
@@ -216,6 +222,19 @@ fun DocumentEditorScreen(
             historyTick++
         }
     }
+    // 署名（P10-08）：存过的版本算出的底子，再接上编辑框里还没存的改动（算我的）
+    val authorBase by vm.authorship.collectAsStateWithLifecycle()
+    LaunchedEffect(state.settings.showAuthorship, state.latestVersion) { if (state.settings.showAuthorship) vm.loadAuthorship() }
+    val me = state.people.myUserId
+    val liveRuns = remember(authorBase, field.text, me) {
+        val base = authorBase
+        if (base == null || base.failed || me == null) emptyList() else Authorship.extend(base.runs, field.text, me)
+    }
+    val authorCounts = remember(liveRuns) { Authorship.counts(liveRuns) }
+    val partnerRanges = remember(liveRuns, me) {
+        var at = 0
+        liveRuns.mapNotNull { r -> val range = at until at + r.text.length; at += r.text.length; range.takeIf { r.authorId != me } }
+    }
     val scroll = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -224,20 +243,22 @@ fun DocumentEditorScreen(
     val doc = state.document?.value
 
     Column(Modifier.fillMaxSize().background(colors.background).imePadding()) {
-        if (focus) {
-            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = Spacing.xs), horizontalArrangement = Arrangement.End) {
-                TextAction("退出专注", { focus = false }, color = colors.muted)
-            }
-        } else {
-            // ── 顶栏 ──
+        run {
+            // ── 顶栏（专注时也在：功能名 + 标题；右边换成「退出专注」） ──
             val openThreads = threads.count { !it.resolved }
+            val authorshipOn = settings.showAuthorship
             ItemTopBar(
                 doc?.title.orEmpty(), onBack, feature = Feature.Writing,
-                actions = listOf(
-                    BarAction(if (preview) "回到编辑" else "预览", if (preview) QichiIcons.Pen else QichiIcons.Eye, { preview = !preview }),
-                    BarAction("专注", QichiIcons.Focus, { focus = true }),
-                ),
-                menu = listOf(
+                actions = if (focus) {
+                    listOf(BarAction("退出专注", QichiIcons.Focus, { focus = false }, tint = colors.accent))
+                } else {
+                    listOf(
+                        BarAction(if (authorshipOn) "关掉署名" else "署名", QichiIcons.People, { vm.setAuthorship(!authorshipOn) }, tint = if (authorshipOn) colors.accent else null),
+                        BarAction(if (preview) "回到编辑" else "预览", if (preview) QichiIcons.Pen else QichiIcons.Eye, { preview = !preview }),
+                    )
+                },
+                menu = listOfNotNull(
+                    if (focus) null else MenuAction("专注模式", { focus = true }),
                     MenuAction("大纲", { showOutline = true }),
                     MenuAction("帮我起标题", {
                         if (field.text.isBlank()) {
@@ -252,28 +273,82 @@ fun DocumentEditorScreen(
                     MenuAction("删除", { deleting = true }, danger = true),
                 ),
             )
-            // ── 基线落后 ──
-            if (state.conflict) {
+            // ── 对方先存了新版（按 New-Writing-Behind）：提示卡，存按钮变灰 ──
+            if (state.conflict && !focus) {
                 val author = doc?.latestAuthorId
-                Row(
+                Column(
                     Modifier.padding(start = Spacing.m, end = Spacing.m, bottom = 14.dp).fillMaxWidth()
-                        .clip(RoundedCornerShape(22.dp)).background(colors.personB.copy(alpha = 0.13f))
-                        .padding(start = Spacing.m, end = Spacing.xs, top = 4.dp, bottom = 4.dp)
-                        .semantics(mergeDescendants = true) { contentDescription = "${state.people.name(author)}存了 v${state.latestVersion}，你的内容基于 v${state.baseVersion}" },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        .lift(colors).clip(QichiShapes.card).background(colors.card).background(colors.personB.copy(alpha = .1f))
+                        .padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 6.dp),
                 ) {
-                    if (author != null) PersonMark(state.people.markChar(author), state.people.person(author), size = 18.dp)
-                    Text("v${state.latestVersion}", style = type.numeral.copy(fontSize = 19.tsp, color = colors.personB))
+                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                        FeatureTile(QichiIcons.Refresh, colors.personB, size = 36.dp)
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                buildAnnotatedString {
+                                    append("${state.people.name(author)}刚存了 ")
+                                    withStyle(SpanStyle(fontFamily = type.numeral.fontFamily)) { append("v${state.latestVersion}") }
+                                },
+                                style = type.body.copy(fontWeight = FontWeight.W600, color = colors.ink),
+                            )
+                            Text(
+                                buildAnnotatedString {
+                                    append("你在 ")
+                                    withStyle(SpanStyle(fontFamily = type.numeral.fontFamily)) { append("v${state.baseVersion}") }
+                                    append(" 上改的还在，先合到新版再存")
+                                },
+                                style = type.caption.copy(color = colors.muted),
+                            )
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.xs, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                        TextAction("看看改了什么", { mode = EditorMode.Rebase }, color = colors.muted)
+                        PrimaryButton("重基线", { mode = EditorMode.Rebase })
+                    }
+                }
+            }
+            // ── 署名图例：对方写了多少、我写了多少 ──
+            if (settings.showAuthorship && !focus && !preview) {
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = Sizes.touchTarget).padding(start = Spacing.page, end = Spacing.page, bottom = Spacing.xs),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    val numeral = SpanStyle(fontFamily = type.numeral.fontFamily, color = colors.ink)
+                    val base = authorBase
+                    when {
+                        base == null -> Text("正在算谁写了什么…", style = type.caption.copy(color = colors.muted))
+                        base.failed -> Text("离线时取不到旧版本，暂时看不了署名", style = type.caption.copy(color = colors.muted))
+                        else -> {
+                            val partnerId = state.people.partner?.userId
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                                Box(Modifier.size(22.dp, 12.dp).background(colors.personB.copy(alpha = .16f), RoundedCornerShape(3.dp)).drawBehind {
+                                    drawRect(colors.personB.copy(alpha = .55f), topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - 2.dp.toPx()), size = androidx.compose.ui.geometry.Size(size.width, 2.dp.toPx()))
+                                })
+                                Text(buildAnnotatedString {
+                                    append("${state.people.name(partnerId).ifEmpty { "对方" }}写的 ")
+                                    withStyle(numeral) { append(formatCount(authorCounts[partnerId] ?: 0)) }
+                                    append(" 字")
+                                }, style = type.caption.copy(color = colors.muted))
+                            }
+                            Text(buildAnnotatedString {
+                                append("我写的 ")
+                                withStyle(numeral) { append(formatCount(authorCounts[state.people.myUserId] ?: 0)) }
+                                append(" 字")
+                            }, style = type.caption.copy(color = colors.muted))
+                        }
+                    }
                     Spacer(Modifier.weight(1f))
-                    TextAction("重基线", { mode = EditorMode.Rebase }, color = colors.ink)
+                    Text("v${state.latestVersion}", style = type.numeral.copy(fontSize = 14.tsp, color = colors.muted))
                 }
             }
         }
 
         // ── 纸面 ──
+        val lineDp = with(LocalDensity.current) { (settings.fontSize * type.scale * settings.lineHeight).sp.toDp() }
         Box(
-            Modifier.weight(1f).padding(horizontal = Spacing.m).fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(colors.paper),
+            Modifier.weight(1f).padding(horizontal = Spacing.m).fillMaxWidth().lift(colors, QichiShapes.paper).clip(QichiShapes.paper)
+                .then(if (preview) Modifier.background(colors.paper) else Modifier.ruledPaper(lineDp, top = 24.dp)),
         ) {
             when {
                 state.ready -> Column(
@@ -283,7 +358,7 @@ fun DocumentEditorScreen(
                             field = field.copy(selection = TextRange(field.text.length))
                             runCatching { focusRequester.requestFocus() }
                         }
-                        .padding(start = 26.dp, end = 26.dp, top = 30.dp, bottom = 20.dp),
+                        .padding(start = if (preview) 26.dp else 54.dp, end = 22.dp, top = 24.dp, bottom = 20.dp),
                 ) {
                     if (preview) {
                         MarkdownView(
@@ -301,10 +376,27 @@ fun DocumentEditorScreen(
                             ),
                         )
                     } else {
-                        val headingSize = fontSize * 1.3f
+                        val headingSize = fontSize * 1.25f
                         val markerColor = colors.faint
-                        val transformation = remember(markerColor, headingSize) {
-                            VisualTransformation { text -> TransformedText(Markdown.highlight(text.text, markerColor, headingSize), OffsetMapping.Identity) }
+                        val markerFont = type.numeral.fontFamily
+                        val shade = colors.personB.copy(alpha = .16f)
+                        val dim = colors.faint
+                        val glow = colors.accent.copy(alpha = .08f)
+                        val partnerRanges = if (settings.showAuthorship) partnerRanges else emptyList()
+                        val current = if (focus) currentLine(field.text, field.selection.start) else null
+                        val transformation = remember(markerColor, headingSize, partnerRanges, current, dim) {
+                            VisualTransformation { text ->
+                                val styled = buildAnnotatedString {
+                                    append(Markdown.highlight(text.text, markerColor, headingSize, markerFont))
+                                    partnerRanges.forEach { r -> if (r.last < text.length) addStyle(SpanStyle(background = shade), r.first, r.last + 1) }
+                                    if (current != null) {
+                                        if (current.first > 0) addStyle(SpanStyle(color = dim), 0, current.first)
+                                        if (current.last + 1 < text.length) addStyle(SpanStyle(color = dim), current.last + 1, text.length)
+                                        if (!current.isEmpty()) addStyle(SpanStyle(background = glow), current.first, current.last + 1)
+                                    }
+                                }
+                                TransformedText(styled, OffsetMapping.Identity)
+                            }
                         }
                         BasicTextField(
                             value = field,
@@ -323,8 +415,8 @@ fun DocumentEditorScreen(
                                 }
                             },
                             textStyle = type.body.copy(
-                                fontSize = fontSize, lineHeight = settings.lineHeight.em, fontWeight = FontWeight.W300,
-                                letterSpacing = 0.03.em, color = colors.ink,
+                                fontSize = fontSize, lineHeight = settings.lineHeight.em, fontWeight = FontWeight.W400,
+                                color = colors.ink,
                             ),
                             cursorBrush = SolidColor(colors.personA),
                             visualTransformation = transformation,
@@ -343,11 +435,12 @@ fun DocumentEditorScreen(
                 }
                 else -> Text("正在打开…", style = type.caption.copy(color = colors.faint), modifier = Modifier.align(Alignment.Center))
             }
+            Ribbon(Modifier.padding(start = 26.dp), height = 50.dp)
         }
 
         // ── 格式按钮：键盘打开、正在编辑时代替底栏 ──
         val imeVisible = WindowInsets.isImeVisible
-        if (imeVisible && !preview && state.ready) {
+        if ((imeVisible || focus) && !preview && state.ready) {
             key(historyTick) {
                 FormatBar(
                     canUndo = history.canUndo,
@@ -522,7 +615,9 @@ private fun FormatBar(
         return
     }
     Row(
-        Modifier.fillMaxWidth().background(colors.background).padding(horizontal = Spacing.xs, vertical = 2.dp),
+        Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 10.dp, end = 10.dp, top = Spacing.s, bottom = Spacing.sm)
+            .lift(colors, RoundedCornerShape(16.dp)).clip(RoundedCornerShape(16.dp)).background(colors.card)
+            .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
@@ -575,4 +670,12 @@ private fun WritingSettingsSheet(settings: WritingSettings, onChange: (WritingSe
         }
         Spacer(Modifier.heightIn(min = Spacing.l))
     }
+}
+
+/** 专注模式里「当前这一段」：光标所在的那一行（字符下标范围）。 */
+internal fun currentLine(text: String, cursor: Int): IntRange {
+    val at = cursor.coerceIn(0, text.length)
+    val start = text.lastIndexOf('\n', at - 1).let { if (it < 0) 0 else it + 1 }
+    val end = text.indexOf('\n', at).let { if (it < 0) text.length else it }
+    return start until end
 }

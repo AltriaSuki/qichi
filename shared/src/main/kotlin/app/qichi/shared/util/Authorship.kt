@@ -19,38 +19,45 @@ object Authorship {
      */
     fun attribute(versions: List<Pair<String, UUID>>): List<Run> {
         if (versions.isEmpty()) return emptyList()
-        var chars: List<Int> = versions.first().first.codePoints().toArray().toList()
-        var authors: List<UUID> = List(chars.size) { versions.first().second }
-        for ((text, author) in versions.drop(1)) {
-            val next = text.codePoints().toArray().toList()
-            val nextAuthors = ArrayList<UUID>(next.size)
-            var o = 0
-            var n = 0
-            val deltas = DiffUtils.diff(chars, next).deltas.sortedBy { it.source.position }
-            for (d in deltas) {
-                // 这一处改动之前没动的字：原样保留作者
-                while (o < d.source.position) { nextAuthors += authors[o]; o++; n++ }
-                if (d.type == DeltaType.DELETE || d.type == DeltaType.CHANGE) o += d.source.size()
-                if (d.type == DeltaType.INSERT || d.type == DeltaType.CHANGE) repeat(d.target.size()) { nextAuthors += author; n++ }
-            }
-            while (o < chars.size) { nextAuthors += authors[o]; o++; n++ }
-            chars = next
-            authors = nextAuthors
+        val (first, firstAuthor) = versions.first()
+        var runs = if (first.isEmpty()) emptyList() else listOf(Run(first, firstAuthor))
+        for ((text, author) in versions.drop(1)) runs = extend(runs, text, author)
+        return runs
+    }
+
+    /**
+     * 在已经算好的署名上再接一版：[runs] 拼起来是上一版全文，[text] 是新的全文，改动算 [author] 的。
+     * 编辑器里边写边算用它（只比较最后一步，不用从第一版重来）。
+     */
+    fun extend(runs: List<Run>, text: String, author: UUID): List<Run> {
+        val chars = ArrayList<Int>()
+        val authors = ArrayList<UUID>()
+        runs.forEach { r -> r.text.codePoints().forEach { chars += it; authors += r.authorId } }
+        val next = text.codePoints().toArray().toList()
+        val nextAuthors = ArrayList<UUID>(next.size)
+        var o = 0
+        val deltas = DiffUtils.diff(chars, next).deltas.sortedBy { it.source.position }
+        for (d in deltas) {
+            // 这一处改动之前没动的字：原样保留作者
+            while (o < d.source.position) { nextAuthors += authors[o]; o++ }
+            if (d.type == DeltaType.DELETE || d.type == DeltaType.CHANGE) o += d.source.size()
+            if (d.type == DeltaType.INSERT || d.type == DeltaType.CHANGE) repeat(d.target.size()) { nextAuthors += author }
         }
+        while (o < chars.size) { nextAuthors += authors[o]; o++ }
         // 连成一段段
-        val runs = mutableListOf<Run>()
+        val out = mutableListOf<Run>()
         val sb = StringBuilder()
         var current: UUID? = null
-        chars.forEachIndexed { i, cp ->
-            if (authors[i] != current && sb.isNotEmpty()) {
-                runs += Run(sb.toString(), current!!)
+        next.forEachIndexed { i, cp ->
+            if (nextAuthors[i] != current && sb.isNotEmpty()) {
+                out += Run(sb.toString(), current!!)
                 sb.setLength(0)
             }
-            current = authors[i]
+            current = nextAuthors[i]
             sb.appendCodePoint(cp)
         }
-        if (sb.isNotEmpty()) runs += Run(sb.toString(), current!!)
-        return runs
+        if (sb.isNotEmpty()) out += Run(sb.toString(), current!!)
+        return out
     }
 
     /** 每个人写了多少字（按 [CjkText.charCount] 的规则：汉字一个一个数，英文按词，标点不算）。 */

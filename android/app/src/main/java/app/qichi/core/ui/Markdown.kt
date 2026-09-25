@@ -1,51 +1,51 @@
 package app.qichi.core.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import app.qichi.core.designsystem.Sizes
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.semantics.customActions
-import androidx.compose.ui.semantics.CustomAccessibilityAction
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.remember
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.clickable
-import app.qichi.shared.rules.DocumentImages
-import java.util.UUID
-import app.qichi.core.designsystem.QichiShapes
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Alignment
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.border
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import app.qichi.core.designsystem.QichiShapes
 import app.qichi.core.designsystem.QichiTheme
+import app.qichi.core.designsystem.Sizes
+import app.qichi.shared.rules.DocumentImages
+import java.util.UUID
 
 /**
  * 够用的 Markdown：标题（# ～ ######）、列表（- * 1.）、引用（>）、分隔线（---）、段落，
@@ -144,13 +144,14 @@ object Markdown {
      * 编辑器里的原文着色：不改动任何字符（光标位置不受影响），只把标题行放大、
      * 把 `## `、`- `、`> ` 这样的标记淡化。
      */
-    fun highlight(text: String, markerColor: Color, headingSize: TextUnit): AnnotatedString = buildAnnotatedString {
+    /** 编辑器里的样子：Markdown 标记淡色（[markerFont] 不为空时用等宽字），标题大一点。 */
+    fun highlight(text: String, markerColor: Color, headingSize: TextUnit, markerFont: androidx.compose.ui.text.font.FontFamily? = null): AnnotatedString = buildAnnotatedString {
         append(text)
         var offset = 0
         for (line in text.split('\n')) {
             val markerEnd = when {
                 heading.matches(line) -> {
-                    addStyle(SpanStyle(fontSize = headingSize, letterSpacing = 0.12.em), offset, offset + line.length)
+                    addStyle(SpanStyle(fontSize = headingSize, fontWeight = androidx.compose.ui.text.font.FontWeight.W700), offset, offset + line.length)
                     line.indexOfFirst { it != '#' }.let { if (it < 0) line.length else it + 1 }.coerceAtMost(line.length)
                 }
                 DocumentImages.line.matches(line) -> line.length
@@ -161,7 +162,7 @@ object Markdown {
                 rule.matches(line) -> line.length
                 else -> 0
             }
-            if (markerEnd > 0) addStyle(SpanStyle(color = markerColor), offset, offset + markerEnd)
+            if (markerEnd > 0) addStyle(SpanStyle(color = markerColor, fontFamily = markerFont), offset, offset + markerEnd)
             offset += line.length + 1
         }
     }
