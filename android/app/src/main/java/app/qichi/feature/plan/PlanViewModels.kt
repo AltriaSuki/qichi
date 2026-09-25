@@ -1,12 +1,18 @@
 package app.qichi.feature.plan
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.qichi.core.auth.SessionManager
+import app.qichi.core.data.AttachmentException
+import app.qichi.core.data.AttachmentPreparer
+import app.qichi.core.data.FileRepository
 import app.qichi.core.data.People
 import app.qichi.core.data.PlanRepository
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.data.TodoRepository
+import app.qichi.core.network.FileUrls
+import app.qichi.core.network.NetworkMonitor
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.currentStage
 import app.qichi.core.ui.todayIn
@@ -20,24 +26,34 @@ import app.qichi.shared.api.Todo
 import app.qichi.shared.api.UpdatePlanRequest
 import app.qichi.shared.model.PlanStatus
 import app.qichi.shared.rules.Limits
+import app.qichi.shared.util.UuidV7
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 /** 计划列表里的一行：计划、当前阶段、未完成的待办数。 */
 data class PlanSummary(
     val plan: Local<Plan>,
     val currentStage: PlanStage?,
     val openTodos: Int,
+    /** 阶段（排好序），列表卡片上画阶段线 */
+    val stages: List<PlanStage> = emptyList(),
+    /** 最近一个还没完成的里程碑的日期 */
+    val nextMilestone: LocalDate? = null,
 )
 
 data class PlanListState(
@@ -55,17 +71,23 @@ class PlanListViewModel @AssistedInject constructor(
     rooms: RoomRepository,
     todos: TodoRepository,
     session: SessionManager,
+    val urls: FileUrls,
 ) : ViewModel() {
     private val people = combine(rooms.observeRoom(roomId), rooms.observeMembers(roomId)) { room, members ->
         People(room, members, session.currentUserId)
     }
 
     val state: StateFlow<PlanListState> = combine(
-        people, plans.observePlans(roomId), plans.observeStages(roomId), todos.observeTodos(roomId),
-    ) { p, all, stages, allTodos ->
-        val byPlan = stages.map { it.value }.groupBy { it.planId }
+        people, plans.observePlans(roomId), plans.observeStages(roomId), todos.observeTodos(roomId), plans.observeMilestones(roomId),
+    ) { p, all, stages, allTodos, milestones ->
+        val byPlan = stages.map { it.value }.groupBy { it.planId }.mapValues { (_, v) -> v.sortedWith(compareBy({ it.sortOrder }, { it.createdAt })) }
         val openByPlan = allTodos.map { it.value }.filter { it.doneAt == null && it.parentId == null }.groupingBy { it.planId }.eachCount()
-        val summaries = all.map { PlanSummary(it, currentStage(byPlan[it.value.id].orEmpty()), openByPlan[it.value.id] ?: 0) }
+        val nextMilestone = milestones.map { it.value }.filter { it.doneAt == null && it.targetDate != null }
+            .groupBy { it.planId }.mapValues { (_, v) -> v.minOf { it.targetDate!! } }
+        val summaries = all.map {
+            val st = byPlan[it.value.id].orEmpty()
+            PlanSummary(it, currentStage(st), openByPlan[it.value.id] ?: 0, st, nextMilestone[it.value.id])
+        }
         PlanListState(
             people = p,
             today = todayIn(zoneOf(p.room?.timezone)),
@@ -117,10 +139,57 @@ class PlanDetailViewModel @AssistedInject constructor(
     private val todos: TodoRepository,
     rooms: RoomRepository,
     session: SessionManager,
+    private val preparer: AttachmentPreparer,
+    private val files: FileRepository,
+    private val network: NetworkMonitor,
+    val urls: FileUrls,
 ) : ViewModel() {
     private val people = combine(rooms.observeRoom(roomId), rooms.observeMembers(roomId)) { room, members ->
         People(room, members, session.currentUserId)
     }
+
+    /** 正在上传封面：进度 0–1；没在传时为空 */
+    private val _coverUpload = MutableStateFlow<Float?>(null)
+    val coverUpload: StateFlow<Float?> = _coverUpload.asStateFlow()
+    private val _message = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    /** 给人看的一句提示（Toast） */
+    val message: SharedFlow<String> = _message
+
+    /** 换封面：先上传照片（要联网），再改计划（走发件箱）。 */
+    fun setCover(uri: Uri) {
+        val plan = plan() ?: return
+        if (!network.isOnline.value) {
+            _message.tryEmit("离线时换不了封面")
+            return
+        }
+        viewModelScope.launch {
+            _coverUpload.value = 0f
+            try {
+                val attachment = preparer.image(uri)
+                val file = try {
+                    files.upload(roomId, UuidV7.generate(), attachment) { p -> _coverUpload.value = p }
+                } finally {
+                    preparer.cleanup(attachment)
+                }
+                plans.update(plan, UpdatePlanRequest(coverFileId = Patch.of(file.id)))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: AttachmentException) {
+                _message.emit(e.message ?: "这张照片用不了")
+            } catch (_: Exception) {
+                _message.emit("没传上去，再试一次")
+            } finally {
+                _coverUpload.value = null
+            }
+        }
+    }
+
+    /** 不要照片了，改回插画。 */
+    fun clearCover() = viewModelScope.launch {
+        val plan = plan() ?: return@launch
+        if (plan.coverFileId != null) plans.update(plan, UpdatePlanRequest(coverFileId = Patch.of(null)))
+    }
+
     private val parts = combine(
         plans.observeStages(roomId), plans.observeMilestones(roomId), plans.observeLogs(roomId), todos.observeTodos(roomId),
     ) { stages, milestones, logs, allTodos -> Parts(stages, milestones, logs, allTodos) }

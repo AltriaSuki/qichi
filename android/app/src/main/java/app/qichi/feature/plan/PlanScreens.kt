@@ -1,5 +1,9 @@
 package app.qichi.feature.plan
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -14,10 +18,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -31,10 +37,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -43,6 +50,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.People
 import app.qichi.core.designsystem.Feature
+import app.qichi.core.designsystem.QichiShapes
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sizes
 import app.qichi.core.designsystem.Spacing
@@ -53,13 +61,20 @@ import app.qichi.core.designsystem.component.Fab
 import app.qichi.core.designsystem.component.FabClearance
 import app.qichi.core.designsystem.component.FeatureTopBar
 import app.qichi.core.designsystem.component.ItemTopBar
+import app.qichi.core.designsystem.component.MenuAction
 import app.qichi.core.designsystem.component.MistCard
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.SectionLabel
+import app.qichi.core.designsystem.component.Segmented
 import app.qichi.core.designsystem.component.TextAction
+import app.qichi.core.designsystem.component.decor.Sticker
+import app.qichi.core.designsystem.component.decor.Tape
 import app.qichi.core.designsystem.icon.QichiIcons
+import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
+import app.qichi.core.network.FileUrls
+import app.qichi.core.ui.PlanCover
 import app.qichi.core.ui.StageTrack
 import app.qichi.core.ui.TodoRow
 import app.qichi.core.ui.relativeDay
@@ -69,6 +84,7 @@ import app.qichi.shared.api.Plan
 import app.qichi.shared.model.PlanStatus
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 
@@ -91,21 +107,20 @@ fun PlanListScreen(
     Box(Modifier.fillMaxSize().background(colors.background)) {
         Column(Modifier.fillMaxSize()) {
             FeatureTopBar(Feature.Plan, onBack)
+            Segmented(listOf("进行中", "已完成"), if (showDone) 1 else 0, { showDone = it == 1 })
             Column(
-                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page),
-                verticalArrangement = Arrangement.spacedBy(Spacing.s),
+                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = Spacing.cardPage, end = Spacing.cardPage, top = Spacing.s),
+                verticalArrangement = Arrangement.spacedBy(Spacing.l),
             ) {
-                if (state.loaded && state.active.isEmpty() && state.done.isEmpty()) {
-                    Text("还没有计划。长一点的事，可以放在这里慢慢推进。", style = type.caption.copy(color = colors.muted),
-                        modifier = Modifier.padding(top = Spacing.m))
-                    TextAction("新建一个计划", { creating = true })
+                val shown = if (showDone) state.done else state.active
+                if (state.loaded && shown.isEmpty()) {
+                    Text(
+                        if (showDone) "还没有完成的计划。" else "还没有计划。长一点的事，可以放在这里慢慢推进。",
+                        style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m),
+                    )
                 }
-                state.active.forEach { PlanRow(it, state.people, state.today, onClick = { onOpen(it.plan.value.id) }) }
-                if (state.done.isNotEmpty()) {
-                    SectionLabel("已完成 ${state.done.size}", modifier = Modifier.padding(top = Spacing.l)) {
-                        TextAction(if (showDone) "收起" else "展开", { showDone = !showDone }, color = colors.muted)
-                    }
-                    if (showDone) state.done.forEach { PlanRow(it, state.people, state.today, onClick = { onOpen(it.plan.value.id) }) }
+                shown.forEachIndexed { i, summary ->
+                    PlanCard(summary, state.people, state.today, vm.urls, index = i, onClick = { onOpen(summary.plan.value.id) })
                 }
                 Spacer(Modifier.height(FabClearance))
             }
@@ -130,37 +145,53 @@ fun PlanListScreen(
     }
 }
 
+/** 列表里的一个计划：浮起的卡片、一条胶带、封面小图、标题、阶段线、下一步、待办和里程碑；卡片轻轻左右倾斜。 */
 @Composable
-private fun PlanRow(summary: PlanSummary, people: People, today: LocalDate, onClick: () -> Unit) {
+private fun PlanCard(summary: PlanSummary, people: People, today: LocalDate, urls: FileUrls, index: Int, onClick: () -> Unit) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val plan = summary.plan.value
     val done = plan.status == PlanStatus.Done
-    Column(
-        Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "打开计划", onClick = onClick).padding(vertical = Spacing.s),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-            Text(plan.title, style = type.feeling.copy(fontSize = 22.tsp, lineHeight = 30.tsp, color = if (done) colors.muted else colors.ink),
-                maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            PersonMark(people.markChar(plan.ownerId), people.person(plan.ownerId), size = 22.dp)
-        }
-        val meta = buildList {
-            when {
-                done -> plan.completedAt?.let { add("完成于 ${shortDate(it.atZone(ZoneId.systemDefault()).toLocalDate())}") }
-                summary.currentStage != null -> add(summary.currentStage.title)
+    val rotation = listOf(-.6f, .5f, -.4f)[index % 3]
+    val tape = listOf(colors.personB, colors.personA, colors.accent)[index % 3]
+    Box(Modifier.rotate(rotation)) {
+        Column(
+            Modifier.fillMaxWidth().lift(colors).clip(QichiShapes.card).background(colors.card)
+                .clickable(role = Role.Button, onClickLabel = "打开计划", onClick = onClick)
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
+                PlanCover(plan, urls, Modifier.size(52.dp), RoundedCornerShape(10.dp), thumbWidth = 200)
+                Text(plan.title, style = type.headline.copy(fontSize = 17.tsp, lineHeight = 25.tsp, color = if (done) colors.muted else colors.ink),
+                    maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                PersonMark(people.markChar(plan.ownerId), people.person(plan.ownerId), size = 22.dp)
             }
-            if (!done) plan.nextStep?.let { add("下一步：$it") }
-            if (!done && summary.openTodos > 0) add("${summary.openTodos} 件待办")
+            if (!done && summary.stages.isNotEmpty()) StageTrack(summary.stages, summary.currentStage, onToggle = null)
+            if (!done) plan.nextStep?.let { step ->
+                Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("下一步", style = type.sectionLabel.copy(fontSize = 12.tsp, letterSpacing = 0.em, color = colors.accent), modifier = Modifier.padding(top = 3.dp))
+                    Text(step, style = type.body.copy(color = colors.ink))
+                }
+            }
+            val meta = buildList {
+                when {
+                    done -> plan.completedAt?.let { add("完成于 ${shortDate(it.atZone(ZoneId.systemDefault()).toLocalDate())}") }
+                    else -> {
+                        if (summary.openTodos > 0) add("${summary.openTodos} 个待办")
+                        summary.nextMilestone?.let { add("里程碑 ${it.format(MD)}") }
+                        plan.targetDate?.let { add("目标 ${relativeDay(it, today).first}") }
+                    }
+                }
+            }
+            if (meta.isNotEmpty()) {
+                Text(meta.joinToString(" · "), style = type.caption.copy(fontSize = 12.tsp, color = colors.muted), modifier = Modifier.padding(top = 6.dp))
+            }
         }
-        if (meta.isNotEmpty()) {
-            Text(meta.joinToString("  ·  "), style = type.caption.copy(color = colors.muted), maxLines = 2, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = Spacing.xxs))
-        }
-        if (!done) plan.targetDate?.let {
-            Text("目标 ${relativeDay(it, today).first}", style = type.caption.copy(color = if (it.isBefore(today)) colors.accent else colors.muted))
-        }
+        Tape(Modifier.offset(x = 22.dp, y = (-8).dp), color = tape, width = 46.dp, rotation = rotation * 4)
     }
 }
+
+private val MD = DateTimeFormatter.ofPattern("MM.dd")
 
 // ───────────────────────── 详情 ─────────────────────────
 
@@ -180,6 +211,10 @@ fun PlanDetailScreen(
     var completing by rememberSaveable { mutableStateOf(false) }
     var deleting by rememberSaveable { mutableStateOf(false) }
     var removingMilestone by remember { mutableStateOf<Milestone?>(null) }
+    val coverUpload by vm.coverUpload.collectAsStateWithLifecycle()
+    val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let(vm::setCover) }
+    val context = LocalContext.current
+    LaunchedEffect(vm) { vm.message.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() } }
 
     // 删除后（或别处删掉了）自动返回
     val plan = state.plan?.value
@@ -188,24 +223,42 @@ fun PlanDetailScreen(
     }
 
     Column(Modifier.fillMaxSize().background(colors.background).imePadding()) {
-        ItemTopBar(plan?.title.orEmpty(), onBack, feature = Feature.Plan,
-            actions = if (plan != null) listOf(BarAction("编辑", QichiIcons.Pen, { editing = true })) else emptyList())
+        ItemTopBar(
+            plan?.title.orEmpty(), onBack, feature = Feature.Plan,
+            actions = if (plan != null) listOf(BarAction("编辑", QichiIcons.Pen, { editing = true })) else emptyList(),
+            menu = if (plan != null) listOfNotNull(
+                MenuAction("换封面照片", { pickCover.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, enabled = coverUpload == null),
+                if (plan.coverFileId != null) MenuAction("封面改回插画", vm::clearCover) else null,
+            ) else emptyList(),
+        )
         if (plan == null) return@Column
         val done = plan.status == PlanStatus.Done
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = Spacing.page, end = Spacing.page, top = Spacing.xs, bottom = Spacing.l),
             verticalArrangement = Arrangement.spacedBy(Spacing.l),
         ) {
-            // 标题与负责人
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                    Text(plan.title, style = type.hubTitle.copy(fontSize = 30.tsp, lineHeight = 40.tsp, letterSpacing = 0.14.em, color = colors.ink),
-                        modifier = Modifier.weight(1f).semantics { heading() })
-                    PersonMark(state.people.markChar(plan.ownerId), state.people.person(plan.ownerId), size = 26.dp,
-                        modifier = Modifier.semantics { contentDescription = "负责人 ${state.people.name(plan.ownerId)}" })
+            // 封面横幅（照片或插画）+ 胶带 + 还有几天
+            Box(Modifier.fillMaxWidth()) {
+                PlanCover(plan, vm.urls, Modifier.fillMaxWidth().height(116.dp), RoundedCornerShape(14.dp), thumbWidth = 800)
+                Tape(Modifier.offset(x = 18.dp, y = (-8).dp), color = colors.accent, width = 60.dp, rotation = -6f, alpha = .35f)
+                val daysLeft = plan.targetDate?.let { java.time.temporal.ChronoUnit.DAYS.between(state.today, it) }
+                if (!done && daysLeft != null && daysLeft >= 0) {
+                    Sticker(
+                        if (daysLeft == 0L) "就是今天" else "还有 $daysLeft 天",
+                        Modifier.align(Alignment.BottomEnd).padding(end = 14.dp, bottom = 10.dp).background(colors.card, RoundedCornerShape(14.dp)),
+                        rotation = -4f,
+                    )
                 }
-                plan.targetDate?.let {
-                    Text("目标 ${relativeDay(it, state.today).first}", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.xxs))
+                coverUpload?.let { p ->
+                    Text("正在上传 ${(p * 100).toInt()}%", style = type.caption.copy(color = colors.ink),
+                        modifier = Modifier.align(Alignment.Center).background(colors.card.copy(alpha = .85f), QichiShapes.pill).padding(horizontal = 12.dp, vertical = 4.dp))
+                }
+            }
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    PersonMark(state.people.markChar(plan.ownerId), state.people.person(plan.ownerId), size = 20.dp)
+                    Text("负责人 ${state.people.name(plan.ownerId)}" + (plan.targetDate?.let { " · 目标 ${relativeDay(it, state.today).first}" } ?: ""),
+                        style = type.caption.copy(color = colors.muted))
                 }
                 if (state.stages.isNotEmpty()) StageTrack(state.stages, state.currentStage, onToggle = vm::toggleStage)
             }
@@ -218,7 +271,7 @@ fun PlanDetailScreen(
 
             if (state.milestones.isNotEmpty()) {
                 Column {
-                    SectionLabel("里程碑")
+                    SectionLabel("里程碑", icon = QichiIcons.Flag, tint = colors.personB)
                     state.milestones.forEach { m ->
                         MilestoneRow(m, onToggle = { vm.toggleMilestone(m) }, onLongPress = { removingMilestone = m })
                     }
@@ -226,7 +279,9 @@ fun PlanDetailScreen(
             }
 
             Column {
-                SectionLabel("待办")
+                SectionLabel("待办", icon = QichiIcons.Todo, tint = colors.personB) {
+                    if (state.openTodos.isNotEmpty()) Text("${state.openTodos.size}", style = type.numeral.copy(fontSize = 13.tsp, color = colors.muted))
+                }
                 state.openTodos.forEach { item ->
                     TodoRow(item.todo, state.people, state.today, state.zone, onToggle = { vm.toggleTodo(item.todo.value, it) }, onClick = {})
                     item.children.forEach { child ->
@@ -241,7 +296,7 @@ fun PlanDetailScreen(
             }
 
             Column {
-                SectionLabel("记录")
+                SectionLabel("记录", icon = QichiIcons.Pen, tint = colors.accent)
                 QuickAdd(label = "记一笔进展", onAdd = vm::addLog)
                 state.logs.forEach { log ->
                     Row(Modifier.fillMaxWidth().padding(vertical = Spacing.xs), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -306,24 +361,29 @@ fun PlanDetailScreen(
     }
 }
 
+/** 下一步：暮玫瑰淡底的浮起卡片，小字「下一步」、这件事、谁 / 什么时候、「完成」。 */
 @Composable
 private fun NextStepCard(plan: Plan, people: People, today: LocalDate, onEdit: () -> Unit, onDone: () -> Unit) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
-    MistCard(Modifier.clickable(role = Role.Button, onClickLabel = "修改下一步", onClick = onEdit)) {
-        Text("下一步", style = type.caption.copy(fontSize = 12.tsp, letterSpacing = 0.3.em, color = colors.accent))
+    Column(
+        Modifier.fillMaxWidth().lift(colors).clip(QichiShapes.card).background(colors.card).background(colors.accent.copy(alpha = .1f))
+            .clickable(role = Role.Button, onClickLabel = "修改下一步", onClick = onEdit)
+            .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp),
+    ) {
+        Text("下一步", style = type.sectionLabel.copy(fontSize = 12.tsp, letterSpacing = 0.em, color = colors.accent))
         val step = plan.nextStep
         if (step == null) {
             Text("写下下一步要做的一件小事", style = type.body.copy(fontSize = 17.tsp, color = colors.faint),
-                modifier = Modifier.padding(top = 6.dp, bottom = Spacing.s))
+                modifier = Modifier.padding(top = 2.dp, bottom = Spacing.s))
         } else {
-            Text(step, style = type.feeling.copy(fontSize = 19.tsp, lineHeight = 28.tsp, letterSpacing = 0.06.em, color = colors.ink),
-                modifier = Modifier.padding(top = 6.dp, bottom = 2.dp))
+            Text(step, style = type.headline.copy(fontSize = 17.tsp, fontWeight = FontWeight.W600, lineHeight = 25.5.tsp, color = colors.ink),
+                modifier = Modifier.padding(top = 2.dp, bottom = 2.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     plan.nextStepOwnerId?.let { PersonMark(people.markChar(it), people.person(it), size = 18.dp) }
                     plan.nextStepDue?.let {
-                        Text(relativeDay(it, today).first, style = type.caption.copy(color = if (it.isBefore(today)) colors.accent else colors.muted))
+                        Text("${relativeDay(it, today).first}截止", style = type.caption.copy(color = if (it.isBefore(today)) colors.accent else colors.muted))
                     }
                 }
                 TextAction("完成", onDone)
@@ -361,7 +421,7 @@ private fun MilestoneRow(m: Milestone, onToggle: () -> Unit, onLongPress: () -> 
     ) {
         Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
             if (done) CheckCircle(checked = true, onCheckedChange = null, size = 20.dp, modifier = Modifier.size(20.dp))
-            else Box(Modifier.size(8.dp).background(colors.personB))
+            else Box(Modifier.size(9.dp).rotate(45f).background(colors.personB))
         }
         Text(m.title, style = type.bodyLarge.copy(color = if (done) colors.faint else colors.ink), modifier = Modifier.weight(1f))
         m.targetDate?.let { Text(shortDate(it), style = type.numeral.copy(fontSize = 17.tsp, color = colors.muted)) }

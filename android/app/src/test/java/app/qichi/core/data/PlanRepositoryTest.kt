@@ -115,6 +115,22 @@ class PlanRepositoryTest {
     }
 
     @Test
+    fun `换封面：本机立即换上，发出的只含封面；改回插画发 null`() = runTest {
+        val plan = plans.create(roomId, "秋天去一次海边", me, null)
+        val photo = java.util.UUID.randomUUID()
+        plans.update(plan, UpdatePlanRequest(coverFileId = Patch.of(photo)))
+        val covered = plans.observePlans(roomId).first().single().value
+        assertEquals(photo, covered.coverFileId)
+        val body = QichiJson.decodeFromString(UpdatePlanRequest.serializer(), db.outbox().all().last().bodyJson!!)
+        assertEquals(Patch.of(photo), body.coverFileId)
+        assertEquals(Patch.Absent, body.title)
+
+        plans.update(covered, UpdatePlanRequest(coverFileId = Patch.of(null)))
+        assertEquals(null, plans.observePlans(roomId).first().single().value.coverFileId)
+        assertEquals(Patch.of(null), QichiJson.decodeFromString(UpdatePlanRequest.serializer(), db.outbox().all().last().bodyJson!!).coverFileId)
+    }
+
+    @Test
     fun `在计划里加待办：待办带上计划 id；删除计划后计划不再出现，但待办还在`() = runTest {
         val plan = plans.create(roomId, "搬家", me, null)
         val todo = todos.create(roomId, "买纸箱", planId = plan.id)

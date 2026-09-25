@@ -74,6 +74,7 @@ class PlanRepository(
         (change.nextStep as? Patch.Value)?.let { p = p.copy(nextStep = it.value?.trim()) }
         (change.nextStepOwnerId as? Patch.Value)?.let { p = p.copy(nextStepOwnerId = it.value) }
         (change.nextStepDue as? Patch.Value)?.let { p = p.copy(nextStepDue = it.value) }
+        (change.coverFileId as? Patch.Value)?.let { p = p.copy(coverFileId = it.value) }
         store.writeLocal(plan.roomId, p, OutboxOp.patch("rooms/${plan.roomId}/plans/${plan.id}", change))
         scheduler.kickOutbox()
     }

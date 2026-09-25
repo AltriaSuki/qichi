@@ -82,6 +82,7 @@ import app.qichi.core.designsystem.component.topBarInset
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
+import app.qichi.core.ui.PlanCover
 import app.qichi.core.ui.StageTrack
 import app.qichi.core.ui.TodoRow
 import app.qichi.core.ui.displayName
@@ -121,8 +122,6 @@ internal fun greeting(sky: Sky) = when (sky) {
     Sky.Night -> "晚安"
 }
 
-/** 计划没有封面照片时用的插画：按 id 固定选一幅，同一个计划每次都一样。 */
-internal fun planScene(id: UUID): Scene = Scene.entries[Math.floorMod(id.hashCode(), Scene.entries.size)]
 
 /**
  * 今天页（按 New-Today）：插画上叠手写问候、两人标记、日期大字和印章；
@@ -160,7 +159,7 @@ fun TodayScreen(
                 QnaCard(state, onOpen)
                 TodoSection(state, onOpen, viewModel::toggleTodo)
                 ScheduleSection(state, onOpen)
-                PlanSection(state, onOpenPlan)
+                PlanSection(state, viewModel.urls, onOpenPlan)
                 if (state.reviews.isNotEmpty()) {
                     Column(Modifier.padding(horizontal = Spacing.page)) {
                         SectionLabel("该复查了", Feature.Decisions)
@@ -499,7 +498,7 @@ private fun ScheduleSection(state: TodayState, onOpen: (Page) -> Unit) {
 
 /** 进行中：封面小图（插画 + 一条胶带）、标题、阶段、下一步。 */
 @Composable
-private fun PlanSection(state: TodayState, onOpenPlan: (UUID) -> Unit) {
+private fun PlanSection(state: TodayState, urls: app.qichi.core.network.FileUrls, onOpenPlan: (UUID) -> Unit) {
     if (state.plans.isEmpty()) return
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
@@ -511,7 +510,7 @@ private fun PlanSection(state: TodayState, onOpenPlan: (UUID) -> Unit) {
             Column(Modifier.padding(top = if (i > 0) Spacing.l else 4.dp).clickable(role = Role.Button) { onOpenPlan(plan.id) }) {
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalAlignment = Alignment.Top) {
                     Box {
-                        Illustration(planScene(plan.id), Modifier.size(64.dp), RoundedCornerShape(12.dp))
+                        PlanCover(plan, urls, Modifier.size(64.dp), RoundedCornerShape(12.dp), thumbWidth = 200)
                         Tape(Modifier.align(Alignment.TopEnd).offset(x = 10.dp, y = (-6).dp), color = colors.accent, width = 34.dp, rotation = 18f, alpha = .35f)
                     }
                     Column(Modifier.weight(1f)) {
