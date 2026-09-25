@@ -53,6 +53,8 @@ import app.qichi.server.documents.DocCommentService
 import app.qichi.server.documents.documentRoutes
 import app.qichi.server.ideas.IdeaService
 import app.qichi.server.ideas.ideaRoutes
+import app.qichi.server.tags.TagService
+import app.qichi.server.tags.tagRoutes
 import app.qichi.server.jobs.JobQueue
 import app.qichi.server.life.lifeRoutes
 import app.qichi.server.messages.MessageService
@@ -151,6 +153,7 @@ fun Application.module(ctx: AppContext) {
             qnaRoutes(ctx)
             planRoutes(ctx)
             ideaRoutes(ctx)
+            tagRoutes(ctx)
             documentRoutes(ctx)
             boardRoutes(ctx)
             archiveRoutes(ctx)
@@ -205,6 +208,7 @@ class AppContext(
     val qna = QnaService(database, rooms, writes, writer, clock)
     val plans = PlanService(database, rooms, writes)
     val ideas = IdeaService(database, rooms, writes)
+    val tags = TagService(database, rooms, writes)
     val documents = DocumentService(database, rooms, writes)
     val docComments = DocCommentService(database, rooms, writes)
     val board = BoardService(database, rooms, writes)

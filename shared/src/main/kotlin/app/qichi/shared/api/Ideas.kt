@@ -21,3 +21,10 @@ data class CreateIdeaRequest(val id: Id, val body: String)
 
 @Serializable
 data class UpdateIdeaRequest(val body: String)
+
+/** 标签改名或合并（P10-07）：`from` / `to` 都不带 #。 */
+@Serializable
+data class RenameTagRequest(val from: String, val to: String)
+
+@Serializable
+data class RenameTagResult(val ideas: Int, val archiveItems: Int)

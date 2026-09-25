@@ -157,6 +157,7 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/rooms/{roomId}/ai/chat` | 问 AI（聊天里）→ 202 |
+| POST | `/rooms/{roomId}/tags/rename` | 标签改名 / 合并：把房间里所有灵感、档案正文里的 `#from`（连同子标签）改成 `#to`，两个人的都改（P10-07） |
 | POST | `/rooms/{roomId}/ai/jobs/{jobId}/stop` | 停下正在回答的 AI（只有提问的人；已写出的部分存成 `aiStopped = true` 的消息，P10-04） |
 | GET | `/rooms/{roomId}/ai/jobs/{jobId}` | 查询 AI 任务状态 |
 | GET | `/me/ai-usage?month=` | 我发起的 AI 使用 |

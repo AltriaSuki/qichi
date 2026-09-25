@@ -2524,6 +2524,32 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /rooms/{roomId}/tags/rename:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [ideas]
+      operationId: renameTag
+      summary: 标签改名或合并（P10-07）
+      description: |
+        标签不另存，就是正文里的 `#词`（规则见 `shared/rules/Tags`）。改名 = 把房间里所有灵感正文、档案标题和正文里的
+        `#from`（连同它的子标签，如 `#from/北方`）改成 `#to`；`to` 已经存在就是合并。两个人的都改（灵感平时只能作者改，
+        改标签是例外）；档案每改一条记一次修订。改动经普通同步到两台手机。需要联网，不进离线发件箱；重复请求没有副作用。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RenameTagRequest' }
+      responses:
+        '200':
+          description: 改了几条
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RenameTagResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /rooms/{roomId}/ai/jobs/{jobId}/stop:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -4149,6 +4175,18 @@ components:
             aiStopped:
               type: boolean
               description: AI 回答是被提问的人中途停下的（正文是停下时已经写出来的部分，可能为空）；其它消息为 false（P10-04）
+    RenameTagRequest:
+      type: object
+      required: [from, to]
+      properties:
+        from: { type: string, description: '不带 #，如 旅行 或 旅行/北方', example: 旅行 }
+        to: { type: string, description: '不带 #；最多三层，每层只含字母、数字、下划线、连字符', example: 出门 }
+    RenameTagResult:
+      type: object
+      required: [ideas, archiveItems]
+      properties:
+        ideas: { type: integer, description: 改了几条灵感 }
+        archiveItems: { type: integer, description: 改了几条档案 }
     SendMessageRequest:
       type: object
       required: [id, kind]
