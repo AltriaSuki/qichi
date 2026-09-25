@@ -75,6 +75,8 @@ data class DocumentListState(
     val shown: List<DocumentHit> = emptyList(),
     /** 正文搜索离线、没搜成 */
     val bodySearchOffline: Boolean = false,
+    /** 本机有正文的文稿的开头一段 */
+    val previews: Map<UUID, String> = emptyMap(),
 )
 
 data class DocumentHit(val doc: Local<Document>, val snippet: String?)
@@ -188,13 +190,14 @@ class DocumentListViewModel @AssistedInject constructor(
 
     private val base = combine(people, docs.observeDocuments(roomId), docs.observeDraftIds(roomId)) { p, list, drafts -> Triple(p, list, drafts) }
 
-    val state: StateFlow<DocumentListState> = combine(base, query, category, bodyHits) { (p, list, drafts), q, c, (hitQuery, hits) ->
+    val state: StateFlow<DocumentListState> = combine(base, query, category, bodyHits, docs.observePreviews(roomId)) { (p, list, drafts), q, c, (hitQuery, hits), previews ->
         val zone = zoneOf(p.room?.timezone)
         val usable = if (hitQuery == q.trim()) hits.orEmpty() else emptyMap()
         DocumentListState(
             p, zone, todayIn(zone), list, drafts, loaded = true, query = q, category = c,
             shown = filterDocuments(list, q, c, usable),
             bodySearchOffline = q.isNotBlank() && hitQuery == q.trim() && hits == null,
+            previews = previews,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DocumentListState())
 

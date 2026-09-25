@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -41,6 +42,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -49,6 +53,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.People
 import app.qichi.core.designsystem.Feature
+import app.qichi.core.designsystem.QichiShapes
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
 import app.qichi.core.designsystem.component.BarAction
@@ -66,7 +71,15 @@ import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.QuickInput
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
+import app.qichi.core.designsystem.component.color
+import app.qichi.core.designsystem.component.decor.HandNote
+import app.qichi.core.designsystem.component.decor.Illustration
+import app.qichi.core.designsystem.component.decor.Postmark
+import app.qichi.core.designsystem.component.decor.Scene
+import app.qichi.core.designsystem.component.decor.Stamp
+import app.qichi.core.designsystem.component.decor.WaxSeal
 import app.qichi.core.designsystem.icon.QichiIcons
+import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.MarkdownView
 import app.qichi.core.ui.relativeDay
@@ -121,12 +134,15 @@ fun BoardListScreen(
                 QuickInput(state.query, vm::search, placeholder = "搜索留言和标题", actionLabel = "清空", onSubmit = { vm.search("") },
                     modifier = Modifier.padding(horizontal = Spacing.m, vertical = Spacing.xs))
             }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
+            Column(
+                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = Spacing.cardPage, end = Spacing.cardPage, top = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(Spacing.l),
+            ) {
                 if (state.searching) {
                     if (state.topicHits.isEmpty() && state.postHits.isEmpty()) {
                         Text("没有找到。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
                     }
-                    state.topicHits.forEach { TopicRow(it, state.people, state.zone, state.today) { onOpen(it.topic.value.id, null) } }
+                    state.topicHits.forEachIndexed { i, it -> EnvelopeCard(it, state.people, state.zone, i) { onOpen(it.topic.value.id, null) } }
                     if (state.postHits.isNotEmpty()) SectionLabel("留言", modifier = Modifier.padding(top = Spacing.m))
                     state.postHits.forEach { hit ->
                         Column(Modifier.fillMaxWidth().clickable(role = Role.Button) { onOpen(hit.post.topicId, hit.post.id) }.padding(vertical = Spacing.s)) {
@@ -144,12 +160,12 @@ fun BoardListScreen(
                         Text("还没有留言。想慢慢说清楚的话，可以写在这里。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
                         TextAction("写第一个主题", { creating = true })
                     }
-                    state.topics.forEach { TopicRow(it, state.people, state.zone, state.today) { onOpen(it.topic.value.id, null) } }
+                    state.topics.forEachIndexed { i, it -> EnvelopeCard(it, state.people, state.zone, i) { onOpen(it.topic.value.id, null) } }
                 }
                 Spacer(Modifier.height(FabClearance))
             }
         }
-        Fab("新主题", { creating = true })
+        Fab("写留言", { creating = true })
     }
 
     if (creating) {
@@ -172,28 +188,64 @@ fun BoardListScreen(
     }
 }
 
+private val MD = DateTimeFormatter.ofPattern("MM.dd")
+
+/**
+ * 一个留言主题是一只信封（按 New-Messages）：一道封口线，右上角一张邮票盖着邮戳，
+ * 标题、最近一条留言的开头、几条回复，右下角手写署名；置顶的左上角一枚蜡封。卡片轻轻歪着。
+ */
 @Composable
-private fun TopicRow(summary: TopicSummary, people: People, zone: ZoneId, today: LocalDate, onClick: () -> Unit) {
+private fun EnvelopeCard(summary: TopicSummary, people: People, zone: ZoneId, index: Int, onClick: () -> Unit) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val topic = summary.topic.value
-    Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "打开主题", onClick = onClick).padding(vertical = Spacing.s)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-            Text(topic.title, style = type.feeling.copy(fontSize = 22.tsp, lineHeight = 30.tsp, color = colors.ink),
-                maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            if (topic.pinnedAt != null) Text("置顶", style = type.caption.copy(color = colors.accent))
-        }
-        summary.lastPost?.let { last ->
-            Row(Modifier.padding(top = Spacing.xxs), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                PersonMark(people.markChar(last.authorId), people.person(last.authorId), size = 18.dp)
-                Text(BoardRules.quoteExcerpt(last.body), style = type.caption.copy(color = colors.muted), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f))
+    val author = topic.authorId
+    val tint = people.person(author).color()
+    val rotation = listOf(-.6f, .7f, -.5f, .4f)[index % 4]
+    val flap = colors.line2
+    Box(Modifier.rotate(rotation)) {
+        Column(
+            Modifier.fillMaxWidth().lift(colors).clip(QichiShapes.card).background(colors.card)
+                .drawBehind {
+                    val p = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(0f, 0f); lineTo(size.width / 2, 26.dp.toPx()); lineTo(size.width, 0f)
+                    }
+                    drawPath(p, flap, style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
+                }
+                .clickable(role = Role.Button, onClickLabel = "打开主题", onClick = onClick)
+                .padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 12.dp),
+        ) {
+            Column(Modifier.padding(end = 84.dp, top = 12.dp)) {
+                Text(topic.title, style = type.headline.copy(lineHeight = 24.6.tsp, color = colors.ink), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                summary.lastPost?.let { last ->
+                    Text(BoardRules.quoteExcerpt(last.body), style = type.preview.copy(color = colors.muted), maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp))
+                }
+            }
+            Row(Modifier.padding(top = Spacing.xs), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                val replies = (summary.postCount - 1).coerceAtLeast(0)
+                if (replies > 0) {
+                    Text("$replies", style = type.numeral.copy(fontSize = 12.tsp, color = colors.muted))
+                    Text("回复", style = type.caption.copy(fontSize = 12.tsp, color = colors.muted))
+                } else {
+                    Text("还没有回复", style = type.caption.copy(fontSize = 12.tsp, color = colors.muted))
+                }
+                Spacer(Modifier.weight(1f))
+                HandNote("—— ${people.name(author)}", fontSizeSp = 18f, color = tint, rotation = -3f)
             }
         }
-        Text("${summary.postCount} 条 · ${relativeDay(summary.lastAt.atZone(zone).toLocalDate(), today).first}",
-            style = type.caption.copy(color = colors.faint))
+        // 右上角：邮票 + 邮戳
+        Stamp(Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 14.dp), width = 50.dp, height = 58.dp, rotation = 4f) {
+            Illustration(boardScene(topic.id), Modifier.fillMaxSize())
+        }
+        Postmark("栖迟", summary.lastAt.atZone(zone).format(MD), Modifier.align(Alignment.TopEnd).padding(top = 44.dp, end = 34.dp), size = 40.dp, rotation = -18f, color = tint, waves = false)
+        if (topic.pinnedAt != null) {
+            WaxSeal(people.markChar(author), Modifier.offset(x = (-10).dp, y = (-12).dp), size = 40.dp, color = tint)
+        }
     }
 }
+
+private fun boardScene(id: UUID): Scene = Scene.entries[Math.floorMod(id.hashCode() * 31, Scene.entries.size)]
 
 // ───────────────────────── 主题 ─────────────────────────
 

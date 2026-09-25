@@ -33,9 +33,9 @@ import app.qichi.core.designsystem.tsp
 
 /** `#标签`：等宽小字，功能色淡底的小圆角标签。 */
 @Composable
-fun TagChip(tag: String, modifier: Modifier = Modifier, color: Color = QichiTheme.colors.accent) {
+fun TagChip(tag: String, modifier: Modifier = Modifier, color: Color = QichiTheme.colors.accent, withHash: Boolean = true) {
     Text(
-        "#$tag",
+        if (withHash) "#$tag" else tag,
         style = QichiTheme.typography.tag.copy(color = color),
         maxLines = 1,
         modifier = modifier.background(color.copy(alpha = .12f), QichiShapes.pill).padding(horizontal = 7.dp),
@@ -53,6 +53,26 @@ fun TagFilterRow(
     onSelect: (String?) -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(start = Spacing.xl, end = Spacing.xl, bottom = Spacing.s),
+) = FilterRow(tags, selected, onSelect, modifier, contentPadding, hash = true)
+
+/** 同样的一排，但选项前面不加 #（写作的分类用）。 */
+@Composable
+fun TagFilterRowPlain(
+    items: List<String>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(start = Spacing.xl, end = Spacing.xl, bottom = Spacing.s),
+) = FilterRow(items, selected, onSelect, modifier, contentPadding, hash = false)
+
+@Composable
+private fun FilterRow(
+    tags: List<String>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+    modifier: Modifier,
+    contentPadding: PaddingValues,
+    hash: Boolean,
 ) {
     Row(
         modifier
@@ -71,7 +91,7 @@ fun TagFilterRow(
         horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         FilterChip("全部", selected == null) { onSelect(null) }
-        tags.forEach { t -> FilterChip("#$t", selected == t) { onSelect(t) } }
+        tags.forEach { t -> FilterChip(if (hash) "#$t" else t, selected == t) { onSelect(t) } }
     }
 }
 

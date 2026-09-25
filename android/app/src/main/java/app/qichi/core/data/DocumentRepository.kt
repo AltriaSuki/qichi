@@ -1,5 +1,6 @@
 package app.qichi.core.data
 
+import app.qichi.shared.rules.DocumentImages
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.database.DocumentVersionRow
 import app.qichi.core.database.DraftRow
@@ -56,6 +57,12 @@ class DocumentRepository(
     private val me: UUID get() = session.currentUserId ?: error("未登录")
 
     // ── 文稿 ──
+
+    /** 列表里的预览：本机已有正文的最新一版，去掉 Markdown 符号后的开头一段。 */
+    fun observePreviews(roomId: UUID): Flow<Map<UUID, String>> =
+        db.documentVersions().observeLatestBodies(roomId.toString()).map { rows ->
+            rows.associate { UUID.fromString(it.documentId) to documentPreview(it.body) }
+        }
 
     /** 房间里的文稿（不含回收站）：置顶的在前，其余最近更新的在前。 */
     fun observeDocuments(roomId: UUID): Flow<List<Local<Document>>> =
@@ -295,3 +302,15 @@ class DocumentRepository(
         const val MAX_VERSION_PAGES = 20
     }
 }
+
+/** 预览用的一段：去掉标题井号、列表符号、照片标记，跳过空行，最多 80 字。 */
+internal fun documentPreview(body: String): String =
+    body.lineSequence()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && !DocumentImages.line.matches(it) && !it.startsWith("#") }
+        .map { it.replace(PREVIEW_MARKER, "").replace("**", "") }
+        .joinToString(" ")
+        .take(80)
+
+/** 行首的引用、勾选框、列表符号（包括「1.」和各种空白）。 */
+private val PREVIEW_MARKER = Regex("""^(>[\s\u00a0]*)?([-*+][\s\u00a0]+(\[[ xX]][\s\u00a0]*)?|\d+[.)][\s\u00a0]+)?""")

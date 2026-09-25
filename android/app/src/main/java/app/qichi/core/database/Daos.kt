@@ -242,7 +242,17 @@ interface DocumentVersionDao {
 
     @Query("DELETE FROM document_versions WHERE documentId = :documentId")
     suspend fun deleteFor(documentId: String)
+
+    /** 房间里每篇文稿本机已有正文的最新一版（写作列表的预览用）。 */
+    @Query(
+        """SELECT documentId, body FROM document_versions v
+           WHERE roomId = :roomId AND body IS NOT NULL
+             AND version = (SELECT MAX(version) FROM document_versions w WHERE w.documentId = v.documentId AND w.body IS NOT NULL)""",
+    )
+    fun observeLatestBodies(roomId: String): Flow<List<DocumentBody>>
 }
+
+data class DocumentBody(val documentId: String, val body: String)
 
 /** 某种实体的条数。 */
 data class TypeCount(val type: String, val count: Int)
