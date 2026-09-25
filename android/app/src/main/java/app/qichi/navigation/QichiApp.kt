@@ -208,6 +208,10 @@ fun QichiApp(
                                     app.qichi.shared.model.TimelineEntryKind.Plan -> navigator.open(Page.Plan, e.refId.toString())
                                     app.qichi.shared.model.TimelineEntryKind.Idea -> navigator.open(Page.Ideas)
                                     app.qichi.shared.model.TimelineEntryKind.Photo -> Unit
+                                    app.qichi.shared.model.TimelineEntryKind.Mood -> navigator.open(Page.Mood)
+                                    app.qichi.shared.model.TimelineEntryKind.Qna -> navigator.open(Page.Qna)
+                                    app.qichi.shared.model.TimelineEntryKind.PlanProgress -> navigator.open(Page.Plan, e.refId.toString())
+                                    app.qichi.shared.model.TimelineEntryKind.Writing -> navigator.open(Page.Writing, e.refId.toString())
                                 }
                             })
                             Page.Decisions -> {
