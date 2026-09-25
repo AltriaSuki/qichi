@@ -180,7 +180,8 @@ fun QichiApp(
                                 roomId = roomId,
                                 onBack = navigator::back,
                                 onDayClick = { date -> navigator.navController.navigate(CalendarDay(date.toString())) },
-                                onEventsClick = { navigator.navController.navigate(EventList) },
+                                onEventsClick = { navigator.navController.navigate(EventList()) },
+                                onNewEvent = { navigator.navController.navigate(EventList(create = true)) },
                             )
                             Page.Plan -> {
                                 val planId = route.id?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
@@ -269,8 +270,8 @@ fun QichiApp(
                         val date = java.time.LocalDate.parse(route.date)
                         CalendarDayScreen(roomId = roomId, date = date, onBack = navigator::back)
                     }
-                    composable<EventList> {
-                        EventListScreen(roomId = LocalRoomId.current, onBack = navigator::back)
+                    composable<EventList> { entry ->
+                        EventListScreen(roomId = LocalRoomId.current, onBack = navigator::back, startCreating = entry.toRoute<EventList>().create)
                     }
                 }
                 navigation<MeGraph>(startDestination = MeHome) {

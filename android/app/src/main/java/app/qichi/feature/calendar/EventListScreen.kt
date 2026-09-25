@@ -83,12 +83,14 @@ private val hm = DateTimeFormatter.ofPattern("HH:mm")
 fun EventListScreen(
     roomId: UUID,
     onBack: () -> Unit,
+    /** 进来就打开「新日程」 */
+    startCreating: Boolean = false,
     viewModel: EventListViewModel = hiltViewModel<EventListViewModel, EventListViewModel.Factory>(key = roomId.toString()) { it.create(roomId) },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
-    var editing by rememberSaveable { mutableStateOf<String?>(null) }
+    var editing by rememberSaveable { mutableStateOf(if (startCreating) "new" else null) }
 
     Box(
         Modifier

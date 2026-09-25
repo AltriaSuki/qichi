@@ -101,7 +101,8 @@ enum class Page(val slug: String, val title: String, val tab: TopTab, val group:
 @Serializable data class CalendarDay(val date: String)
 
 /** 现有日程列表与编辑入口。 */
-@Serializable data object EventList
+/** @param create 进来就打开「新日程」（日历的「新安排」按钮） */
+@Serializable data class EventList(val create: Boolean = false)
 
 fun TopTab.graph(): Any = when (this) {
     TopTab.Today -> TodayGraph

@@ -38,6 +38,24 @@ data class CalendarMonthState(
 ) {
     val monthStart: LocalDate get() = selectedDate.withDayOfMonth(1)
     val selectedItems: CalendarDayItems get() = dayItems[selectedDate] ?: CalendarDayItems(selectedDate)
+    /** 月份标题旁的贴纸：这个月从今天起的第一件日程 */
+    val upcomingInMonth: Pair<Int, String>? get() = upcomingInMonth(monthStart, today, dayItems)
+}
+
+/**
+ * 这个月里、今天及以后的第一件日程：几号 + 标题（最多 6 个字）。整个月都已过去时为空。
+ */
+fun upcomingInMonth(monthStart: LocalDate, today: LocalDate, items: Map<LocalDate, CalendarDayItems>): Pair<Int, String>? {
+    val end = monthStart.withDayOfMonth(monthStart.lengthOfMonth())
+    var day = maxOf(monthStart, today)
+    while (!day.isAfter(end)) {
+        items[day]?.events?.firstOrNull()?.let { e ->
+            val title = e.value.title
+            return day.dayOfMonth to if (title.codePointCount(0, title.length) > 6) title.substring(0, title.offsetByCodePoints(0, 6)) + "…" else title
+        }
+        day = day.plusDays(1)
+    }
+    return null
 }
 
 @HiltViewModel(assistedFactory = CalendarMonthViewModel.Factory::class)

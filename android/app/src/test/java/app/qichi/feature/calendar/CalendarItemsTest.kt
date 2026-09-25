@@ -57,4 +57,30 @@ class CalendarItemsTest {
         assertEquals(7, items.size)
         assertTrue(items.values.all { it.events.single() == event })
     }
+
+    private fun ev(title: String, day: LocalDate, participants: List<UUID> = emptyList()) = local(Event(UUID.randomUUID(), room, 1, now, now, null, null,
+        title, null, null, true, null, null, day, day, participants, me, null))
+
+    @Test fun `月份贴纸：这个月今天及以后的第一件日程，标题最多 6 个字；月份已过去时没有`() {
+        val sep = LocalDate.of(2026, 9, 1)
+        val today = LocalDate.of(2026, 9, 24)
+        val items = calendarItems(sep, LocalDate.of(2026, 9, 30), zone,
+            listOf(ev("牙医", LocalDate.of(2026, 9, 3)), ev("出发去东山岛看海", LocalDate.of(2026, 9, 26))), emptyList(), emptyList(), emptyList())
+        assertEquals(26 to "出发去东山岛…", upcomingInMonth(sep, today, items))
+        assertEquals(3 to "牙医", upcomingInMonth(sep, LocalDate.of(2026, 9, 1), items))
+        assertEquals(null, upcomingInMonth(sep, LocalDate.of(2026, 10, 2), items))
+    }
+
+    @Test fun `格子下的小点：日程按参与的人着色，两个人的两个点；计划和里程碑是菱形；最多三个`() {
+        val partner = UUID.randomUUID()
+        val room = app.qichi.shared.api.Room(this.room, "家", null, null, null, "Asia/Shanghai", me, 1, now, now)
+        fun member(user: UUID) = app.qichi.shared.api.Member(UUID.randomUUID(), this.room, 1, now, now, null, null, user,
+            app.qichi.shared.model.MemberRole.Member, "u", "名字", null, now)
+        val people = app.qichi.core.data.People(room, listOf(member(me), member(partner)), me)
+        val day = LocalDate.of(2026, 9, 24)
+        assertEquals(listOf(DayDot.A), dayDots(CalendarDayItems(day, events = listOf(ev("我的", day, listOf(me)))), people))
+        assertEquals(listOf(DayDot.B), dayDots(CalendarDayItems(day, events = listOf(ev("对方的", day, listOf(partner)))), people))
+        assertEquals(listOf(DayDot.A, DayDot.B, DayDot.Milestone),
+            dayDots(CalendarDayItems(day, events = listOf(ev("一起", day)), milestones = listOf(local(Milestone(UUID.randomUUID(), this.room, 4, now, now, null, null, UUID.randomUUID(), "m", day, null)))), people))
+    }
 }
