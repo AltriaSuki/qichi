@@ -51,6 +51,8 @@ data class QnaUiState(
     val editing: Boolean = false,
     val busy: Boolean = false,
     val error: String? = null,
+    /** 今天是第几题（到今天为止一共出过几轮） */
+    val roundNumber: Int = 0,
 ) {
     val confirmed: Boolean get() = people.myUserId in (todayRound?.value?.confirmedBy ?: emptyList())
     val partnerConfirmed: Boolean get() = people.partner?.userId in (todayRound?.value?.confirmedBy ?: emptyList())
@@ -120,6 +122,7 @@ class QnaViewModel @AssistedInject constructor(
             editing = e.editing,
             busy = e.busy,
             error = e.error,
+            roundNumber = data.rounds.count { !it.value.roundDate.isAfter(today) },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), QnaUiState())
 

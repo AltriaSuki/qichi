@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -73,8 +74,10 @@ fun Pill(
         modifier = modifier
             .heightIn(min = Sizes.touchTarget)
             .clip(QichiShapes.pill)
-            .background(colors.surface)
+            .background(if (selected) colors.accent.copy(alpha = .1f) else colors.surface)
+            .border(1.dp, if (selected) colors.accent.copy(alpha = .3f) else colors.ink.copy(alpha = .06f), QichiShapes.pill)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .semantics { this.selected = selected }
             .padding(horizontal = 15.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -82,8 +85,7 @@ fun Pill(
             text = text,
             style = QichiTheme.typography.body.copy(
                 fontSize = 14.tsp,
-                fontWeight = FontWeight.W400,
-                letterSpacing = 0.06.em,
+                fontWeight = FontWeight.W500,
                 color = when {
                     !enabled -> colors.faint
                     selected -> colors.accent
