@@ -20,6 +20,9 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -91,6 +94,45 @@ class OutboxProcessorTest {
         val local = ids.map { store.get<Message>(EntityType.Message, it)!! }
         assertTrue(local.all { it.syncState == SyncState.SYNCED })
         assertEquals(listOf(1L, 2L, 3L), local.map { it.value.createdSeq })
+    }
+
+    @Test
+    fun `服务端要求先更新 App（426）：停下，排队的都留着、不算失败，装了新版照常发出`() = runTest {
+        val first = sendLocally("第一条")
+        val second = sendLocally("第二条")
+        server.custom = {
+            respond("""{"type":"x","title":"App 版本太旧","status":426,"code":"upgrade_required"}""", HttpStatusCode.UpgradeRequired, problemHeaders)
+        }
+        assertEquals(OutboxProcessor.Result.Stop, processor.drain())
+        assertEquals(2, db.outbox().all().size)
+        assertTrue(db.outbox().all().all { it.state == OutboxState.PENDING })
+        assertTrue(store.get<Message>(EntityType.Message, first)!!.isPending)
+        assertTrue(store.get<Message>(EntityType.Message, second)!!.isPending)
+
+        server.custom = null
+        assertIs<OutboxProcessor.Result.Done>(processor.drain())
+        assertTrue(db.outbox().all().isEmpty())
+    }
+
+    @Test
+    fun `服务端收下了、但回应这个版本解不开：不再重发，后面的照常`() = runTest {
+        val strange = sendLocally("对方新版才懂的回应")
+        val normal = sendLocally("普通的一条")
+        var answered = false
+        server.custom = { request ->
+            if (!answered && request.url.encodedPath.endsWith("/messages")) {
+                answered = true
+                val message = pendingMessage("对方新版才懂的回应", strange).copy(seq = 1, createdSeq = 1)
+                val body = JsonObject(QichiJson.encodeToJsonElement(Message.serializer(), message).jsonObject + ("kind" to JsonPrimitive("poll")))
+                respond(body.toString(), HttpStatusCode.Created, headersOf(HttpHeaders.ContentType, "application/json"))
+            } else {
+                null
+            }
+        }
+        assertEquals(OutboxProcessor.Result.Done(setOf(roomId)), processor.drain())
+        assertTrue(db.outbox().all().isEmpty())
+        assertEquals(2, server.requests.count { it.startsWith("POST ") && it.endsWith("/messages") }, "每条只发一次")
+        assertEquals(SyncState.SYNCED, store.get<Message>(EntityType.Message, normal)!!.syncState)
     }
 
     @Test

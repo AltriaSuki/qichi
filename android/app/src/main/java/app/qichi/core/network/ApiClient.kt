@@ -7,6 +7,8 @@ import app.qichi.shared.api.CLIENT_HEADER
 import app.qichi.shared.api.Problem
 import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.RefreshRequest
+import app.qichi.shared.api.androidClientHeader
+import app.qichi.shared.model.ProblemCode
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.plugins.HttpSend
@@ -40,8 +42,11 @@ import io.ktor.utils.io.jvm.javaio.toInputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -66,12 +71,18 @@ class ApiClient(
     clientVersion: String,
     /** 请求失败时记录日志（不含请求正文与令牌）。 */
     private val logFailure: (path: String, error: Throwable) -> Unit = { _, _ -> },
+    /** App 的 versionCode：放进版本头，服务端据此判断 App 是否太旧（P13-07）。 */
+    clientVersionCode: Int? = null,
 ) {
     private val refreshMutex = Mutex()
     private val _sessionExpired = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    private val _upgradeRequired = MutableStateFlow(false)
 
     /** 刷新令牌失效时发出，SessionManager 据此回到登录页。 */
     val sessionExpired: SharedFlow<Unit> = _sessionExpired.asSharedFlow()
+
+    /** 服务端说这个版本太旧了（426 upgrade_required）：界面提示更新。装了新版、重新打开 App 之前一直是 true。 */
+    val upgradeRequired: StateFlow<Boolean> = _upgradeRequired.asStateFlow()
 
     val http: HttpClient = HttpClient(engine) {
         expectSuccess = false
@@ -84,7 +95,7 @@ class ApiClient(
         install(WebSockets) { pingIntervalMillis = 60.seconds.inWholeMilliseconds }
         defaultRequest {
             url(baseUrl.trimEnd('/') + API_PREFIX + "/")
-            header(CLIENT_HEADER, "android/$clientVersion")
+            header(CLIENT_HEADER, clientVersionCode?.let { androidClientHeader(clientVersion, it) } ?: "android/$clientVersion")
         }
     }
 
@@ -186,6 +197,10 @@ class ApiClient(
         return response
     }
 
+    private suspend fun parseProblem(response: HttpResponse): Problem? = runCatching {
+        QichiJson.decodeFromString(Problem.serializer(), response.bodyAsText())
+    }.getOrNull()?.also { if (it.code == ProblemCode.UpgradeRequired) _upgradeRequired.value = true }
+
     /**
      * multipart 上传（文件）：不限总时长，[onProgress] 报告已发送 / 总字节数。
      * 非 2xx 抛 [ApiException]，网络问题抛 [NetworkException]。
@@ -243,10 +258,6 @@ class ApiClient(
         }
         return TextContent(text, ContentType.Application.Json)
     }
-
-    private suspend fun parseProblem(response: HttpResponse): Problem? = runCatching {
-        QichiJson.decodeFromString(Problem.serializer(), response.bodyAsText())
-    }.getOrNull()
 
     companion object {
         /** 请求上带这个标记就不附加令牌、不自动刷新。 */

@@ -28,6 +28,8 @@ import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
@@ -49,6 +51,7 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
     @Inject lateinit var api: ApiClient
     @Inject lateinit var push: PushRegistrar
     @Inject lateinit var updater: app.qichi.core.update.AppUpdater
+    @Inject lateinit var unknownContent: app.qichi.core.sync.UnknownContent
     @Inject @ApplicationScope lateinit var appScope: CoroutineScope
 
     override val workManagerConfiguration: Configuration
@@ -107,6 +110,17 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
             realtime.notifications.collect { e ->
                 if (!inForeground && session.currentUserId != null) PushRegistrar.sanitize(e.payload)?.let { PushNotifier.show(this@QichiApplication, it) }
             }
+        }
+
+        appScope.launch {
+            // 服务端要求更新、或同步里有这个版本认不出来的内容：马上查新版并说明原因（P13-07）
+            combine(api.upgradeRequired, unknownContent.needsNewerApp) { tooOld, unreadable ->
+                when {
+                    tooOld -> "服务器已经更新，这个版本太旧了，更新后才能继续同步"
+                    unreadable -> "对方用了新版本的功能，有些内容这个版本显示不了，更新后就能看到"
+                    else -> null
+                }
+            }.distinctUntilChanged().collect { reason -> if (reason != null) updater.requireUpdate(reason) }
         }
 
         appScope.launch {

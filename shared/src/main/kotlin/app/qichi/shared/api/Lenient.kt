@@ -12,7 +12,9 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.longOrNull
 
 /**
  * 解码结果：[value] 是认得出来的部分。
@@ -104,6 +106,15 @@ object Lenient {
         }
         return Decoded(QichiJson.decodeFromJsonElement(deserializer, JsonObject(cleaned)), skipped, partial)
     }
+
+    /**
+     * 原始数据里某个列表中某个数字字段的最小值，认不出来的实体也算上；列表不存在或为空时为 null。
+     * 例如翻聊天历史时下一页从哪里接着翻：不能因为跳过了几条而算错，更不能因为一页全被跳过就当成翻到头了。
+     */
+    fun rawMin(json: JsonElement, listKey: String, field: String): Long? =
+        (json.jsonObject[listKey] as? JsonArray)
+            ?.mapNotNull { ((it as? JsonObject)?.get(field) as? JsonPrimitive)?.longOrNull }
+            ?.minOrNull()
 
     private fun entityTypeOf(descriptor: SerialDescriptor): EntityType? = entityTypes[descriptor.serialName.removeSuffix("?")]
 

@@ -155,6 +155,19 @@ class LenientTest {
     }
 
     @Test
+    fun `翻历史的位置按原始数据算：跳过的消息也算上，一页全被跳过也不当成翻到头`() {
+        val poll = { n: Int -> json(EntityType.Message, message(n)).with("kind", JsonPrimitive("poll")) }
+        val allUnknown = buildJsonObject {
+            put("messages", JsonArray(listOf(poll(8), poll(7))))
+            put("hasMore", true)
+        }
+        assertTrue(Lenient.container(MessagePage.serializer(), allUnknown).value.messages.isEmpty())
+        assertEquals(7, Lenient.rawMin(allUnknown, "messages", "createdSeq"))
+        assertNull(Lenient.rawMin(buildJsonObject { put("messages", JsonArray(emptyList())) }, "messages", "createdSeq"))
+        assertNull(Lenient.rawMin(buildJsonObject { }, "messages", "createdSeq"))
+    }
+
+    @Test
     fun `服务端现在的数据都能严格解开（同版本不会误报「需要更新」）`() {
         for (type in EntityType.entries) {
             // 每种实体至少能被找到对应的数据类

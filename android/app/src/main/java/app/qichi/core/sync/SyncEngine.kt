@@ -6,9 +6,8 @@ import app.qichi.core.database.SyncStateRow
 import app.qichi.core.network.ApiClient
 import app.qichi.core.network.get
 import app.qichi.shared.api.Bootstrap
-import app.qichi.shared.api.EntityCodec
+import app.qichi.shared.api.Lenient
 import app.qichi.shared.api.SyncEntity
-import app.qichi.shared.api.SyncResponse
 import app.qichi.shared.model.ChangeOp
 import app.qichi.shared.rules.Limits
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,17 +15,22 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonElement
 import java.util.UUID
 
 /**
  * 拉取（docs/05-sync-offline.md §3.2）：
  * 第一次（或清除数据后）走 bootstrap；之后循环 `sync?since=lastSeq`，每页在一个 Room 事务里写入并推进 lastSeq。
  * 同一时间只允许一个拉取在跑。
+ *
+ * 服务端比 App 新时（P13-07）：逐条解码，认不出来的跳过、同步位置照常前进，并记进 [unknown]；
+ * App 升级后发现有旧版本跳过的内容，就对那个房间重新快照。
  */
 class SyncEngine(
     private val api: ApiClient,
     private val db: QichiDatabase,
     private val store: LocalStore,
+    private val unknown: UnknownContent = UnknownContent(UnknownContent.MemoryStore(), currentVersion = 0),
     private val now: () -> Long = System::currentTimeMillis,
 ) {
     private val mutex = Mutex()
@@ -42,7 +46,7 @@ class SyncEngine(
         _syncing.value = true
         try {
             val state = db.syncState().get(roomId.toString())
-            if (state == null || !state.bootstrapped) {
+            if (state == null || !state.bootstrapped || unknown.needsRebootstrap(roomId)) {
                 bootstrap(roomId)
             } else {
                 pullChanges(roomId, state.lastSeq)
@@ -58,7 +62,11 @@ class SyncEngine(
     }
 
     private suspend fun bootstrap(roomId: UUID) {
-        val snapshot = api.get<Bootstrap>("rooms/$roomId/bootstrap")
+        val json = api.get<JsonElement>("rooms/$roomId/bootstrap")
+        val decoded = Lenient.container(Bootstrap.serializer(), json)
+        val snapshot = decoded.value
+        // 先记下再写入：写入后同步位置就前进了，不能漏记
+        if (decoded.incomplete) unknown.mark(roomId)
         db.transaction {
             val all: List<SyncEntity> = buildList {
                 add(snapshot.room)
@@ -97,10 +105,11 @@ class SyncEngine(
             }
             all.forEach { store.applyServer(it) }
             db.syncState().upsert(SyncStateRow(roomId.toString(), snapshot.lastSeq, bootstrapped = true, lastSyncedAt = now()))
-            // 最近 50 条之前还有没有：没有就说明历史已经完整
-            val floor = if (snapshot.hasMoreMessages) snapshot.messages.minOfOrNull { it.createdSeq } ?: 0 else 0
+            // 最近 50 条之前还有没有：没有就说明历史已经完整（按原始数据算，跳过的消息也算上）
+            val floor = if (snapshot.hasMoreMessages) Lenient.rawMin(json, "messages", "createdSeq") ?: 0 else 0
             db.chatHistory().upsert(ChatHistoryRow(roomId.toString(), floor))
         }
+        unknown.rebootstrapped(roomId, decoded.incomplete)
         // bootstrap 与 sync 之间可能又有变化：接着补一次
         pullChanges(roomId, snapshot.lastSeq)
     }
@@ -108,11 +117,13 @@ class SyncEngine(
     private suspend fun pullChanges(roomId: UUID, from: Long) {
         var since = from
         do {
-            val page = api.get<SyncResponse>("rooms/$roomId/sync?since=$since&limit=${Limits.SYNC_PAGE_DEFAULT}")
+            val decoded = Lenient.syncPage(api.get<JsonElement>("rooms/$roomId/sync?since=$since&limit=${Limits.SYNC_PAGE_DEFAULT}"))
+            val page = decoded.value
+            if (decoded.incomplete) unknown.mark(roomId)
             db.transaction {
                 for (change in page.changes) {
                     when (change.op) {
-                        ChangeOp.Upsert -> store.applyServer(EntityCodec.decode(change.type, change.data!!) as SyncEntity)
+                        ChangeOp.Upsert -> store.applyServer(change.entity as SyncEntity)
                         ChangeOp.Delete -> store.applyServerDelete(change.type, change.id)
                     }
                 }

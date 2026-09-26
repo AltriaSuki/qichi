@@ -159,6 +159,15 @@ fun MeScreen(
                     Text("版本 ${app.qichi.BuildConfig.VERSION_NAME}", style = type.caption.copy(color = colors.faint))
                     app.qichi.core.designsystem.component.TextAction(if (checking) "正在检查…" else "检查更新", { update.check() }, enabled = !checking, color = colors.muted)
                 }
+                // 必须更新时说明原因（服务端要求、或有这个版本显示不了的内容），还没有新版发布时也看得到（P13-07）
+                update.updater.requiredReason.collectAsStateWithLifecycle().value?.let { reason ->
+                    Text(
+                        reason,
+                        style = type.caption.copy(color = colors.accent),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(top = Spacing.xs),
+                    )
+                }
             }
         }
     }

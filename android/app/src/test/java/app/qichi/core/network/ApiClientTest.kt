@@ -177,6 +177,26 @@ class ApiClientTest {
         }
         ApiClient(engine, "http://test", InMemoryTokenStore(), "0.1.0").get<Health>("health", auth = false)
         assertEquals("android/0.1.0", seen)
+        // 带上 versionCode：服务端据此判断 App 是否太旧（P13-07）
+        ApiClient(engine, "http://test", InMemoryTokenStore(), "0.2.345", clientVersionCode = 345).get<Health>("health", auth = false)
+        assertEquals("android/0.2.345 (345)", seen)
+    }
+
+    @Test
+    fun `服务端说 App 太旧（426 upgrade_required）：抛出 ApiException，并记下需要更新`() = runTest {
+        val engine = MockEngine {
+            respond(
+                """{"type":"https://qichi.app/errors/upgrade_required","title":"App 版本太旧","status":426,"code":"upgrade_required"}""",
+                HttpStatusCode.UpgradeRequired,
+                problemJson,
+            )
+        }
+        val api = ApiClient(engine, "http://test", InMemoryTokenStore(tokens(1)), "test")
+        assertFalse(api.upgradeRequired.value)
+        val e = assertFailsWith<ApiException> { api.get<Health>("rooms/x/sync?since=0") }
+        assertEquals(ProblemCode.UpgradeRequired, e.code)
+        assertFalse(e.isRetryable)
+        assertTrue(api.upgradeRequired.value)
     }
 
     @Test

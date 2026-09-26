@@ -20,6 +20,7 @@ import app.qichi.shared.model.fromWire
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpMethod
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.SerializationException
 import java.util.UUID
 
 /**
@@ -44,7 +45,7 @@ class OutboxProcessor(
         /** 暂时发不出去（离线、服务器出错），稍后重试 */
         data class Retry(val rooms: Set<UUID>) : Result
 
-        /** 登录已失效，停止 */
+        /** 登录已失效，或服务端要求先更新 App（426）：停止，排队的都留着 */
         data object Stop : Result
     }
 
@@ -87,6 +88,8 @@ class OutboxProcessor(
         } catch (e: ApiException) {
             return when {
                 e.isRetryable -> Outcome.TryLater("${e.status} ${e.code}")
+                // App 太旧：不算这一条失败，全部留着，装了新版再发（P13-07）
+                e.code == ProblemCode.UpgradeRequired -> Outcome.Stop
                 // 文稿版本：不动文稿本身的同步状态，草稿还在，界面看到基线落后就会进入重基线
                 row.kind == OutboxOp.KIND_DOC_VERSION -> {
                     db.outbox().delete(row.localId)
@@ -109,7 +112,12 @@ class OutboxProcessor(
         val body = response.bodyAsText()
         db.transaction {
             db.outbox().delete(row.localId)
-            handleResponse(row, body)
+            try {
+                handleResponse(row, body)
+            } catch (_: SerializationException) {
+                // 服务端已经收下了，只是回应里有这个版本认不出来的东西（服务端比 App 新）：
+                // 不能因此一直重发，拉取时再对齐（P13-07）
+            }
         }
         return Outcome.Sent
     }
