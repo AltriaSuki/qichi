@@ -194,6 +194,7 @@ fun FeatureTopBar(
 /**
  * 单项页顶栏：返回（回功能首页）+ 两行：功能色小字功能名 / 这一项的名字 + 右边图标。
  * [feature] 为空时只有标题一行（登录等不属于任何功能的页）。
+ * [compact]：收成窄条（写作时打字、往下滑，P12-02）——紧贴状态栏，只有标题一行。
  */
 @Composable
 fun ItemTopBar(
@@ -203,10 +204,12 @@ fun ItemTopBar(
     feature: Feature? = null,
     actions: List<BarAction> = emptyList(),
     menu: List<MenuAction> = emptyList(),
+    compact: Boolean = false,
 ) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
-    val top = topBarInset()
+    val status = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this).toDp() }
+    val top = if (compact) status else topBarInset()
     Row(
         modifier
             .fillMaxWidth()
@@ -216,7 +219,7 @@ fun ItemTopBar(
     ) {
         BackButton(onBack)
         Column(Modifier.weight(1f).padding(start = 2.dp)) {
-            if (feature != null) {
+            if (feature != null && !compact) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                     Icon(feature.icon, contentDescription = null, tint = feature.color, modifier = Modifier.size(13.dp))
                     Text(feature.title, style = type.barFeature.copy(color = feature.color))

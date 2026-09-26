@@ -286,7 +286,7 @@ fun Watermark(text: String, modifier: Modifier = Modifier, fontSizeSp: Float = 1
  * 写作编辑器、文稿缩略图用；行高和编辑器的固定行高一致，字就压在线上。
  */
 @Composable
-fun Modifier.ruledPaper(lineHeight: Dp, top: Dp = 0.dp, margin: Boolean = true): Modifier {
+fun Modifier.ruledPaper(lineHeight: Dp, top: Dp = 0.dp, margin: Boolean = true, marginX: Dp = 40.dp): Modifier {
     val colors = QichiTheme.colors
     val line = colors.ink.copy(alpha = if (colors.isDark) .12f else .09f)
     val marginColor = colors.accent.copy(alpha = .4f)
@@ -297,7 +297,7 @@ fun Modifier.ruledPaper(lineHeight: Dp, top: Dp = 0.dp, margin: Boolean = true):
             drawRect(line, Offset(0f, y), Size(size.width, 1.dp.toPx()))
             y += lh
         }
-        if (margin) drawRect(marginColor, Offset(40.dp.toPx(), 0f), Size(1.dp.toPx(), size.height))
+        if (margin) drawRect(marginColor, Offset(marginX.toPx(), 0f), Size(1.dp.toPx(), size.height))
     }
 }
 

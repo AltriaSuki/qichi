@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -51,7 +52,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -242,6 +248,19 @@ fun DocumentEditorScreen(
     val fontSize = settings.fontSize.tsp
     val doc = state.document?.value
 
+    // 顶栏收窄（P12-02）：键盘打开、或手指往下滑时收成窄条；往上滑回来时展开
+    val imeVisible = WindowInsets.isImeVisible
+    var scrolledDown by remember { mutableStateOf(false) }
+    val barScroll = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < -6f) scrolledDown = true else if (available.y > 6f) scrolledDown = false
+                return Offset.Zero
+            }
+        }
+    }
+    val compactBar = (imeVisible || scrolledDown) && !focus
+
     Column(Modifier.fillMaxSize().background(colors.background).imePadding()) {
         run {
             // ── 顶栏（专注时也在：功能名 + 标题；右边换成「退出专注」） ──
@@ -249,6 +268,8 @@ fun DocumentEditorScreen(
             val authorshipOn = settings.showAuthorship
             ItemTopBar(
                 doc?.title.orEmpty(), onBack, feature = Feature.Writing,
+                modifier = if (QichiTheme.reduceMotion) Modifier else Modifier.animateContentSize(),
+                compact = compactBar,
                 actions = if (focus) {
                     listOf(BarAction("退出专注", QichiIcons.Focus, { focus = false }, tint = colors.accent))
                 } else {
@@ -308,9 +329,9 @@ fun DocumentEditorScreen(
                 }
             }
             // ── 署名图例：对方写了多少、我写了多少 ──
-            if (settings.showAuthorship && !focus && !preview) {
+            if (settings.showAuthorship && !focus && !preview && !compactBar) {
                 Row(
-                    Modifier.fillMaxWidth().heightIn(min = Sizes.touchTarget).padding(start = Spacing.page, end = Spacing.page, bottom = Spacing.xs),
+                    Modifier.fillMaxWidth().padding(start = Spacing.page, end = Spacing.page, top = 2.dp, bottom = Spacing.xs),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                 ) {
@@ -346,9 +367,10 @@ fun DocumentEditorScreen(
 
         // ── 纸面 ──
         val lineDp = with(LocalDensity.current) { (settings.fontSize * type.scale * settings.lineHeight).sp.toDp() }
+        // 纸面铺到屏幕两边（P12-02），没有留边和阴影；页边线离左边 [PAPER_MARGIN]
         Box(
-            Modifier.weight(1f).padding(horizontal = Spacing.m).fillMaxWidth().lift(colors, QichiShapes.paper).clip(QichiShapes.paper)
-                .then(if (preview) Modifier.background(colors.paper) else Modifier.ruledPaper(lineDp, top = 24.dp)),
+            Modifier.weight(1f).fillMaxWidth().nestedScroll(barScroll)
+                .then(if (preview) Modifier.background(colors.paper) else Modifier.ruledPaper(lineDp, top = 24.dp, marginX = PAPER_MARGIN)),
         ) {
             when {
                 state.ready -> Column(
@@ -358,7 +380,8 @@ fun DocumentEditorScreen(
                             field = field.copy(selection = TextRange(field.text.length))
                             runCatching { focusRequester.requestFocus() }
                         }
-                        .padding(start = if (preview) 26.dp else 54.dp, end = 22.dp, top = 24.dp, bottom = 20.dp),
+                        // 底部留出浮着的底栏的高度，最后几行能滚到它上面
+                        .padding(start = if (preview) Spacing.page else PAPER_MARGIN + 12.dp, end = Spacing.page, top = 24.dp, bottom = if (imeVisible || focus) 20.dp else FLOATING_BAR_SPACE),
                 ) {
                     if (preview) {
                         MarkdownView(
@@ -435,14 +458,51 @@ fun DocumentEditorScreen(
                 }
                 else -> Text("正在打开…", style = type.caption.copy(color = colors.faint), modifier = Modifier.align(Alignment.Center))
             }
-            Ribbon(Modifier.padding(start = 26.dp), height = 50.dp)
+            // ── 底栏浮在纸面上（P12-02）：左边字数与保存状态一行，右边字号和「存为 vN」；键盘开着时让给格式按钮 ──
+            if (!imeVisible && !focus) {
+                Row(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                        .background(Brush.verticalGradient(0f to colors.paper.copy(alpha = 0f), .35f to colors.paper.copy(alpha = .92f), 1f to colors.paper))
+                        .navigationBarsPadding().padding(start = PAPER_MARGIN + 12.dp, end = Spacing.m, top = Spacing.m, bottom = Spacing.s),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    val numeral = SpanStyle(fontFamily = type.numeral.fontFamily, fontSize = 15.tsp, color = colors.ink)
+                    val status = when {
+                        state.saving -> "正在保存…"
+                        state.conflict -> "对方有新版本"
+                        state.unsaved -> "未保存"
+                        state.latestVersion > 0 -> "已保存"
+                        else -> "还没有保存"
+                    }
+                    if (state.unsaved || state.saving) Box(Modifier.size(6.dp).background(colors.personA, CircleShape))
+                    Text(
+                        buildAnnotatedString {
+                            withStyle(numeral) { append(formatCount(state.charCount)) }
+                            append(" 字 · ")
+                            withStyle(numeral) { append(state.minutes.toString()) }
+                            append(" 分钟 · $status")
+                        },
+                        style = type.caption.copy(fontSize = 12.tsp, color = colors.muted),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconAction(QichiIcons.TextSize, "字号与行距", { showSettings = true })
+                    PrimaryButton("存为 v${state.latestVersion + 1}", vm::save, enabled = state.canSave)
+                }
+            }
+            // 书签带只给置顶的文稿，贴在右上角
+            if (doc?.pinned == true) Ribbon(Modifier.align(Alignment.TopEnd).padding(end = 22.dp), height = 40.dp)
         }
 
-        // ── 格式按钮：键盘打开、正在编辑时代替底栏 ──
-        val imeVisible = WindowInsets.isImeVisible
+        // ── 格式按钮：键盘打开、正在编辑时代替底栏（保存放在这一排最右边） ──
         if ((imeVisible || focus) && !preview && state.ready) {
             key(historyTick) {
                 FormatBar(
+                    saveLabel = "存 v${state.latestVersion + 1}",
+                    canSave = state.canSave,
+                    onSave = vm::save,
                     canUndo = history.canUndo,
                     canRedo = history.canRedo,
                     uploadingImage = uploadingImage,
@@ -467,38 +527,6 @@ fun DocumentEditorScreen(
                     onUndo = { restore(history.undo(field.snapshot())) },
                     onRedo = { restore(history.redo(field.snapshot())) },
                 )
-            }
-        } else if (!focus) {
-            Row(
-                Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 28.dp, end = Spacing.m, top = 14.dp, bottom = 18.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Column(Modifier.weight(1f)) {
-                    val numeral = SpanStyle(fontFamily = type.numeral.fontFamily, fontSize = 19.tsp, color = colors.ink)
-                    Text(
-                        buildAnnotatedString {
-                            withStyle(numeral) { append(formatCount(state.charCount)) }
-                            append(" 字 · ")
-                            withStyle(numeral) { append(state.minutes.toString()) }
-                            append(" 分钟")
-                        },
-                        style = type.caption.copy(fontSize = 13.tsp, letterSpacing = 0.08.em, color = colors.muted),
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val status = when {
-                            state.saving -> "正在保存…"
-                            state.conflict -> "对方有新版本"
-                            state.unsaved -> "未保存"
-                            state.latestVersion > 0 -> "已保存"
-                            else -> "还没有保存"
-                        }
-                        if (state.unsaved || state.saving) Box(Modifier.size(6.dp).background(colors.personA, CircleShape))
-                        Text(status, style = type.caption.copy(fontSize = 12.tsp, letterSpacing = 0.14.em, color = colors.muted))
-                    }
-                }
-                IconAction(QichiIcons.TextSize, "字号与行距", { showSettings = true })
-                PrimaryButton("存为 v${state.latestVersion + 1}", vm::save, enabled = state.canSave)
             }
         }
     }
@@ -585,6 +613,9 @@ internal fun DocumentImage(fileId: UUID, alt: String, urls: FileUrls, onOpen: ()
 /** 键盘上方的格式按钮（P9-01）：左边可以横着滑，撤销 / 重做固定在右边。 */
 @Composable
 private fun FormatBar(
+    saveLabel: String,
+    canSave: Boolean,
+    onSave: () -> Unit,
     canUndo: Boolean,
     canRedo: Boolean,
     uploadingImage: Boolean,
@@ -646,8 +677,28 @@ private fun FormatBar(
         Box(Modifier.width(1.dp).height(22.dp).background(colors.line))
         IconAction(QichiIcons.Undo, "撤销", onUndo, enabled = canUndo, tint = if (canUndo) colors.ink else colors.faint)
         IconAction(QichiIcons.Redo, "重做", onRedo, enabled = canRedo, tint = if (canRedo) colors.ink else colors.faint)
+        // 保存（P12-02）：键盘开着时底栏收起，存按钮在这里
+        Box(
+            Modifier.heightIn(min = Sizes.touchTarget).padding(horizontal = 2.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier.clip(QichiShapes.pill).background(if (canSave) colors.ink else colors.ink.copy(alpha = .12f))
+                    .clickable(enabled = canSave, role = Role.Button, onClick = onSave)
+                    .heightIn(min = 36.dp).padding(horizontal = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(saveLabel, style = QichiTheme.typography.button.copy(fontSize = 14.tsp, color = if (canSave) colors.background else colors.faint))
+            }
+        }
     }
 }
+
+/** 纸面底部给浮着的底栏留的空白。 */
+private val FLOATING_BAR_SPACE = 96.dp
+
+/** 编辑器横线纸的页边线离左边多远（P12-02：纸面铺满后往左挪）。 */
+private val PAPER_MARGIN = 28.dp
 
 @Composable
 private fun WritingSettingsSheet(settings: WritingSettings, onChange: (WritingSettings) -> Unit) {
