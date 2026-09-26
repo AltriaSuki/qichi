@@ -88,6 +88,7 @@ data class AppConfig(
                 apiKey = get("AI_API_KEY"),
                 model = get("AI_MODEL"),
                 monthlyTokenLimit = get("AI_MONTHLY_TOKEN_LIMIT")?.toLongOrNull() ?: 2_000_000,
+                tools = get("AI_TOOLS")?.lowercase() != "off",
             )
 
             if (problems.isNotEmpty()) throw ConfigException(problems)
@@ -123,12 +124,14 @@ data class AiConfig(
     val apiKey: String?,
     val model: String?,
     val monthlyTokenLimit: Long,
+    /** 问 AI 时让模型自己查资料（P11）；服务商不支持工具调用时设 AI_TOOLS=off，退回只用事先备料 */
+    val tools: Boolean = true,
 ) {
     /** 四项都填了才算配置了 AI；否则 AI 接口返回 ai_unavailable。 */
     val isConfigured: Boolean get() = provider != null && baseUrl != null && apiKey != null && model != null
 
     override fun toString(): String =
-        "AiConfig(provider=$provider, baseUrl=$baseUrl, apiKey=${if (apiKey == null) "null" else "***"}, model=$model, monthlyTokenLimit=$monthlyTokenLimit)"
+        "AiConfig(provider=$provider, baseUrl=$baseUrl, apiKey=${if (apiKey == null) "null" else "***"}, model=$model, monthlyTokenLimit=$monthlyTokenLimit, tools=$tools)"
 }
 
 class ConfigException(val problems: List<String>) :

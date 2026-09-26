@@ -81,6 +81,7 @@ services:
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-}
       AI_MONTHLY_TOKEN_LIMIT: ${AI_MONTHLY_TOKEN_LIMIT:-2000000}
+      AI_TOOLS: ${AI_TOOLS:-on}
       PUSH_PROVIDERS: ${PUSH_PROVIDERS:-unifiedpush}
       # 只往自建的 ntfy 发推送
       UNIFIEDPUSH_ALLOWED_HOSTS: ${PUSH_DOMAIN:?请在 .env 里填写 PUSH_DOMAIN}

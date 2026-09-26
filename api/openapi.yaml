@@ -3272,12 +3272,14 @@ components:
       description: |
         问 AI 边生成边显示（P8-03）：text 是到目前为止给人看的回答全文（不是增量，不含动作段和引用编号）；
         最终回答仍是 id = jobId 的 AI 消息。只发给连接地址带 `?caps=ai_stream` 的连接。
+        AI 自己查资料时（P11）带 status，如「正在查：日历 9/26–10/3、搜索「民宿」」，text 为空；开始写回答后 status 为 null。
       required: [type, roomId, jobId, text]
       properties:
         type: { type: string, const: ai.delta }
         roomId: { $ref: '#/components/schemas/Uuid' }
         jobId: { $ref: '#/components/schemas/Uuid' }
         text: { type: string }
+        status: { type: [string, 'null'], description: 'AI 正在查什么（给人看）；没在查时为 null' }
 
     # ── 心情 ──
     MoodLabel:

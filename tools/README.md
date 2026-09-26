@@ -12,6 +12,7 @@
 | `ai_eval.py` | 拿固定材料对真 AI 跑各个提示词，检查格式并存下回答给人看 | 见文件开头说明（需要 AI 密钥） |
 | `doc_versions.py` | 给一篇文稿按顺序存几版，两个人轮流存（测试署名、历史版本） | `python3 tools/doc_versions.py 信 aqi:password-aqi:第一版 xiaochi:password-chi:第二版` |
 | `seed_bulk.py` | 灌大量消息和灵感测流畅度（只用在本机） | `python3 tools/seed_bulk.py 3000 500` |
+| `ai_ask.py` | 以某人身份问 AI 一组问题，列出回答、引用、用量、耗时和它查了什么（会花 AI 用量，只用在本机） | `python3 tools/ai_ask.py aqi password-aqi "这周有什么安排？" "预算多少？"` |
 | `dev_api.py` | 直接调本机服务端的接口准备数据：登录、以某人身份发消息、上传审稿文件 | `python3 tools/dev_api.py send xiaochi password-chi "晚上吃什么"`、`python3 tools/dev_api.py review aqi password-aqi 文件.pdf` |
 | `design/gen_screens.py` | 生成设计稿「新方向」页（`design/screens/New-*.dc.html`），所有画板用同一套组件函数拼出来 | `python3 tools/design/gen_screens.py` |
 | `design/render.js` / `design/sheet.js` | 把设计稿渲染成截图并报告内容溢出；几张截图拼成一张 | `NODE_PATH=$(npm root -g) node tools/design/render.js design/screens 截图目录 New-`（用预装的 Chromium，截图放会话临时目录） |

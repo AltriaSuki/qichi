@@ -70,8 +70,11 @@ data class AiRequest(
     companion object {
         const val DEFAULT_TIMEOUT_MS = 120_000L
 
-        /** 流式回复时，两段之间最多隔多久没动静就算断了 */
-        const val STREAM_IDLE_MS = 60_000L
+        /**
+         * 流式回复时，两段之间最多隔多久没动静就算断了。
+         * 会「先想再答」的模型开头可能很久一个字都不发（2026-09-26 实测 gpt-6-sol 忙时要 50–100 秒），不能设太短。
+         */
+        const val STREAM_IDLE_MS = 100_000L
     }
 }
 

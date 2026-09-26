@@ -41,9 +41,9 @@ class RealtimeHub : ChangeNotifier {
         flow.emit(RoomEvent(roomId, WsEvent.Notify(roomId, payload), userId, CAP_NOTIFY))
     }
 
-    /** 问 AI 边生成边显示：到目前为止的全文，发给房间里带了 caps=ai_stream 的连接。 */
-    suspend fun aiDelta(roomId: UUID, jobId: UUID, text: String) {
-        flow.emit(RoomEvent(roomId, WsEvent.AiDelta(roomId, jobId, text), cap = CAP_AI_STREAM))
+    /** 问 AI 边生成边显示：到目前为止的全文（AI 在查资料时是 [status]），发给房间里带了 caps=ai_stream 的连接。 */
+    suspend fun aiDelta(roomId: UUID, jobId: UUID, text: String, status: String? = null) {
+        flow.emit(RoomEvent(roomId, WsEvent.AiDelta(roomId, jobId, text, status), cap = CAP_AI_STREAM))
     }
 
     companion object {

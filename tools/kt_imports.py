@@ -2,12 +2,12 @@
 """整理 Kotlin 文件的 import：排序、去重、删掉没用到的。
 
 用法：python3 tools/kt_imports.py 文件.kt [更多文件…]
-按名字在正文里找有没有用到；属性委托要用的 getValue / setValue / provideDelegate 总是保留。
+按名字在正文里找有没有用到；属性委托要用的 getValue / setValue / provideDelegate、运算符（plus、minus 等，用的时候写成 + -）总是保留。
 """
 import re
 import sys
 
-KEEP = {'*', 'getValue', 'setValue', 'provideDelegate'}
+KEEP = {'*', 'getValue', 'setValue', 'provideDelegate', 'plus', 'minus', 'times', 'div', 'rem', 'unaryMinus', 'not', 'contains', 'get', 'set', 'invoke', 'compareTo', 'rangeTo', 'inc', 'dec', 'plusAssign', 'minusAssign'}
 
 for path in sys.argv[1:]:
     lines = open(path).read().split('\n')

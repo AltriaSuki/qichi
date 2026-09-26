@@ -1,60 +1,27 @@
 package app.qichi.server.ai
 
-import app.qichi.server.db.Jobs
-import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.async
-import kotlinx.coroutines.Job
-import java.util.concurrent.ConcurrentHashMap
-import app.qichi.server.db.Tx
-import kotlinx.serialization.json.jsonObject
-import app.qichi.shared.model.WriteAssistMode
-import app.qichi.shared.model.DraftGenre
-import app.qichi.shared.api.QichiJson
-import app.qichi.shared.api.AiWriteRequest
-import app.qichi.server.db.Documents
-import app.qichi.server.db.Rooms
-import app.qichi.server.db.Summaries
-import app.qichi.server.db.Users
+import app.qichi.server.ai.tools.RoomTools
+import app.qichi.server.ai.tools.SourceBook
+import app.qichi.server.config.AiConfig
 import app.qichi.server.db.AiActions
-import app.qichi.server.db.Plans
-import app.qichi.shared.model.AiActionStatus
-import app.qichi.shared.model.PlanStatus
-import app.qichi.server.summaries.SourceLine
-import app.qichi.shared.api.AiPrefs
 import app.qichi.server.db.AiFindings
+import app.qichi.server.db.AiJobs
+import app.qichi.server.db.Books
+import app.qichi.server.db.Documents
+import app.qichi.server.db.Highlights
+import app.qichi.server.db.Jobs
+import app.qichi.server.db.Messages
+import app.qichi.server.db.Plans
+import app.qichi.server.db.QichiDatabase
+import app.qichi.server.db.Questions
 import app.qichi.server.db.ReviewDocuments
 import app.qichi.server.db.ReviewPages
 import app.qichi.server.db.ReviewVersions
-import app.qichi.server.review.FindingParser
-import app.qichi.server.review.toAiFinding
-import app.qichi.shared.api.AiFinding
-import app.qichi.shared.api.AiReviewFindingsRequest
-import app.qichi.shared.api.ReviewPage
-import app.qichi.shared.model.FindingStatus
-import app.qichi.shared.model.PreviewStatus
-import app.qichi.server.summaries.SummaryData
-import app.qichi.shared.api.CreateSummaryRequest
-import app.qichi.shared.model.SummaryKind
-import java.time.DayOfWeek
-import java.time.LocalDate
-import java.time.ZoneId
-import java.time.temporal.ChronoUnit
-import org.jetbrains.exposed.v1.core.inList
-import app.qichi.server.db.Books
-import app.qichi.server.db.Highlights
-import app.qichi.server.reading.toHighlight
-import app.qichi.server.reading.visibleTo
-import app.qichi.shared.api.AiReadExplainRequest
-import app.qichi.shared.model.HighlightKind
-import app.qichi.shared.model.ReadExplainMode
-import app.qichi.server.config.AiConfig
-import app.qichi.server.db.AiJobs
-import app.qichi.server.db.Messages
-import app.qichi.server.db.QichiDatabase
-import app.qichi.server.db.Questions
 import app.qichi.server.db.RoomWriter
+import app.qichi.server.db.Rooms
+import app.qichi.server.db.Summaries
+import app.qichi.server.db.Tx
+import app.qichi.server.db.Users
 import app.qichi.server.db.tx
 import app.qichi.server.jobs.JobQueue
 import app.qichi.server.jobs.QueuedJob
@@ -63,27 +30,66 @@ import app.qichi.server.messages.toMessage
 import app.qichi.server.plugins.ApiException
 import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
+import app.qichi.server.reading.toHighlight
+import app.qichi.server.reading.visibleTo
+import app.qichi.server.review.FindingParser
+import app.qichi.server.review.toAiFinding
 import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomService
+import app.qichi.server.summaries.SourceLine
+import app.qichi.server.summaries.SummaryData
 import app.qichi.server.sync.RealtimeHub
 import app.qichi.shared.api.AiChatRequest
+import app.qichi.shared.api.AiFinding
 import app.qichi.shared.api.AiJob
 import app.qichi.shared.api.AiJobAccepted
+import app.qichi.shared.api.AiPrefs
+import app.qichi.shared.api.AiReadExplainRequest
+import app.qichi.shared.api.AiReviewFindingsRequest
 import app.qichi.shared.api.AiUsage
+import app.qichi.shared.api.AiWriteRequest
+import app.qichi.shared.api.CreateSummaryRequest
+import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.QuestionSuggestRequest
+import app.qichi.shared.api.ReviewPage
+import app.qichi.shared.model.AiActionStatus
 import app.qichi.shared.model.AiJobKind
 import app.qichi.shared.model.AiJobStatus
+import app.qichi.shared.model.DraftGenre
 import app.qichi.shared.model.EntityType
+import app.qichi.shared.model.FindingStatus
+import app.qichi.shared.model.HighlightKind
 import app.qichi.shared.model.MessageKind
+import app.qichi.shared.model.PlanStatus
+import app.qichi.shared.model.PreviewStatus
 import app.qichi.shared.model.ProblemCode
 import app.qichi.shared.model.QuestionSource
+import app.qichi.shared.model.ReadExplainMode
+import app.qichi.shared.model.SummaryKind
+import app.qichi.shared.model.WriteAssistMode
 import app.qichi.shared.model.fromWire
 import app.qichi.shared.model.wireName
 import app.qichi.shared.rules.Limits
 import app.qichi.shared.rules.MessageRules
 import app.qichi.shared.util.UuidV7
+import java.time.Clock
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.time.temporal.ChronoUnit
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.jetbrains.exposed.v1.core.ResultRow
@@ -91,6 +97,7 @@ import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greaterEq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.neq
@@ -101,11 +108,6 @@ import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
-import java.time.Clock
-import java.time.Instant
-import java.time.YearMonth
-import java.time.ZoneOffset
-import java.util.UUID
 
 private val log = LoggerFactory.getLogger(AiService::class.java)
 
@@ -994,13 +996,18 @@ class AiService(
                 messageQuery().where { (Messages.id eq id) and Messages.retractedAt.isNull() }.singleOrNull()?.toMessage()
             }
             val query = listOfNotNull(prompt, focus?.body).joinToString(" ")
-            val sources = RoomContext.gather(roomId, query, now, zone, names, roomPrefs(roomId), context.map { it.id }.toSet())
+            val prefs = roomPrefs(roomId)
+            // AI 能自己查时只备常备的一小份（P11）
+            val sources = RoomContext.gather(roomId, query, now, zone, names, prefs, context.map { it.id }.toSet(), standingOnly = config.tools)
             val plans = Plans.select(Plans.id, Plans.title)
                 .where { (Plans.roomId eq roomId) and Plans.deletedAt.isNull() and (Plans.status eq PlanStatus.Active.wireName) }
                 .associate { it[Plans.title] to it[Plans.id] }
-            ChatInputs(context, names, sources, zone, focus, plans)
+            ChatInputs(context, names, sources, zone, focus, plans, prefs)
         }
         val (context, names, sources, zone) = input
+        // 事先备料和工具查到的共用一套编号
+        val book = SourceBook(sources)
+        val tools = if (config.tools) RoomTools(roomId, now, zone, names, input.prefs, book).takeIf { it.definitions.isNotEmpty() } else null
         val focusText = input.focus?.let { m ->
             val t = m.createdAt.atZone(zone)
             "要整理的消息（${m.authorId?.let(names::get) ?: "AI"}，${t.monthValue}月${t.dayOfMonth}日 %02d:%02d）：${m.body.take(CONTEXT_LINE_MAX * 3)}\n".format(t.hour, t.minute) +
@@ -1015,27 +1022,66 @@ class AiService(
                 "history" to context.joinToString("\n") { m -> "${m.authorId?.let(names::get) ?: "AI"}：${m.text}" }.ifEmpty { "（还没有聊天记录）" },
                 "focus" to focusText,
                 "prompt" to prompt,
+                "lookup" to if (tools != null) prompts.render("chat_lookup", mapOf("rounds" to TOOL_ROUNDS.toString())).user + "\n" else "",
             ),
         )
         // 边生成边推给 App（P8-03）：最多每 [STREAM_EVERY_MS] 推一次到目前为止给人看的部分
         var lastSent = 0L
         var lastText = ""
+        // 这一轮到目前为止的回答（查资料前说的话不算进最后的回答）
         var soFar = ""
-        val aiRequest = AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)), maxTokens = CHAT_MAX_TOKENS, timeoutMillis = CHAT_TIMEOUT_MS)
-        val result = try {
-            coroutineScope {
-                val call = async {
-                    gateway.stream(aiRequest) { text ->
-                        soFar = text
-                        val visible = AiActionParser.visiblePart(text)
-                        val now = System.currentTimeMillis()
-                        if (visible.isNotEmpty() && visible != lastText && now - lastSent >= STREAM_EVERY_MS) {
-                            lastSent = now
-                            lastText = visible
-                            realtime.aiDelta(roomId, jobId, visible)
-                        }
+        val messages = mutableListOf(AiMessage(AiMessage.Role.User, rendered.user))
+        var tokensIn = 0
+        var tokensOut = 0
+        val deadline = System.currentTimeMillis() + CHAT_TIMEOUT_MS
+
+        /** 一轮一轮问：模型要查就执行工具、把结果交回去，直到它直接回答；轮数或时间用完时不许再查（P11）。 */
+        suspend fun converse(): AiResult {
+            for (round in 0..TOOL_ROUNDS) {
+                val remaining = deadline - System.currentTimeMillis()
+                val last = tools == null || round == TOOL_ROUNDS || remaining < LAST_ROUND_MS
+                if (tools != null && last && round > 0) messages += AiMessage(AiMessage.Role.User, prompts.render("chat_lookup_done", emptyMap()).user)
+                soFar = ""
+                lastText = ""
+                val request = AiRequest(
+                    rendered.system, messages.toList(), maxTokens = CHAT_MAX_TOKENS,
+                    timeoutMillis = remaining.coerceAtLeast(MIN_ROUND_MS), tools = tools?.definitions.orEmpty(),
+                )
+                val r = gateway.stream(request) { text ->
+                    soFar = text
+                    val visible = AiActionParser.visiblePart(text)
+                    val t = System.currentTimeMillis()
+                    if (visible.isNotEmpty() && visible != lastText && t - lastSent >= STREAM_EVERY_MS) {
+                        lastSent = t
+                        lastText = visible
+                        realtime.aiDelta(roomId, jobId, visible)
                     }
                 }
+                tokensIn += r.inputTokens
+                tokensOut += r.outputTokens
+                if (tools == null || r.toolCalls.isEmpty() || last) return r
+                messages += AiMessage(AiMessage.Role.Assistant, r.text, toolCalls = r.toolCalls)
+                realtime.aiDelta(roomId, jobId, "", "正在查：" + r.toolCalls.map(tools::status).distinct().joinToString("、"))
+                // 每次查询各用一个事务：一次出错不影响别的，把「没查成」告诉模型让它继续
+                val outputs = r.toolCalls.map { c ->
+                    try {
+                        db.tx(readOnly = true) { tools.run(c) }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        log.warn("问 AI 的查询 {} 出错", c.name, e)
+                        "这次没查成，换个条件再试，或者先用已有的资料回答。"
+                    }
+                }
+                r.toolCalls.zip(outputs).forEach { (c, out) -> messages += AiMessage(AiMessage.Role.Tool, out, toolCallId = c.id) }
+                log.info("问 AI 第 {} 轮查了：{}", round + 1, r.toolCalls.joinToString { it.name })
+            }
+            error("最后一轮总会返回")
+        }
+
+        val result = try {
+            coroutineScope {
+                val call = async { converse() }
                 streaming[jobId] = call
                 // stop 可能在登记之前就来了
                 if (jobId in stopRequested) call.cancel()
@@ -1054,15 +1100,25 @@ class AiService(
             if (e.retryable && !job.isLastAttempt) throw e
             stopRequested -= jobId
             return fail(jobId, roomId, "没有得到回答")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 意外的错误：交给任务队列重试；最后一次也失败时标成失败，App 上显示「重试」而不是一直转圈
+            if (!job.isLastAttempt) throw e
+            log.warn("问 AI 出错，不再重试", e)
+            stopRequested -= jobId
+            return fail(jobId, roomId, "没有得到回答")
         }
 
         if (result == null) {
-            // 停下了：存已经写出来的部分（去掉没写完的动作段和半个引用编号），不带动作提议。用量按字数估。
+            // 停下了：存已经写出来的部分（去掉没写完的动作段和半个引用编号），不带动作提议。
+            // 用量：已完成的几轮按服务商报的，正在进行的这一轮按字数估。
             val written = soFar.substringBefore("<act").replace(Regex("""\[\d*$"""), "").trimEnd()
-            val answer = RoomContext.renumber(written, sources.map { it.source })
+            val answer = RoomContext.renumber(written, book.all)
+            val pendingIn = (rendered.system.length + messages.sumOf { it.content.length }) / 2
             db.tx {
                 insertAnswer(jobId, roomId, askerId, prompt, answer.body, answer.sources, emptyList(), stopped = true)
-                finishJob(jobId, gateway.model, (rendered.system.length + rendered.user.length) / 2, soFar.length)
+                finishJob(jobId, gateway.model, tokensIn + pendingIn, tokensOut + soFar.length)
             }
             stopRequested -= jobId
             realtime.aiDone(roomId, jobId, AiJobStatus.Done.wireName)
@@ -1070,11 +1126,13 @@ class AiService(
         }
         stopRequested -= jobId
 
-        val parsed = AiActionParser(zone, names.entries.associate { (id, name) -> name to id }, input.plans).parse(result.text)
-        val answer = RoomContext.renumber(parsed.text.ifBlank { if (parsed.actions.isEmpty()) result.text else "可以记下这些：" }, sources.map { it.source })
+        // 最后一轮还是只想查、一个字没写：告诉他们没整理出来
+        val text = result.text.ifBlank { if (result.toolCalls.isNotEmpty()) GAVE_UP else result.text }
+        val parsed = AiActionParser(zone, names.entries.associate { (id, name) -> name to id }, input.plans).parse(text)
+        val answer = RoomContext.renumber(parsed.text.ifBlank { if (parsed.actions.isEmpty()) text else "可以记下这些：" }, book.all)
         db.tx {
             insertAnswer(jobId, roomId, askerId, prompt, answer.body, answer.sources, parsed.actions, stopped = false)
-            finishJob(jobId, result.model, result.inputTokens, result.outputTokens)
+            finishJob(jobId, result.model, tokensIn, tokensOut)
         }
         realtime.aiDone(roomId, jobId, AiJobStatus.Done.wireName)
     }
@@ -1090,6 +1148,8 @@ class AiService(
         val focus: app.qichi.shared.api.Message?,
         /** 进行中的计划：标题 → id（AI 提议「加进某个计划」时用） */
         val plans: Map<String, UUID>,
+        /** 两个人都允许 AI 看的类别 */
+        val prefs: AiPrefs,
     )
 
     /** 某人自己的「AI 能看什么」设置。 */
@@ -1195,6 +1255,17 @@ class AiService(
         /** 问 AI 最多等 3 分钟（边生成边显示，等的时候看得到进度） */
         private const val CHAT_TIMEOUT_MS = 180_000L
         private const val STREAM_EVERY_MS = 250L
+
+        /** 问 AI 最多查几轮资料（P11） */
+        const val TOOL_ROUNDS = 6
+
+        /** 剩下不到这么多时间就不再查，直接作答 */
+        private const val LAST_ROUND_MS = 40_000L
+
+        /** 每一轮至少给这么多时间 */
+        private const val MIN_ROUND_MS = 15_000L
+
+        const val GAVE_UP = "资料查了不少，还是没能整理出回答。换个具体点的问法再试试？"
         private const val CONTEXT_MESSAGES = 30
         private const val CONTEXT_LINE_MAX = 300
         private const val MESSAGE_MAX = 10_000

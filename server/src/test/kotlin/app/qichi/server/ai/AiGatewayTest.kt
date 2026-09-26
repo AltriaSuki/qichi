@@ -96,6 +96,6 @@ class AiGatewayTest {
         assertEquals("阿栖 问：去哪？", rendered.user)
         assertFailsWith<IllegalArgumentException> { prompts.render("x", mapOf("asker" to "阿栖")) }
         // 真实的模板文件能加载
-        assertTrue(Prompts().render("chat_answer", mapOf("now" to "", "sources" to "", "focus" to "", "asker" to "阿栖", "history" to "", "prompt" to "?")).system.isNotBlank())
+        assertTrue(Prompts().render("chat_answer", mapOf("now" to "", "sources" to "", "focus" to "", "lookup" to "", "asker" to "阿栖", "history" to "", "prompt" to "?")).system.isNotBlank())
     }
 }

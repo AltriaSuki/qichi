@@ -148,10 +148,11 @@ sealed interface WsEvent {
     /**
      * 问 AI 边生成边显示（P8-03）：[text] 是到目前为止的回答全文（不是增量，丢几条也不要紧），
      * 最终的回答仍然是那条 id = [jobId] 的 AI 消息。只发给连接时带了 `?caps=ai_stream` 的连接。
+     * AI 自己查资料时（P11）[status] 是「正在查：……」、[text] 为空。
      */
     @Serializable
     @SerialName("ai.delta")
-    data class AiDelta(val roomId: Id, val jobId: Id, val text: String) : WsEvent
+    data class AiDelta(val roomId: Id, val jobId: Id, val text: String, val status: String? = null) : WsEvent
 }
 
 @Serializable

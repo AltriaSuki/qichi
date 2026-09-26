@@ -4,6 +4,7 @@ import app.qichi.server.Api
 import app.qichi.server.MutableClock
 import app.qichi.server.TestDatabase
 import app.qichi.server.serverTest
+import app.qichi.server.testConfig
 import app.qichi.server.testContext
 import app.qichi.shared.api.AiChatRequest
 import app.qichi.shared.api.AiPrefs
@@ -36,6 +37,9 @@ class AiContextTest {
 
     private val gateway = FakeGateway()
 
+    /** 这里测的是事先备料本身：关掉 AI 自己查（AI_TOOLS=off），备料是完整的一份。工具模式见 AiToolLoopTest。 */
+    private fun fullPreload() = testConfig().let { it.copy(ai = it.ai.copy(tools = false)) }
+
     /** 2026-09-24 周四 10:00（房间默认时区 Asia/Shanghai） */
     private val clock = MutableClock(Instant.parse("2026-09-24T02:00:00Z"))
 
@@ -50,7 +54,7 @@ class AiContextTest {
 
     @Test
     fun `问 AI 带上日期和房间资料；回答里的 n 存成可以点开的来源`() {
-        val ctx = testContext(clock = clock, aiGateway = gateway)
+        val ctx = testContext(config = fullPreload(), clock = clock, aiGateway = gateway)
         serverTest(ctx) { client ->
             val (aqi, xiaochi, roomId) = Api(client).pair()
             val xiaochiId = xiaochi.get("/api/v1/me").body<Me>().user.id
@@ -97,7 +101,7 @@ class AiContextTest {
 
     @Test
     fun `AI 能看什么：默认都能看；任何一人关掉的类别，两个人问 AI 都看不到`() {
-        val ctx = testContext(clock = clock, aiGateway = gateway)
+        val ctx = testContext(config = fullPreload(), clock = clock, aiGateway = gateway)
         serverTest(ctx) { client ->
             val (aqi, xiaochi, roomId) = Api(client).pair()
             assertEquals(AiPrefs(), AiPrefs.from(aqi.get("/api/v1/me").body<Me>().user.aiPrefs))

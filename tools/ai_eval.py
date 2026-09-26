@@ -41,7 +41,7 @@ WRITE_TEXT = "周六早上八点我们就出发去东山岛了，路上的风很
 CASES = {
     "review_findings": dict(title="报价方案", version="2", max="8", truncated="", known="（无）", text=REVIEW_TEXT),
     "summary": dict(range="2026年9月1日—2026年9月7日", kind="一周", people="阿栖、小迟", length="500", sources=SUMMARY_SOURCES),
-    "chat_answer": dict(asker="阿栖", prompt="周六早上八点出发去东山岛，记得带外套。预算多少来着？", focus="",
+    "chat_answer": dict(asker="阿栖", prompt="周六早上八点出发去东山岛，记得带外套。预算多少来着？", focus="", lookup="",
                         now=NOW,
                         sources="[1] 日程 · 9月26日（周六） 08:00 · 出发去海边 · 在东山岛\n[2] 档案 · 共识 · 出游预算：一次短途出游两个人不超过两千",
                         history="小迟：周六早上出发怎么样？\n阿栖：好呀，想去人少的海边\n小迟：车程别超过两小时"),

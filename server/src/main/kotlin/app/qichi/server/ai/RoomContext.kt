@@ -44,6 +44,7 @@ import java.util.UUID
  *  - 按问题找的：问题里的词在决定、灵感、过去的日程、做完的待办、更早的聊天里出现过的。
  * 两个人的房间数据量小，除了聊天都直接读出来在内存里打分；聊天用 ILIKE（有 pg_trgm 索引）。
  * [prefs] 关掉的类别一条都不读。
+ * AI 能自己查资料时（P11）只备常备的一小份（standingOnly），其余由 AI 用工具查。
  */
 object RoomContext {
     private const val SOURCES_MAX = 30
@@ -126,8 +127,10 @@ object RoomContext {
         names: Map<UUID, String>,
         prefs: AiPrefs,
         excludeMessageIds: Set<UUID> = emptySet(),
+        /** 只要常备的（P11：AI 能自己查时的事先备料）：接下来的日程、没做完的待办、进行中的计划、档案 */
+        standingOnly: Boolean = false,
     ): List<SourceLine> {
-        val terms = terms(question)
+        val terms = if (standingOnly) emptySet() else terms(question)
         val today = now.atZone(zone).toLocalDate()
         fun who(id: UUID?) = id?.let(names::get) ?: "其中一人"
         val hits = mutableListOf<Hit>()
@@ -193,7 +196,7 @@ object RoomContext {
                 hits += Hit(EntityType.ArchiveItem, r[ArchiveItems.id], r[ArchiveItems.updatedAt], cut(r[ArchiveItems.title], 80), line, 1.0 + s)
             }
         }
-        if (prefs.decisions) {
+        if (prefs.decisions && !standingOnly) {
             Decisions.selectAll().where { (Decisions.roomId eq roomId) and Decisions.deletedAt.isNull() }
                 .orderBy(Decisions.updatedAt, SortOrder.DESC).forEachIndexed { i, r ->
                     val decided = r[Decisions.finalChoice] != null
@@ -217,7 +220,7 @@ object RoomContext {
                 hits += Hit(EntityType.Idea, r[Ideas.id], r[Ideas.createdAt], cut(r[Ideas.body], 80), line, s.toDouble())
             }
         }
-        if (prefs.moods) {
+        if (prefs.moods && !standingOnly) {
             val from = today.minusDays(MOOD_DAYS - 1).atStartOfDay(zone).toInstant()
             Moods.selectAll().where { (Moods.roomId eq roomId) and Moods.deletedAt.isNull() and (Moods.createdAt greaterEq from) }
                 .orderBy(Moods.createdAt, SortOrder.DESC).limit(6).forEach { r ->
