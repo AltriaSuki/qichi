@@ -183,7 +183,7 @@ qichi/
 - **定时任务**：同一个队列，带 `run_at`。年度回顾在房间时区的每年 1 月 1 日生成上一年。
 - **文件存储**：`files/FileStorage` 接口，默认实现写本地目录 `FILES_DIR`，按 `{roomId}/{yyyy}/{mm}/{fileId}` 存放；下载必须经过服务端鉴权，不暴露静态目录。
 - **AI 网关**（`ai/AiGateway`）：
-  - 接口：`suspend fun complete(request: AiRequest): AiResult`
+  - 接口：`suspend fun complete(request: AiRequest): AiResult`，另有边生成边回调的 `stream`；请求可以带只读查询工具，模型要调工具时返回工具调用，由服务端执行后把结果交回去继续（最多 6 轮，见 D14）
   - 实现两种：`OpenAiCompatibleProvider`（大多数模型服务都兼容这个格式）和 `AnthropicProvider`，用 `AI_PROVIDER` 环境变量选择
   - 提示词放 `resources/prompts/*.md`，不写在代码里
   - 所有调用异步：接口先返回 `202 + jobId`，结果写入对应实体后通过 WebSocket 通知
@@ -230,3 +230,4 @@ App 在前台时靠 WebSocket 实时收到变更，不需要推送。App 在后�
 | D11 | 审稿的文档转换用单独的 converter 容器（Gotenberg 镜像，内含 LibreOffice），服务端用 PDFBox 渲染（2026-09-23，人类同意单独容器） | LibreOffice 很大、解析不可信文件有风险，放在不对外的单独容器里；Gotenberg 提供现成的 HTTP 接口，不用自己包装 |
 | D12 | 内置通知：App 在后台用前台服务保持 WebSocket，服务端经实时通道发 `notify`，不用另装 ntfy；ntfy 保留为备选（2026-09-24，人类选择） | 人类不想让两台手机再装别的软件；代价是通知栏常驻一条低调通知、耗电略多，仍要加电池白名单。厂商推送（小米、华为等）要在各家平台注册，暂不做 |
 | D13 | 界面换成「新方向」：正文改用思源黑体、数字用 IBM Plex Mono、手写短句和拍立得说明、书页批注用龙藏体（完整打包），思源宋体只留给书页；删掉 Cormorant Garamond（2026-09-24，人类选定新方向，并确认「一切按设计稿」） | 字和层次参考 Day One、iA Writer、Bear，更好读；代价是安装包约多 22MB（加黑体约 18MB、龙藏体约 5MB、等宽字不到 1MB，减 Cormorant 约 2MB） |
+| D14 | 问 AI 时模型可以调用只读查询工具自己查房间资料（2026-09-26，人类选定） | 事先检索猜不中时 AI 只能说不确定；两个人的数据量小，让模型按需查几轮最准。代价是复杂问题更慢、用量约 2–5 倍，查到的内容都会发给模型服务商；工具只读、只限本房间、遵守「AI 能看什么」（两人都允许），不给没揭晓的问答回答 |
