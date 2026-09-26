@@ -2965,8 +2965,9 @@ components:
     AiPrefs:
       type: object
       description: |
-        AI 能看到哪些房间资料（每人一份，对自己发起的 AI 请求生效；自动生成的年度回顾按两个人都允许的来）。
+        AI 能看到哪些房间资料（每人一份）。两个人都允许的类别 AI 才看得到：任何一人关掉，谁发起的 AI 请求都看不到（P11）。
         缺的字段按 true（默认都能看）。`chat` 指更早的聊天：问 AI 时总会带上最近的几十条聊天。
+        writing 文稿与段落留言 · board 留言板 · qna 已揭晓的问答 · reading 阅读（书、进度、公开的摘录） · review 审稿 · summaries 总结。
       properties:
         archive: { type: boolean, default: true }
         decisions: { type: boolean, default: true }
@@ -2976,6 +2977,12 @@ components:
         ideas: { type: boolean, default: true }
         chat: { type: boolean, default: true }
         moods: { type: boolean, default: true }
+        writing: { type: boolean, default: true }
+        board: { type: boolean, default: true }
+        qna: { type: boolean, default: true }
+        reading: { type: boolean, default: true }
+        review: { type: boolean, default: true }
+        summaries: { type: boolean, default: true }
     MyRoom:
       type: object
       required: [roomId, name, role]

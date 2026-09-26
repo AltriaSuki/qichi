@@ -96,7 +96,7 @@ class AiContextTest {
     }
 
     @Test
-    fun `AI 能看什么：默认都能看；关掉的类别不给自己发起的请求，不影响对方`() {
+    fun `AI 能看什么：默认都能看；任何一人关掉的类别，两个人问 AI 都看不到`() {
         val ctx = testContext(clock = clock, aiGateway = gateway)
         serverTest(ctx) { client ->
             val (aqi, xiaochi, roomId) = Api(client).pair()
@@ -116,8 +116,16 @@ class AiContextTest {
             xiaochi.post("/api/v1/rooms/$roomId/ai/chat", AiChatRequest(UuidV7.generate(), "最近怎么样？"))
             ctx.jobs.drain()
             val theirs = gateway.requests.last().messages.single().content
-            assertTrue(theirs.contains("有点低落"), theirs)
-            assertTrue(theirs.contains("不聊前任"), theirs)
+            assertFalse(theirs.contains("有点低落"), theirs)
+            assertFalse(theirs.contains("不聊前任"), theirs)
+
+            // 重新打开后又能看到
+            aqi.patch("/api/v1/me", UpdateMeRequest(aiPrefs = Patch.of(AiPrefs().toJson())))
+            xiaochi.post("/api/v1/rooms/$roomId/ai/chat", AiChatRequest(UuidV7.generate(), "最近怎么样？"))
+            ctx.jobs.drain()
+            val again = gateway.requests.last().messages.single().content
+            assertTrue(again.contains("有点低落"), again)
+            assertTrue(again.contains("不聊前任"), again)
         }
     }
 }

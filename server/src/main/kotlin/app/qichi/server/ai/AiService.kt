@@ -591,7 +591,7 @@ class AiService(
 
         val (names, lines) = db.tx(readOnly = true) {
             val names = RoomRepository.activeMembers(roomId).associate { it.userId to it.displayName }
-            names to SummaryData.gather(roomId, start, end, roomZone(roomId), names, if (askerId != null) prefsOf(askerId) else roomPrefs(roomId))
+            names to SummaryData.gather(roomId, start, end, roomZone(roomId), names, roomPrefs(roomId))
         }
         val rangeText = "${start.year}年${start.monthValue}月${start.dayOfMonth}日—${end.year}年${end.monthValue}月${end.dayOfMonth}日"
         var body = "这段时间（$rangeText）没有记下什么。"
@@ -820,7 +820,7 @@ class AiService(
                     val zone = roomZone(roomId)
                     val start = req.rangeStart!!
                     val end = req.rangeEnd!!
-                    val lines = SummaryData.gather(roomId, start, end, zone, names, prefsOf(askerId))
+                    val lines = SummaryData.gather(roomId, start, end, zone, names, roomPrefs(roomId))
                     "write_draft" to mapOf(
                         "now" to RoomContext.now(clock.instant(), zone, names, askerId),
                         "genre" to when (req.genre!!) {
@@ -994,7 +994,7 @@ class AiService(
                 messageQuery().where { (Messages.id eq id) and Messages.retractedAt.isNull() }.singleOrNull()?.toMessage()
             }
             val query = listOfNotNull(prompt, focus?.body).joinToString(" ")
-            val sources = RoomContext.gather(roomId, query, now, zone, names, prefsOf(askerId), context.map { it.id }.toSet())
+            val sources = RoomContext.gather(roomId, query, now, zone, names, roomPrefs(roomId), context.map { it.id }.toSet())
             val plans = Plans.select(Plans.id, Plans.title)
                 .where { (Plans.roomId eq roomId) and Plans.deletedAt.isNull() and (Plans.status eq PlanStatus.Active.wireName) }
                 .associate { it[Plans.title] to it[Plans.id] }
@@ -1092,14 +1092,11 @@ class AiService(
         val plans: Map<String, UUID>,
     )
 
-    /** 某人的「AI 能看什么」；没有发起人（自动生成的）时取所有成员都允许的。 */
-    private fun prefsOf(userId: UUID?): AiPrefs =
-        if (userId != null) {
-            AiPrefs.from(Users.select(Users.aiPrefs).where { Users.id eq userId }.singleOrNull()?.get(Users.aiPrefs))
-        } else {
-            AiPrefs()
-        }
+    /** 某人自己的「AI 能看什么」设置。 */
+    private fun prefsOf(userId: UUID): AiPrefs =
+        AiPrefs.from(Users.select(Users.aiPrefs).where { Users.id eq userId }.singleOrNull()?.get(Users.aiPrefs))
 
+    /** 房间里两个人都允许的类别（P11：谁发起的 AI 请求都按这个）。 */
     private fun roomPrefs(roomId: UUID): AiPrefs =
         RoomRepository.activeMembers(roomId).map { prefsOf(it.userId) }.fold(AiPrefs()) { a, b -> a and b }
 
