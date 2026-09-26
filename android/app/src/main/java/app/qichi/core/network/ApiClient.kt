@@ -107,19 +107,36 @@ class ApiClient(
             val first = execute(request)
             if (first.response.status != HttpStatusCode.Unauthorized || token == null) return@intercept first
 
-            val fresh = refreshTokens(usedAccessToken = token) ?: return@intercept first
-            request.headers[HttpHeaders.Authorization] = "Bearer ${fresh.accessToken}"
-            execute(request)
+            when (val refreshed = refreshTokens(usedAccessToken = token)) {
+                is Refresh.Done -> {
+                    request.headers[HttpHeaders.Authorization] = "Bearer ${refreshed.tokens.accessToken}"
+                    execute(request)
+                }
+                // 调用方看到 401、令牌已清：SessionExpiredException
+                Refresh.Expired -> first
+                // 离线、超时、服务器出错：这次请求算网络错误，稍后再试，不能当成「登录失效」或「请求被拒」（P13-10）
+                is Refresh.Unavailable -> throw RefreshUnavailableException(refreshed.cause)
+            }
         }
+    }
+
+    private sealed interface Refresh {
+        data class Done(val tokens: AuthTokens) : Refresh
+
+        /** 登录已失效（刷新令牌不能用了），令牌已清掉 */
+        data object Expired : Refresh
+
+        /** 这次没刷新成（离线、超时、服务器出错），登录本身可能还好好的 */
+        data class Unavailable(val cause: Throwable?) : Refresh
     }
 
     /**
      * 刷新令牌（单飞）：若别的请求已经刷新过（令牌已变），直接用新的。
-     * @return 新令牌；刷新失败返回 null（登录已失效时会清掉令牌并发出 [sessionExpired]）
+     * 只有服务端明确说刷新令牌不能用了（401）才清掉令牌并发出 [sessionExpired]。
      */
-    private suspend fun refreshTokens(usedAccessToken: String): AuthTokens? = refreshMutex.withLock {
-        val current = tokenStore.read() ?: return null
-        if (current.accessToken != usedAccessToken) return current
+    private suspend fun refreshTokens(usedAccessToken: String): Refresh = refreshMutex.withLock {
+        val current = tokenStore.read() ?: return Refresh.Expired
+        if (current.accessToken != usedAccessToken) return Refresh.Done(current)
 
         val response = try {
             http.request("auth/refresh") {
@@ -130,20 +147,20 @@ class ApiClient(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            return null
+            return Refresh.Unavailable(e)
         }
         when {
             response.status.isSuccess() -> {
                 val tokens = QichiJson.decodeFromString(AuthTokens.serializer(), response.bodyAsText())
                 tokenStore.write(tokens)
-                tokens
+                Refresh.Done(tokens)
             }
             response.status == HttpStatusCode.Unauthorized -> {
                 tokenStore.clear()
                 _sessionExpired.tryEmit(Unit)
-                null
+                Refresh.Expired
             }
-            else -> null
+            else -> Refresh.Unavailable(null)
         }
     }
 

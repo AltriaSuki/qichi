@@ -28,6 +28,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.TestScope
@@ -74,11 +75,27 @@ class ApiClientTest {
     /**
      * 假服务端：只认 [validAccess]；refresh 用 [validRefresh] 换来下一对令牌。
      */
-    private inner class FakeServer(var validAccess: String, var validRefresh: String, var refreshFails: Boolean = false) {
+    private inner class FakeServer(
+        var validAccess: String,
+        var validRefresh: String,
+        var refreshFails: Boolean = false,
+        /** 刷新请求连不上（超时、离线） */
+        var refreshOffline: Boolean = false,
+        /** 刷新时服务器出错 */
+        var refreshServerError: Boolean = false,
+    ) {
         val refreshCalls = AtomicInteger()
         val engine = MockEngine { request ->
             val path = request.url.encodedPath
             when {
+                path.endsWith("/auth/refresh") && refreshOffline -> {
+                    refreshCalls.incrementAndGet()
+                    throw IOException("timeout")
+                }
+                path.endsWith("/auth/refresh") && refreshServerError -> {
+                    refreshCalls.incrementAndGet()
+                    problem(HttpStatusCode.InternalServerError, "internal_error")
+                }
                 path.endsWith("/auth/refresh") -> {
                     refreshCalls.incrementAndGet()
                     val sent = QichiJson.decodeFromString(RefreshRequest.serializer(), request.bodyText())
@@ -138,6 +155,24 @@ class ApiClientTest {
             awaitItem()
         }
         assertNull(store.read())
+    }
+
+    @Test
+    fun `刷新请求超时或服务器出错：这次请求算网络错误，令牌留着，不算登录失效（P13-10）`() = runTest {
+        for (offline in listOf(true, false)) {
+            val store = InMemoryTokenStore(tokens(1))
+            val server = FakeServer(validAccess = "expired", validRefresh = "r1", refreshOffline = offline, refreshServerError = !offline)
+            val api = client(server, store)
+            var expired = false
+            val scope = eagerScope()
+            scope.launch { api.sessionExpired.collect { expired = true } }
+
+            assertFailsWith<NetworkException> { api.get<Health>("anything") }
+            assertEquals(tokens(1), store.read(), "令牌不能清")
+            assertFalse(expired)
+            assertEquals(1, server.refreshCalls.get())
+            scope.cancel()
+        }
     }
 
     @Test

@@ -26,3 +26,6 @@ class NetworkException(cause: Throwable) : IOException("网络不可用：${caus
 
 /** 登录已失效（刷新令牌也不能用了），需要重新登录。 */
 class SessionExpiredException : IOException("登录已失效")
+
+/** 访问令牌过期、这次又没刷新成（离线、超时、服务器出错）：当作网络错误，稍后再试（P13-10）。 */
+class RefreshUnavailableException(cause: Throwable?) : IOException("暂时没能刷新登录状态", cause)

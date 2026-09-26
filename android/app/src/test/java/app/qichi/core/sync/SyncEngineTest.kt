@@ -201,6 +201,24 @@ class SyncEngineTest {
     }
 
     @Test
+    fun `拉取出错时记下问题，这个房间拉取成功后清掉；断网不算问题`() = runTest {
+        bootstrap = boot(lastSeq = 4)
+        engine.pull(roomId)
+        assertNull(engine.problem.value)
+
+        server.failNext500 = 1
+        assertTrue(runCatching { engine.pull(roomId) }.isFailure)
+        assertEquals(roomId, engine.problem.value?.roomId)
+
+        engine.pull(roomId)
+        assertNull(engine.problem.value)
+
+        server.online = false
+        assertTrue(runCatching { engine.pull(roomId) }.isFailure)
+        assertNull(engine.problem.value)
+    }
+
+    @Test
     fun `首次快照保存问答实体`() = runTest {
         val question = Question(UUID.randomUUID(), roomId, 4, t0, t0, null, null,
             "想一起做什么？", QuestionSource.User, me, null, me, t0)

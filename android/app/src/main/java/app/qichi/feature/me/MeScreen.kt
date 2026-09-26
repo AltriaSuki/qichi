@@ -48,6 +48,8 @@ import app.qichi.core.designsystem.component.markCharOf
 import app.qichi.core.designsystem.dashedDivider
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
+import app.qichi.core.sync.SyncEngine
+import app.qichi.core.sync.SyncProblem
 import app.qichi.navigation.Page
 import app.qichi.shared.api.Member
 import app.qichi.shared.api.Room
@@ -82,7 +84,11 @@ class MeViewModel @AssistedInject constructor(
     session: SessionManager,
     display: DisplaySettingsStore,
     trash: TrashRepository,
+    syncEngine: SyncEngine,
 ) : ViewModel() {
+    /** 最近一次拉取没成功（P13-10）：页脚说明一句，拉取成功后自己消失 */
+    val syncProblem: StateFlow<SyncProblem?> = syncEngine.problem
+
     val state: StateFlow<MeState> = combine(
         rooms.observeRoom(roomId), rooms.observeMembers(roomId), rooms.me, display.settings, trash.observe(roomId),
     ) { room, members, me, settings, trashed ->
@@ -158,6 +164,15 @@ fun MeScreen(
                 Row(Modifier.padding(top = Spacing.s), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
                     Text("版本 ${app.qichi.BuildConfig.VERSION_NAME}", style = type.caption.copy(color = colors.faint))
                     app.qichi.core.designsystem.component.TextAction(if (checking) "正在检查…" else "检查更新", { update.check() }, enabled = !checking, color = colors.muted)
+                }
+                // 同步出了问题（服务器出错等；断网不算）：说一句，免得以为都同步好了（P13-10）
+                viewModel.syncProblem.collectAsStateWithLifecycle().value?.let { problem ->
+                    Text(
+                        "上次同步没成功：${problem.message}。稍后会自动再试",
+                        style = type.caption.copy(color = colors.muted),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(top = Spacing.xs),
+                    )
                 }
                 // 必须更新时说明原因（服务端要求、或有这个版本显示不了的内容），还没有新版发布时也看得到（P13-07）
                 update.updater.requiredReason.collectAsStateWithLifecycle().value?.let { reason ->

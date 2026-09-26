@@ -22,7 +22,10 @@ import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
+import java.io.IOException
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -133,6 +136,73 @@ class OutboxProcessorTest {
         assertTrue(db.outbox().all().isEmpty())
         assertEquals(2, server.requests.count { it.startsWith("POST ") && it.endsWith("/messages") }, "每条只发一次")
         assertEquals(SyncState.SYNCED, store.get<Message>(EntityType.Message, normal)!!.syncState)
+    }
+
+    private val serverError = """{"type":"x","title":"服务器出错了","status":500,"code":"internal_error"}"""
+    private val hour = 3_600_000L
+
+    @Test
+    fun `一条一直 500：从第一次出错算起 24 小时后标发送失败，后面的照常发出`() = runTest {
+        var clock = 0L
+        val processor = OutboxProcessor(SyncFixtures.api(server.engine), db, store, now = { clock })
+        val poisoned = sendLocally("服务器收不下的一条")
+        val next = sendLocally("后面的一条")
+        server.custom = { request ->
+            if (request.bodyText().contains(poisoned.toString())) respond(serverError, HttpStatusCode.InternalServerError, problemHeaders) else null
+        }
+        assertIs<OutboxProcessor.Result.Retry>(processor.drain())
+        clock += 12 * hour
+        assertIs<OutboxProcessor.Result.Retry>(processor.drain())
+        assertTrue(store.get<Message>(EntityType.Message, poisoned)!!.isPending)
+        assertTrue(store.get<Message>(EntityType.Message, next)!!.isPending, "24 小时内后面的还在等")
+
+        clock += 13 * hour
+        assertEquals(OutboxProcessor.Result.Done(setOf(roomId)), processor.drain())
+        assertEquals(SyncState.FAILED, store.get<Message>(EntityType.Message, poisoned)!!.syncState)
+        assertEquals(SyncState.SYNCED, store.get<Message>(EntityType.Message, next)!!.syncState)
+    }
+
+    @Test
+    fun `断网的那段不算进 24 小时`() = runTest {
+        var clock = 0L
+        val processor = OutboxProcessor(SyncFixtures.api(server.engine), db, store, now = { clock })
+        val id = sendLocally("一直 500")
+        server.custom = { respond(serverError, HttpStatusCode.InternalServerError, problemHeaders) }
+        assertIs<OutboxProcessor.Result.Retry>(processor.drain())
+        clock += 20 * hour
+        server.online = false
+        assertIs<OutboxProcessor.Result.Retry>(processor.drain())
+        clock += 20 * hour
+        server.online = true
+        assertIs<OutboxProcessor.Result.Retry>(processor.drain())
+        clock += 20 * hour
+        assertIs<OutboxProcessor.Result.Retry>(processor.drain())
+        assertTrue(store.get<Message>(EntityType.Message, id)!!.isPending, "断网之后重新算，才 20 小时")
+
+        clock += 5 * hour
+        processor.drain()
+        assertEquals(SyncState.FAILED, store.get<Message>(EntityType.Message, id)!!.syncState)
+    }
+
+    @Test
+    fun `访问令牌过期、刷新又超时：不标失败，文稿保存留着稍后再发`() = runTest {
+        val docId = UUID.randomUUID()
+        store.enqueue(
+            roomId, EntityType.Document, docId,
+            OutboxOp.post("rooms/$roomId/documents/$docId/versions", buildJsonObject { put("body", "第二稿") }, kind = OutboxOp.KIND_DOC_VERSION),
+        )
+        server.custom = { request ->
+            when {
+                request.url.encodedPath.endsWith("/auth/refresh") -> throw IOException("timeout")
+                request.url.encodedPath.endsWith("/versions") ->
+                    respond("""{"type":"x","title":"请先登录","status":401,"code":"unauthorized"}""", HttpStatusCode.Unauthorized, problemHeaders)
+                else -> null
+            }
+        }
+        assertIs<OutboxProcessor.Result.Retry>(processor.drain())
+        val row = db.outbox().all().single()
+        assertEquals(OutboxState.PENDING, row.state)
+        assertEquals(1, row.attempts)
     }
 
     @Test

@@ -4,19 +4,27 @@ import app.qichi.core.database.QichiDatabase
 import app.qichi.core.database.ChatHistoryRow
 import app.qichi.core.database.SyncStateRow
 import app.qichi.core.network.ApiClient
+import app.qichi.core.network.ApiException
 import app.qichi.core.network.get
 import app.qichi.shared.api.Bootstrap
 import app.qichi.shared.api.Lenient
 import app.qichi.shared.api.SyncEntity
 import app.qichi.shared.model.ChangeOp
 import app.qichi.shared.rules.Limits
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonElement
+import java.io.IOException
 import java.util.UUID
+
+/** 最近一次拉取没成功：哪个房间、原因、什么时候（epoch 毫秒）。 */
+data class SyncProblem(val roomId: UUID, val message: String, val at: Long)
 
 /**
  * 拉取（docs/05-sync-offline.md §3.2）：
@@ -35,9 +43,13 @@ class SyncEngine(
 ) {
     private val mutex = Mutex()
     private val _syncing = MutableStateFlow(false)
+    private val _problem = MutableStateFlow<SyncProblem?>(null)
 
     /** 是否正在拉取（下拉刷新的指示用）。 */
     val syncing: StateFlow<Boolean> = _syncing.asStateFlow()
+
+    /** 最近一次拉取出的问题（P13-10）：各处调用方都把拉取失败吞掉了，界面靠它知道「同步出了问题」；那个房间拉取成功就清掉。 */
+    val problem: StateFlow<SyncProblem?> = _problem.asStateFlow()
 
     suspend fun lastSeq(roomId: UUID): Long = db.syncState().get(roomId.toString())?.lastSeq ?: 0
 
@@ -51,9 +63,24 @@ class SyncEngine(
             } else {
                 pullChanges(roomId, state.lastSeq)
             }
+            _problem.update { if (it?.roomId == roomId) null else it }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            // 断网、超时、登录失效：是常态或另有提示，不算「同步出了问题」
+            throw e
+        } catch (e: Exception) {
+            _problem.value = SyncProblem(roomId, describe(e), now())
+            throw e
         } finally {
             _syncing.value = false
         }
+    }
+
+    private fun describe(e: Exception): String = when (e) {
+        is ApiException -> "${e.userMessage}（${e.status}）"
+        is SerializationException -> "收到的数据这个版本读不懂"
+        else -> e.message ?: e::class.simpleName ?: "未知错误"
     }
 
     /** 只在本地 lastSeq 落后于 [seq] 时拉取（WebSocket 收到 changed 时用）。 */
