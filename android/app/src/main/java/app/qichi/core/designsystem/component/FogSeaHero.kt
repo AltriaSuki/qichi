@@ -13,8 +13,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.PathParser
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sky
 import app.qichi.core.designsystem.colorsFor
@@ -38,7 +37,7 @@ fun FogSeaHero(modifier: Modifier = Modifier, sky: Sky = QichiTheme.sky, layout:
     val geometry = if (layout == HeroLayout.Wide) WIDE else COMPACT
     val background = colorsFor(sky).background
     // 居中裁切：放大铺满后超出的部分要裁掉，不能画到框外
-    Canvas(modifier.clipToBounds().semantics { contentDescription = "雾海" }) {
+    Canvas(modifier.clipToBounds().clearAndSetSemantics { }) {
         val scale = maxOf(size.width / geometry.width, size.height / geometry.height)
         val dx = (size.width - geometry.width * scale) / 2
         // 宽版贴着底边对齐：底部渐隐到页面底色的那一截不能被裁掉，否则和下面的内容之间会有一道边

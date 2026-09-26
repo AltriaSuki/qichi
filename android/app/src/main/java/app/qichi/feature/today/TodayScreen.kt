@@ -46,6 +46,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -226,7 +227,8 @@ private fun Header(state: TodayState, viewModel: TodayViewModel) {
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
                 .padding(start = 22.dp, end = Spacing.page, bottom = Spacing.m)
-                .semantics(mergeDescendants = true) {
+                .clearAndSetSemantics {
+                    heading()
                     contentDescription = "${state.today.year} 年 ${state.today.monthValue} 月 ${state.today.dayOfMonth} 日，${weekdayName(state.today.dayOfWeek)}"
                 },
             verticalAlignment = Alignment.Bottom,
@@ -307,7 +309,7 @@ private fun MoodCard(mood: Mood, name: String, people: People, modifier: Modifie
                 .padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PersonMark(people.markChar(mood.authorId), people.person(mood.authorId), size = 20.dp)
+                PersonMark(people.markChar(mood.authorId), people.person(mood.authorId), size = 20.dp, modifier = Modifier.clearAndSetSemantics { })
                 Text(name, style = type.caption.copy(fontWeight = FontWeight.W500, color = colors.muted), maxLines = 1, modifier = Modifier.weight(1f))
                 Icon(mood.label.icon, contentDescription = mood.label.displayName, tint = tint, modifier = Modifier.size(22.dp))
             }
@@ -317,7 +319,7 @@ private fun MoodCard(mood: Mood, name: String, people: People, modifier: Modifie
                     style = type.headline.copy(fontSize = 26.tsp, lineHeight = 35.tsp, color = colors.ink),
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                Text(mood.intensity.toString(), style = type.numeral.copy(fontSize = 15.tsp, color = colors.muted), modifier = Modifier.padding(bottom = 6.dp))
+                Text(mood.intensity.toString(), style = type.numeral.copy(fontSize = 15.tsp, color = colors.muted), modifier = Modifier.padding(bottom = 6.dp).clearAndSetSemantics { })
             }
             IntensityDots(mood.intensity, tint, Modifier.padding(top = 8.dp))
         }

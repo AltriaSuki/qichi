@@ -83,6 +83,7 @@ import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.MarkdownView
 import app.qichi.core.ui.relativeDay
+import app.qichi.core.ui.scrollToItemMotion
 import app.qichi.shared.api.BoardPost
 import app.qichi.shared.api.BoardPostRevision
 import app.qichi.shared.model.BoardReactionKind
@@ -266,6 +267,7 @@ fun TopicScreen(
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val list = rememberLazyListState()
+    val reduceMotion = QichiTheme.reduceMotion
     val scope = rememberCoroutineScope()
     var renaming by remember { mutableStateOf(false) }
     var deletingTopic by remember { mutableStateOf(false) }
@@ -286,7 +288,7 @@ fun TopicScreen(
     }
     fun jumpTo(postId: UUID) {
         val index = state.posts.indexOfFirst { it.post.value.id == postId }
-        if (index >= 0) scope.launch { list.animateScrollToItem(index) }
+        if (index >= 0) scope.launch { list.scrollToItemMotion(index, reduceMotion) }
     }
 
     val topic = state.topic?.value

@@ -7,6 +7,7 @@
   python3 tools/uix.py type <英文>       往当前输入框打字（adb 输入不了中文）
   python3 tools/uix.py shot <文件.png>    截图
   python3 tools/uix.py bounds <文字>     看某个元素的位置
+  python3 tools/uix.py a11y              无障碍检查：列出小于 44dp 的可点区域，和读屏会念的全部文字
 脚本里：sys.path 加上 tools/ 后 from uix import *
 """
 import os
@@ -79,6 +80,37 @@ def open_link(link):
     subprocess.run([ADB, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", link, "app.qichi"], capture_output=True)
 
 
+def density():
+    out = subprocess.run([ADB, "shell", "wm", "density"], capture_output=True, text=True).stdout
+    return int(re.findall(r"\d+", out)[-1]) / 160
+
+
+def screen_size():
+    out = subprocess.run([ADB, "shell", "wm", "size"], capture_output=True, text=True).stdout
+    return tuple(map(int, re.findall(r"(\d+)x(\d+)", out)[-1]))
+
+
+def a11y(min_dp=44):
+    """(可点但小于 min_dp 的元素, 读屏会念的文字)。只看本 App 的界面。"""
+    d = density()
+    sw, sh = screen_size()
+    small, spoken = [], []
+    for n in dump().iter("node"):
+        if n.get("package") != "app.qichi":
+            continue
+        label = n.get("text") or n.get("content-desc")
+        if label:
+            spoken.append(label)
+        if n.get("clickable") == "true" or n.get("long-clickable") == "true":
+            x1, y1, x2, y2 = bounds(n)
+            w, h = (x2 - x1) / d, (y2 - y1) / d
+            # 贴着屏幕边被裁掉一半的（横向滚动行的最后一个）不算
+            if min(w, h) < min_dp - 0.5 and y1 > 0 and y2 < sh and x1 > 0 and x2 < sw:
+                inner = label or " / ".join(c.get("text") or c.get("content-desc") for c in n.iter("node") if c.get("text") or c.get("content-desc"))
+                small.append(f"{w:.0f}×{h:.0f}dp {inner or '（无文字）'} {n.get('bounds')}")
+    return small, spoken
+
+
 if __name__ == "__main__":
     cmd, *args = sys.argv[1:] or ["texts"]
     if cmd == "texts":
@@ -92,5 +124,11 @@ if __name__ == "__main__":
     elif cmd == "bounds":
         for n in nodes(args[0]):
             print(n.get("bounds"), n.get("clickable"))
+    elif cmd == "a11y":
+        small, spoken = a11y()
+        print("小于 44dp：" + ("无" if not small else ""))
+        for line in small:
+            print("  " + line)
+        print("会念：" + " | ".join(spoken))
     else:
         print(__doc__)

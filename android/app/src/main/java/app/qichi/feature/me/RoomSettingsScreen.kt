@@ -70,6 +70,7 @@ import app.qichi.core.designsystem.tsp
 import app.qichi.core.network.ApiClient
 import app.qichi.core.network.FileUrls
 import app.qichi.core.network.NetworkMonitor
+import app.qichi.core.ui.dotDate
 import app.qichi.shared.api.Patch
 import app.qichi.shared.api.Room
 import app.qichi.shared.api.UpdateRoomRequest
@@ -299,7 +300,7 @@ fun RoomSettingsScreen(
 
             SettingRow(
                 label = "纪念日",
-                value = current.anniversary?.let { "${it.year} · ${it.monthValue} · ${it.dayOfMonth}" } ?: "未设置",
+                value = current.anniversary?.let { dotDate(it, withYear = true) } ?: "未设置",
                 numeral = current.anniversary != null,
                 onClick = { pickingDate = true },
             )

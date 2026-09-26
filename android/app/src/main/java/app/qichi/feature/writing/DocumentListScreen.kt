@@ -42,6 +42,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -249,7 +250,7 @@ private fun DocumentRow(
                 Text(doc.title.ifBlank { "没有标题的" }, style = type.headline.copy(lineHeight = 24.6.tsp, color = colors.ink),
                     maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 if (doc.latestVersion > 0) {
-                    Row(verticalAlignment = Alignment.Bottom) {
+                    Row(Modifier.clearAndSetSemantics { contentDescription = "${formatCount(doc.charCount)} 字" }, verticalAlignment = Alignment.Bottom) {
                         Text(formatCount(doc.charCount), style = type.numeral.copy(fontSize = 12.tsp, color = colors.muted))
                         Text(" 字", style = type.caption.copy(fontSize = 12.tsp, color = colors.muted))
                     }

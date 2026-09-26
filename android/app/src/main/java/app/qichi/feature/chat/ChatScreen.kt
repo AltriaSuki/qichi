@@ -112,6 +112,7 @@ import app.qichi.core.network.FileUrls
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.chatDay
 import app.qichi.core.ui.feelingWord
+import app.qichi.core.ui.scrollToItemMotion
 import app.qichi.core.ui.sourceKind
 import app.qichi.core.ui.sourceLabel
 import app.qichi.shared.api.AiAction
@@ -153,6 +154,7 @@ fun ChatScreen(
     val items = viewModel.messages.collectAsLazyPagingItems()
     val colors = QichiTheme.colors
     val listState = rememberLazyListState()
+    val reduceMotion = QichiTheme.reduceMotion
     val scope = rememberCoroutineScope()
     val people = state.people
 
@@ -257,7 +259,7 @@ fun ChatScreen(
         withTimeoutOrNull(2_000) { snapshotFlow { items.peek(0)?.value?.id }.first { it == current.id } }
         when {
             // 自己刚发的：总是滚到底
-            current.authorId == people.myUserId || wasAtBottom -> listState.animateScrollToItem(0)
+            current.authorId == people.myUserId || wasAtBottom -> listState.scrollToItemMotion(0, reduceMotion)
             else -> unseen = true
         }
     }
@@ -266,7 +268,7 @@ fun ChatScreen(
     var lastLocalItems by remember { mutableStateOf(0) }
     LaunchedEffect(pendingAi.size + uploads.size) {
         val count = pendingAi.size + uploads.size
-        if (count > lastLocalItems) listState.animateScrollToItem(0)
+        if (count > lastLocalItems) listState.scrollToItemMotion(0, reduceMotion)
         lastLocalItems = count
     }
     // 正在看（页面在前台、列表在底部）就推进未读位置
@@ -361,7 +363,7 @@ fun ChatScreen(
             if (!atBottom) {
                 JumpToBottom(
                     unseen = unseen,
-                    onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                    onClick = { scope.launch { listState.scrollToItemMotion(0, reduceMotion) } },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(end = 16.dp, bottom = 12.dp),
@@ -598,7 +600,7 @@ private fun AttachmentRow(local: Local<Message>, mine: Boolean, content: @Compos
         verticalAlignment = Alignment.Bottom,
     ) {
         if (local.isPending) PendingClock()
-        content(shape, if (mine) Modifier.background(colors.personA.copy(alpha = 0.16f)) else Modifier.background(colors.card))
+        content(shape, if (mine) Modifier.background(colors.background).background(colors.personA.copy(alpha = 0.16f)) else Modifier.background(colors.card))
     }
 }
 
@@ -650,8 +652,8 @@ private fun TextBubble(
                 .clip(shape)
                 .then(
                     when {
-                        unsent -> Modifier.border(1.3.dp, if (local.isFailed) colors.accent else colors.personA, shape)
-                        mine -> Modifier.background(colors.personA.copy(alpha = 0.16f))
+                        unsent -> Modifier.background(colors.background).border(1.3.dp, if (local.isFailed) colors.accent else colors.personA, shape)
+                        mine -> Modifier.background(colors.background).background(colors.personA.copy(alpha = 0.16f))
                         else -> Modifier.background(colors.card)
                     },
                 )

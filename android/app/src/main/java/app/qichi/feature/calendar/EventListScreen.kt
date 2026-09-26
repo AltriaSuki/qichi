@@ -66,6 +66,7 @@ import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.chinese
+import app.qichi.core.ui.dotDate
 import app.qichi.core.ui.relativeDay
 import app.qichi.shared.api.Event
 import java.time.Instant
@@ -108,7 +109,7 @@ fun EventListScreen(
                     Column(Modifier.padding(bottom = Spacing.l)) {
                         val (label, _) = relativeDay(day.date, state.today)
                         SectionLabel(if (label.startsWith("周") || label == "今天" || label == "明天" || label == "昨天") label else day.date.dayOfWeek.chinese) {
-                            Text("${day.date.monthValue} · ${day.date.dayOfMonth}", style = type.numeral.copy(fontSize = 15.tsp, color = colors.muted))
+                            Text(dotDate(day.date), style = type.numeral.copy(fontSize = 15.tsp, color = colors.muted))
                         }
                         day.events.forEach { item ->
                             EventRow(item, state.people, state.zone, day.date) { editing = item.value.id.toString() }
@@ -348,7 +349,7 @@ private fun EventEditor(
 
 private fun dateLabel(date: LocalDate, today: LocalDate): String {
     val (label, numeral) = relativeDay(date, today)
-    return if (numeral) label else "$label ${date.monthValue} · ${date.dayOfMonth}"
+    return if (numeral) label else "$label ${dotDate(date)}"
 }
 
 @Composable

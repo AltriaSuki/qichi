@@ -23,7 +23,7 @@ val DayOfWeek.chinese: String
     }
 
 /**
- * 截止日的说法：今天、明天、昨天；一周内写星期（「周四」）；更远写「9 · 28」。
+ * 截止日的说法：今天、明天、昨天；一周内写星期（「周四」）；更远写「09.28」。
  * @return 文字与是否用 Cormorant 数字字体显示
  */
 fun relativeDay(date: LocalDate, today: LocalDate): Pair<String, Boolean> {
@@ -37,6 +37,10 @@ fun relativeDay(date: LocalDate, today: LocalDate): Pair<String, Boolean> {
         else -> "%d.%02d.%02d".format(date.year, date.monthValue, date.dayOfMonth) to true
     }
 }
+
+/** 点分日期：「09.28」；[withYear] 时「2026.09.28」。 */
+fun dotDate(date: LocalDate, withYear: Boolean = false): String =
+    if (withYear) "%d.%02d.%02d".format(date.year, date.monthValue, date.dayOfMonth) else "%02d.%02d".format(date.monthValue, date.dayOfMonth)
 
 /**
  * 聊天里的日期分隔：今天、昨天；今年的写「09.18 周三」；更早的带年份「2025.12.31」。

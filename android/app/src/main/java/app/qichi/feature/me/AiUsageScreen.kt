@@ -88,7 +88,7 @@ class AiUsageViewModel @Inject constructor(private val rooms: RoomRepository) : 
     }
 }
 
-private val JOB_TIME = DateTimeFormatter.ofPattern("M · d  HH:mm")
+private val JOB_TIME = DateTimeFormatter.ofPattern("MM.dd  HH:mm")
 
 /** 「我的 → 我发起的 AI 使用」：按月列出自己发起的 AI 调用，以及这个月两个人一共用了多少。 */
 @Composable
@@ -106,7 +106,7 @@ fun AiUsageScreen(onBack: () -> Unit, viewModel: AiUsageViewModel = hiltViewMode
         ) {
             IconAction(QichiIcons.Back, contentDescription = "上个月", onClick = viewModel::previous, iconSize = 18)
             Text(
-                "${state.month.year} · ${state.month.monthValue}",
+                "%d.%02d".format(state.month.year, state.month.monthValue),
                 style = type.numeral.copy(fontSize = 22.tsp, color = colors.ink),
                 modifier = Modifier.weight(1f),
                 textAlign = TextAlign.Center,

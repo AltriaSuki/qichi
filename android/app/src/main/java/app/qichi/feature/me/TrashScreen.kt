@@ -98,7 +98,7 @@ class TrashViewModel @AssistedInject constructor(
     }
 }
 
-private val DELETED_AT = DateTimeFormatter.ofPattern("M · d  HH:mm")
+private val DELETED_AT = DateTimeFormatter.ofPattern("MM.dd  HH:mm")
 
 /** 「我的 → 回收站」（设计稿没有这一页，按列表页的规则做）：最近删除的在前，可以恢复或彻底删除。 */
 @Composable

@@ -1,12 +1,15 @@
 package app.qichi.feature.mood
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,13 +30,20 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -77,6 +87,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -196,7 +207,8 @@ fun MoodScreen(
             }
             Column {
                 SectionLabel("强度") {
-                    Row(verticalAlignment = Alignment.Bottom) {
+                    // 数字由下面的滑块念，这里不重复
+                    Row(Modifier.clearAndSetSemantics { }, verticalAlignment = Alignment.Bottom) {
                         Text("${draft.intensity}", style = type.numeral.copy(fontSize = 22.tsp, fontWeight = FontWeight.W500, color = colors.personA))
                         Text("/10", style = type.numeral.copy(fontSize = 12.tsp, color = colors.muted), modifier = Modifier.padding(bottom = 3.dp))
                     }
@@ -299,21 +311,39 @@ private fun MoodGrid(selected: MoodLabel?, onSelect: (MoodLabel) -> Unit) {
     }
 }
 
-/** 强度 1–10：十个点，选到的和它左边的是实心玫瑰色，选中那个大一圈、带光晕。 */
+/**
+ * 强度 1–10：十个点，选到的和它左边的是实心玫瑰色，选中那个大一圈、带光晕。
+ * 整行是一个控件：点或左右拖都能选（每个点单独做按钮太窄）；读屏当作滑块，上下滑调整。
+ */
 @Composable
 private fun IntensityPicker(value: Int, onChange: (Int) -> Unit) {
     val colors = QichiTheme.colors
-    Row(Modifier.fillMaxWidth().selectableGroup()) {
+    val current by rememberUpdatedState(value)
+    val change by rememberUpdatedState(onChange)
+    fun pick(x: Float, width: Int) {
+        val v = (x / width * 10).toInt().coerceIn(0, 9) + 1
+        if (v != current) change(v)
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(Sizes.touchTarget)
+            .pointerInput(Unit) { detectTapGestures { pick(it.x, size.width) } }
+            .pointerInput(Unit) { detectHorizontalDragGestures { change, _ -> pick(change.position.x, size.width) } }
+            .clearAndSetSemantics {
+                contentDescription = "强度"
+                stateDescription = "$value/10"
+                progressBarRangeInfo = ProgressBarRangeInfo(value.toFloat(), 1f..10f, steps = 8)
+                setProgress { target ->
+                    val v = target.roundToInt().coerceIn(1, 10)
+                    if (v != current) change(v)
+                    true
+                }
+            },
+    ) {
         for (i in 1..10) {
             val on = i == value
-            Box(
-                Modifier
-                    .weight(1f)
-                    .height(Sizes.touchTarget)
-                    .selectable(selected = on, role = Role.RadioButton) { onChange(i) }
-                    .semantics { contentDescription = "强度 $i" },
-                contentAlignment = Alignment.Center,
-            ) {
+            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
                 if (on) Box(Modifier.size(26.dp).background(colors.personA.copy(alpha = .16f), QichiShapes.pill))
                 Box(
                     Modifier

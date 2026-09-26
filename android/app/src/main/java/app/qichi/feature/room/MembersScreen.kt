@@ -38,6 +38,7 @@ import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.component.markCharOf
 import app.qichi.core.designsystem.tsp
+import app.qichi.core.ui.dotDate
 import app.qichi.core.ui.toFormError
 import app.qichi.shared.api.Invite
 import app.qichi.shared.api.Member
@@ -150,7 +151,7 @@ fun MembersScreen(
                         PersonMark(markCharOf(member.displayName), person, size = 26.dp)
                         Text(member.displayName, style = type.bodyLarge.copy(color = colors.ink), modifier = Modifier.weight(1f))
                         Text(
-                            member.joinedAt.atZone(ZoneId.systemDefault()).toLocalDate().let { "${it.monthValue} · ${it.dayOfMonth}" },
+                            member.joinedAt.atZone(ZoneId.systemDefault()).toLocalDate().let { dotDate(it) },
                             style = type.numeral.copy(color = colors.muted),
                         )
                     }

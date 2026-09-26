@@ -77,6 +77,7 @@ import app.qichi.core.network.FileUrls
 import app.qichi.core.ui.PlanCover
 import app.qichi.core.ui.StageTrack
 import app.qichi.core.ui.TodoRow
+import app.qichi.core.ui.dotDate
 import app.qichi.core.ui.relativeDay
 import app.qichi.core.ui.shortDate
 import app.qichi.shared.api.Milestone
@@ -398,7 +399,7 @@ private fun CompletionCard(plan: Plan) {
     val type = QichiTheme.typography
     MistCard {
         val date = plan.completedAt?.atZone(ZoneId.systemDefault())?.toLocalDate()
-        Text(if (date != null) "完成于 ${date.year} · ${date.monthValue} · ${date.dayOfMonth}" else "已完成",
+        Text(if (date != null) "完成于 ${dotDate(date, withYear = true)}" else "已完成",
             style = type.caption.copy(fontSize = 12.tsp, letterSpacing = 0.3.em, color = colors.accent))
         plan.completionNote?.let {
             Text(it, style = type.reading.copy(color = colors.ink), modifier = Modifier.padding(top = 6.dp, bottom = Spacing.s))

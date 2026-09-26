@@ -74,6 +74,7 @@ import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.MarkdownView
+import app.qichi.core.ui.dotDate
 import app.qichi.core.ui.sourceKind
 import app.qichi.core.ui.sourceLabel
 import app.qichi.core.ui.sourceLook
@@ -87,8 +88,8 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 private fun rangeText(start: LocalDate, end: LocalDate): String =
-    if (start.year == end.year) "${start.year} · ${start.monthValue}.${start.dayOfMonth} — ${end.monthValue}.${end.dayOfMonth}"
-    else "${start.year}.${start.monthValue}.${start.dayOfMonth} — ${end.year}.${end.monthValue}.${end.dayOfMonth}"
+    if (start.year == end.year) "${start.year}.${dotDate(start)} – ${dotDate(end)}"
+    else "${dotDate(start, withYear = true)} – ${dotDate(end, withYear = true)}"
 
 private val SummaryKind.label: String
     get() = when (this) {

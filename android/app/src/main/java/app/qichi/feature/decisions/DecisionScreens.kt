@@ -79,6 +79,7 @@ import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.DateChoice
+import app.qichi.core.ui.dotDate
 import app.qichi.core.ui.relativeDay
 import app.qichi.shared.api.Decision
 import app.qichi.shared.rules.Limits
@@ -172,7 +173,7 @@ private fun DecisionCard(local: Local<Decision>, people: People, today: LocalDat
             Column(Modifier.weight(1f)) {
                 Text(d.question, style = type.headline.copy(lineHeight = 25.5.tsp, color = colors.ink), maxLines = 3, overflow = TextOverflow.Ellipsis)
                 val meta = when {
-                    d.reviewDate != null && done -> (if (d.reviewDate!!.year == today.year) d.reviewDate!!.format(MD) else "${d.reviewDate!!.year} · ${d.reviewDate!!.format(MD)}") + (if (!d.reviewDate!!.isAfter(today)) " 该回头看看了" else " 回头看看")
+                    d.reviewDate != null && done -> (if (d.reviewDate!!.year == today.year) d.reviewDate!!.format(MD) else dotDate(d.reviewDate!!, withYear = true)) + (if (!d.reviewDate!!.isAfter(today)) " 该回头看看了" else " 回头看看")
                     else -> d.createdAt.atZone(java.time.ZoneId.systemDefault()).toLocalDate().format(MD) + " 提出"
                 }
                 Text(meta, style = type.caption.copy(color = if (done && d.reviewDate?.let { !it.isAfter(today) } == true) colors.accent else colors.muted), modifier = Modifier.padding(top = 4.dp))
