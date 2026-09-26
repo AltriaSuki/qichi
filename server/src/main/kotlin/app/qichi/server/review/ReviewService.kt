@@ -142,7 +142,11 @@ class ReviewService(
     private val clock: Clock,
 ) {
     init {
-        jobs.register(JOB_PREVIEW) { job -> buildPreview(job) }
+        // 队列彻底放弃（例如生成时进程一再中断）时，把版本标成预览失败，而不是一直「生成中」（P13-03）
+        jobs.register(JOB_PREVIEW, { job, _ ->
+            val versionId = UUID.fromString(job.payload["versionId"]!!.jsonPrimitive.content)
+            db.tx(readOnly = true) { version(versionId) }?.let { markFailed(it, "预览没能生成，可以稍后重新上传试试") }
+        }) { job -> buildPreview(job) }
     }
 
     private fun document(id: UUID) = ReviewDocuments.selectAll().where { ReviewDocuments.id eq id }.singleOrNull()?.toReviewDocument()

@@ -136,13 +136,36 @@ class AiService(
     private val stopRequested: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
 
     init {
-        queue.register(JOB_CHAT) { job -> answerInChat(job) }
-        queue.register(JOB_QUESTION) { job -> suggestQuestion(job) }
-        queue.register(JOB_READ) { job -> explainReading(job) }
-        queue.register(JOB_SUMMARY) { job -> summarize(job) }
-        queue.register(JOB_YEARLY_CHECK) { _ -> yearlyCheck() }
-        queue.register(JOB_REVIEW) { job -> reviewFindings(job) }
-        queue.register(JOB_WRITE) { job -> writeAssist(job) }
+        // 队列彻底放弃（出了预料之外的错、执行中断次数用完）时由 giveUp 把 ai_jobs 标成失败，App 不会一直等（P13-03）
+        queue.register(JOB_CHAT, ::giveUp) { job -> answerInChat(job) }
+        queue.register(JOB_QUESTION, ::giveUp) { job -> suggestQuestion(job) }
+        queue.register(JOB_READ, ::giveUp) { job -> explainReading(job) }
+        queue.register(JOB_SUMMARY, ::giveUp) { job -> summarize(job) }
+        // 年度检查放弃了也要接着排下一次，不然每年一次的回顾就断了
+        queue.register(JOB_YEARLY_CHECK, { _, _ -> ensureYearlyCheck() }) { _ -> yearlyCheck() }
+        queue.register(JOB_REVIEW, ::giveUp) { job -> reviewFindings(job) }
+        queue.register(JOB_WRITE, ::giveUp) { job -> writeAssist(job) }
+    }
+
+    /** 队列放弃了这个 AI 任务：还没有结果的标成失败并通知（App 显示「没有得到回答 · 重试」，同一 jobId 可以重新排队）。 */
+    private suspend fun giveUp(job: QueuedJob, reason: String) {
+        val jobId = job.payload["aiJobId"]?.jsonPrimitive?.contentOrNull?.let(UUID::fromString) ?: return
+        val roomId = db.tx {
+            val row = AiJobs.selectAll().where { AiJobs.id eq jobId }.forUpdate().singleOrNull() ?: return@tx null
+            val status = fromWire<AiJobStatus>(row[AiJobs.status])
+            if (status == AiJobStatus.Done || status == AiJobStatus.Failed) return@tx null
+            val now = clock.instant()
+            AiJobs.update({ AiJobs.id eq jobId }) {
+                it[AiJobs.status] = AiJobStatus.Failed.wireName
+                it[error] = "没有得到结果"
+                it[finishedAt] = now
+                it[updatedAt] = now
+            }
+            row[AiJobs.roomId]
+        } ?: return
+        log.warn("AI 任务 {} 放弃：{}", jobId, reason)
+        stopRequested -= jobId
+        realtime.aiDone(roomId, jobId, AiJobStatus.Failed.wireName)
     }
 
     /** 问 AI（聊天里）。同一 jobId 再次请求：失败的重新排队，其余返回当前状态。 */

@@ -181,4 +181,41 @@ class AiTest {
             outsider.get("/api/v1/rooms/$roomId/ai/jobs/${UuidV7.generate()}").assertProblem(HttpStatusCode.NotFound, ProblemCode.NotFound)
         }
     }
+
+    @Test
+    fun `聊天记录和问题里有模板占位符时，问 AI 照常回答`() {
+        val ctx = testContext(clock = clock, aiGateway = gateway)
+        serverTest(ctx) { client ->
+            val (aqi, _, roomId) = Api(client).pair()
+            aqi.send(roomId, "模板里写 {{name}} 就行")
+            val jobId = UuidV7.generate()
+            aqi.ask(roomId, "{{prompt}} 是什么意思？\n---\n后面还有", jobId)
+            ctx.jobs.drain()
+            assertEquals(AiJobStatus.Done, aqi.get("/api/v1/rooms/$roomId/ai/jobs/$jobId").body<AiJob>().status)
+            val user = gateway.requests.single().messages.single().content
+            assertTrue("模板里写 {{name}} 就行" in user && "{{prompt}} 是什么意思？\n---\n后面还有" in user, user)
+        }
+    }
+
+    @Test
+    fun `处理时出了预料之外的错：次数用完后任务标 failed，同一 jobId 可以重新排队`() {
+        val broken = object : AiGateway {
+            override val model = "broken"
+            override suspend fun complete(request: AiRequest): AiResult = error("意外")
+        }
+        val ctx = testContext(clock = clock, aiGateway = broken)
+        serverTest(ctx) { client ->
+            val (aqi, _, roomId) = Api(client).pair()
+            val jobId = UuidV7.generate()
+            aqi.ask(roomId, "在吗", jobId)
+            ctx.jobs.drain()
+            assertEquals(AiJobStatus.Running, aqi.get("/api/v1/rooms/$roomId/ai/jobs/$jobId").body<AiJob>().status, "等着重试")
+            clock.advance(JobQueue.backoff(1))
+            ctx.jobs.drain()
+            val failed = aqi.get("/api/v1/rooms/$roomId/ai/jobs/$jobId").body<AiJob>()
+            assertEquals(AiJobStatus.Failed, failed.status)
+            assertEquals("没有得到结果", failed.error)
+            assertEquals(AiJobStatus.Queued, aqi.ask(roomId, "在吗", jobId).body<AiJobAccepted>().status)
+        }
+    }
 }
