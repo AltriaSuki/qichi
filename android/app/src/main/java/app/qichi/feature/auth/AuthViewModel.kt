@@ -2,7 +2,9 @@ package app.qichi.feature.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.qichi.core.auth.ExpiredSession
 import app.qichi.core.auth.SessionManager
+import app.qichi.core.auth.SignInResult
 import app.qichi.core.network.ApiException
 import app.qichi.core.ui.FormError
 import app.qichi.core.ui.toFormError
@@ -23,6 +25,10 @@ data class AuthUiState(
     val inviteCode: String = "",
     val submitting: Boolean = false,
     val error: FormError = FormError(),
+    /** 登录被动失效、本机内容还留着时的提示（P13-08） */
+    val expiredNotice: String? = null,
+    /** 换账号前要确认：本机还有上一个账号这么多条没发出去的内容 */
+    val confirmSwitch: Int? = null,
 )
 
 /** 登录与注册共用的表单状态。成功后 SessionManager 的状态变化会把界面切走。 */
@@ -32,6 +38,16 @@ class AuthViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(AuthUiState())
     val state: StateFlow<AuthUiState> = _state.asStateFlow()
+    private var pendingSwitch: SignInResult.NeedsConfirm? = null
+
+    init {
+        viewModelScope.launch {
+            session.expired.collect { expired -> _state.update { it.copy(expiredNotice = expired?.let(::expiredText)) } }
+        }
+    }
+
+    private fun expiredText(e: ExpiredSession): String =
+        if (e.unsent > 0) "登录已失效，请重新登录。还有 ${e.unsent} 条内容没发出去，登录同一个账号后会接着发。" else "登录已失效，请重新登录。"
 
     fun onUsername(v: String) = _state.update { it.copy(username = v.lowercase().filter { c -> !c.isWhitespace() }, error = FormError()) }
     fun onPassword(v: String) = _state.update { it.copy(password = v, error = FormError()) }
@@ -60,12 +76,39 @@ class AuthViewModel @Inject constructor(
         submit { session.register(s.username, s.password, s.displayName, s.inviteCode.ifEmpty { null }) }
     }
 
-    private fun submit(action: suspend () -> Unit) {
+    /** 确认换账号：清掉上一个账号没发出去的内容，登录新账号。 */
+    fun confirmSwitch() {
+        val pending = pendingSwitch ?: return
+        pendingSwitch = null
+        _state.update { it.copy(confirmSwitch = null) }
+        submit {
+            session.confirmSwitch(pending)
+            SignInResult.Done
+        }
+    }
+
+    /** 不换了：刚登录的新账号作废，本机内容留着。 */
+    fun cancelSwitch() {
+        val pending = pendingSwitch ?: return
+        pendingSwitch = null
+        _state.update { it.copy(confirmSwitch = null) }
+        viewModelScope.launch { session.cancelSwitch(pending) }
+    }
+
+    private fun submit(action: suspend () -> SignInResult) {
         if (_state.value.submitting) return
         _state.update { it.copy(submitting = true, error = FormError()) }
         viewModelScope.launch {
-            val error = runCatching { action() }.exceptionOrNull()
-            _state.update { it.copy(submitting = false, error = error?.let(::describe) ?: FormError()) }
+            val result = runCatching { action() }
+            val needsConfirm = result.getOrNull() as? SignInResult.NeedsConfirm
+            pendingSwitch = needsConfirm
+            _state.update {
+                it.copy(
+                    submitting = false,
+                    error = result.exceptionOrNull()?.let(::describe) ?: FormError(),
+                    confirmSwitch = needsConfirm?.unsent,
+                )
+            }
         }
     }
 

@@ -160,6 +160,10 @@ interface OutboxDao {
     @Query("SELECT COUNT(*) FROM outbox WHERE state = 'PENDING'")
     fun observePendingCount(): Flow<Int>
 
+    /** 还没发出去的（排队中和发送失败的）：换账号前提示用（P13-08） */
+    @Query("SELECT COUNT(*) FROM outbox")
+    suspend fun count(): Int
+
     @Query("SELECT COUNT(*) FROM outbox WHERE entityType = :type AND entityId = :id AND state = 'PENDING'")
     suspend fun pendingCountFor(type: String, id: String): Int
 

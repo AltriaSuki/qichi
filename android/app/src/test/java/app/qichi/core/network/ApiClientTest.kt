@@ -1,6 +1,7 @@
 package app.qichi.core.network
 
 import app.cash.turbine.test
+import app.qichi.core.auth.ExpiredSession
 import app.qichi.core.auth.InMemoryTokenStore
 import app.qichi.core.auth.LocalDataCleaner
 import app.qichi.core.auth.SessionManager
@@ -200,18 +201,21 @@ class ApiClientTest {
     }
 
     @Test
-    fun `刷新失败后会话回到登出状态并清掉本机数据`() = runTest {
+    fun `刷新失败后会话回到登出状态，本机数据留着并提示还有几条没发出去`() = runTest {
         val store = InMemoryTokenStore(tokens(1))
         val server = FakeServer(validAccess = "nothing-valid", validRefresh = "r1", refreshFails = true)
         val api = client(server, store)
         var cleared = 0
         val scope = eagerScope()
-        val session = SessionManager(api, store, setOf(LocalDataCleaner { cleared++ }), "test", scope)
+        val session = SessionManager(api, store, setOf(LocalDataCleaner { cleared++ }), "test", scope, unsentCount = { 3 })
         assertEquals(SessionState.LoggedIn(userId), session.state.value)
+        assertNull(session.expired.value)
 
         runCatching { api.get<Health>("anything") }
         session.state.first { it == SessionState.LoggedOut }
-        assertEquals(1, cleared)
+        assertEquals(0, cleared, "登录被动失效时不清本机数据（P13-08）")
+        assertNull(store.read())
+        assertEquals(ExpiredSession(userId, 3), session.expired.value)
         scope.cancel()
     }
 

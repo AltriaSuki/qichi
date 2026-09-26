@@ -94,7 +94,14 @@ object AppModule {
         cleaners: Set<@JvmSuppressWildcards LocalDataCleaner>,
         logoutHooks: Set<@JvmSuppressWildcards LogoutHook>,
         @ApplicationScope scope: CoroutineScope,
-    ): SessionManager = SessionManager(api, tokenStore, cleaners, deviceName = "${Build.MANUFACTURER} ${Build.MODEL}", scope, logoutHooks)
+        @ApplicationContext context: Context,
+        db: app.qichi.core.database.QichiDatabase,
+    ): SessionManager = SessionManager(
+        api, tokenStore, cleaners, deviceName = "${Build.MANUFACTURER} ${Build.MODEL}", scope, logoutHooks,
+        // 登录失效时本机数据留着，记下属于哪个账号；换账号前数一数还有几条没发出去（P13-08）
+        owner = app.qichi.core.auth.PrefsLocalOwnerStore(context),
+        unsentCount = { db.outbox().count() },
+    )
 
     @Provides
     @Singleton
