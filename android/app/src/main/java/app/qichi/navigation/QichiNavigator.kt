@@ -134,6 +134,13 @@ class QichiNavigator(
                 open(Page.Calendar)
                 navController.navigate(CalendarDay(src.at.atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()))
             }
+            // AI 自己查到的（P11）
+            "qna_round" -> open(Page.Qna)
+            "document" -> open(Page.Writing, src.id.toString())
+            "board_topic" -> open(Page.Board, src.id.toString())
+            "book" -> open(Page.Reading, src.id.toString())
+            "review_document" -> open(Page.Review, src.id.toString())
+            "summary" -> open(Page.Summary)
         }
     }
 

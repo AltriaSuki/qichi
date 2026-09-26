@@ -871,15 +871,19 @@ private fun PendingAiItem(pending: PendingAi, askerName: String, onRetry: () -> 
                         Text(
                             when {
                                 pending.stopping -> "正在停下"
+                                // AI 在自己查资料（P11）
+                                pending.status != null -> pending.status
                                 pending.partial.isNullOrEmpty() -> "正在想"
                                 else -> "正在写"
                             },
                             style = type.caption.copy(fontSize = 12.tsp, color = colors.muted),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
                         Row(
                             Modifier
-                                .heightIn(min = 40.dp)
+                                .heightIn(min = Sizes.touchTarget)
                                 .clip(QichiShapes.pill)
                                 .background(colors.surface)
                                 .border(1.dp, colors.ink.copy(alpha = .08f), QichiShapes.pill)

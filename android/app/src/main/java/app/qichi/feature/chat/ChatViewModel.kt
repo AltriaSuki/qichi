@@ -81,11 +81,22 @@ data class PendingAi(
     val partial: String? = null,
     /** 点了「停下」，等服务端收尾（P10-04） */
     val stopping: Boolean = false,
+    /** AI 正在查什么，如「正在查：日历 9/26–10/3」（P11）；开始写回答后为空 */
+    val status: String? = null,
 )
 
-/** 边生成边显示：把到目前为止的回答放进对应的等待项；已经失败的不动（等用户点重试）。 */
-internal fun List<PendingAi>.withPartial(jobId: UUID, text: String): List<PendingAi> =
-    map { if (it.jobId == jobId && !it.failed) it.copy(partial = text) else it }
+/**
+ * 边生成边显示：把到目前为止的回答放进对应的等待项；已经失败的不动（等用户点重试）。
+ * 带 [status] 时 AI 在查资料：显示「正在查」，之前写的字（查资料前说的话）收起。
+ */
+internal fun List<PendingAi>.withPartial(jobId: UUID, text: String, status: String? = null): List<PendingAi> =
+    map {
+        when {
+            it.jobId != jobId || it.failed -> it
+            status != null -> it.copy(status = status, partial = null)
+            else -> it.copy(partial = text, status = null)
+        }
+    }
 
 /** 正在上传的附件（还没成为消息），显示在列表最下面。[id] 就是文件 id，重试时沿用。 */
 data class Upload(
@@ -208,7 +219,7 @@ class ChatViewModel @AssistedInject constructor(
         viewModelScope.launch {
             realtime.aiDeltas.collect { event ->
                 if (event.roomId != roomId) return@collect
-                _pendingAi.update { it.withPartial(event.jobId, event.text) }
+                _pendingAi.update { it.withPartial(event.jobId, event.text, event.status) }
             }
         }
         // 恢复上次没发出去的草稿（用户已经开始输入就不覆盖）
@@ -459,7 +470,7 @@ class ChatViewModel @AssistedInject constructor(
             _events.tryEmit(ChatEvent.Toast("离线时不能问 AI"))
             return
         }
-        _pendingAi.update { list -> list.map { if (it.jobId == jobId) it.copy(failed = false, partial = null) else it } }
+        _pendingAi.update { list -> list.map { if (it.jobId == jobId) it.copy(failed = false, partial = null, status = null) else it } }
         submitAi(pending)
     }
 

@@ -35,5 +35,12 @@ fun sourceLook(type: String): Pair<androidx.compose.ui.graphics.vector.ImageVect
     "mood" -> app.qichi.core.designsystem.Feature.Mood.icon to app.qichi.core.designsystem.Feature.Mood.tone
     "event" -> app.qichi.core.designsystem.Feature.Calendar.icon to app.qichi.core.designsystem.Feature.Calendar.tone
     "todo" -> app.qichi.core.designsystem.Feature.Todo.icon to app.qichi.core.designsystem.Feature.Todo.tone
+    // AI 自己查到的（P11）
+    "qna_round" -> app.qichi.core.designsystem.Feature.Qna.icon to app.qichi.core.designsystem.Feature.Qna.tone
+    "document" -> app.qichi.core.designsystem.Feature.Writing.icon to app.qichi.core.designsystem.Feature.Writing.tone
+    "board_topic" -> app.qichi.core.designsystem.Feature.Board.icon to app.qichi.core.designsystem.Feature.Board.tone
+    "book" -> app.qichi.core.designsystem.Feature.Reading.icon to app.qichi.core.designsystem.Feature.Reading.tone
+    "review_document" -> app.qichi.core.designsystem.Feature.Review.icon to app.qichi.core.designsystem.Feature.Review.tone
+    "summary" -> app.qichi.core.designsystem.Feature.Summary.icon to app.qichi.core.designsystem.Feature.Summary.tone
     else -> app.qichi.core.designsystem.icon.QichiIcons.Summary to app.qichi.core.designsystem.FeatureTone.Muted
 }

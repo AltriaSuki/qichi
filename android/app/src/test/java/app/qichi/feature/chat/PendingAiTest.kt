@@ -21,6 +21,17 @@ class PendingAiTest {
     }
 
     @Test
+    fun `AI 查资料时显示正在查什么，查资料前写的字收起；开始写回答后不再显示`() {
+        val before = listOf(a).withPartial(a.jobId, "我查一下")
+        val looking = before.withPartial(a.jobId, "", "正在查：日历 9/26–10/3")
+        assertEquals("正在查：日历 9/26–10/3", looking[0].status)
+        assertNull(looking[0].partial)
+        val writing = looking.withPartial(a.jobId, "周六去看外婆")
+        assertNull(writing[0].status)
+        assertEquals("周六去看外婆", writing[0].partial)
+    }
+
+    @Test
     fun `已经失败的提问不被迟到的片段改回来`() {
         val failed = listOf(a.copy(failed = true))
         assertNull(failed.withPartial(a.jobId, "迟到的片段")[0].partial)
@@ -31,5 +42,7 @@ class PendingAiTest {
         val room = UUID.randomUUID()
         val event = QichiJson.decodeFromString(WsEvent.serializer(), """{"type":"ai.delta","roomId":"$room","jobId":"${a.jobId}","text":"周六"}""")
         assertEquals(WsEvent.AiDelta(room, a.jobId, "周六"), event)
+        val looking = QichiJson.decodeFromString(WsEvent.serializer(), """{"type":"ai.delta","roomId":"$room","jobId":"${a.jobId}","text":"","status":"正在查：待办"}""")
+        assertEquals(WsEvent.AiDelta(room, a.jobId, "", "正在查：待办"), looking)
     }
 }
