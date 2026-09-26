@@ -15,6 +15,7 @@ import app.qichi.shared.api.AiJobAccepted
 import app.qichi.shared.api.AiUsage
 import app.qichi.shared.api.Me
 import app.qichi.shared.api.Message
+import app.qichi.shared.api.QuestionSuggestRequest
 import app.qichi.shared.api.MessagePage
 import app.qichi.shared.api.SendMessageRequest
 import app.qichi.shared.model.AiJobKind
@@ -214,8 +215,19 @@ class AiTest {
             ctx.jobs.drain()
             val failed = aqi.get("/api/v1/rooms/$roomId/ai/jobs/$jobId").body<AiJob>()
             assertEquals(AiJobStatus.Failed, failed.status)
-            assertEquals("没有得到结果", failed.error)
+            // 问 AI 自己在最后一次出错时收尾
+            assertEquals("没有得到回答", failed.error)
             assertEquals(AiJobStatus.Queued, aqi.ask(roomId, "在吗", jobId).body<AiJobAccepted>().status)
+
+            // 别的 AI 任务（这里是出题）没有自己收尾：由任务队列放弃时登记的收尾标成失败
+            val question = UuidV7.generate()
+            aqi.post("/api/v1/rooms/$roomId/ai/question-suggest", QuestionSuggestRequest(question))
+            ctx.jobs.drain()
+            clock.advance(JobQueue.backoff(1))
+            ctx.jobs.drain()
+            val gaveUp = aqi.get("/api/v1/rooms/$roomId/ai/jobs/$question").body<AiJob>()
+            assertEquals(AiJobStatus.Failed, gaveUp.status)
+            assertEquals("没有得到结果", gaveUp.error)
         }
     }
 }

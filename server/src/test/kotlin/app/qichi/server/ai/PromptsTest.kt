@@ -23,15 +23,18 @@ class PromptsTest {
     }
 
     @Test
-    fun `所有真实模板都分成系统提示和用户消息，占位符都填上`() {
+    fun `所有真实模板：有分隔线的分成系统提示和用户消息，占位符都填上`() {
         val dir = File(Prompts::class.java.getResource("/prompts")!!.toURI())
         val names = dir.listFiles { f -> f.extension == "md" }!!.map { it.nameWithoutExtension }
         assertTrue(names.size >= 10)
         val real = Prompts()
         for (name in names) {
-            val vars = Regex("\\{\\{(\\w+)}}").findAll(File(dir, "$name.md").readText()).associate { it.groupValues[1] to "《${it.groupValues[1]}》" }
+            val text = File(dir, "$name.md").readText()
+            val vars = Regex("\\{\\{(\\w+)}}").findAll(text).associate { it.groupValues[1] to "《${it.groupValues[1]}》" }
             val r = real.render(name, vars)
-            assertTrue(r.system.isNotBlank() && r.user.isNotBlank(), name)
+            // 没有分隔线的是接在对话后面的一句话（如 chat_lookup_done）：只有用户消息
+            val split = Regex("(?m)^---\\s*$").containsMatchIn(text)
+            assertTrue((!split || r.system.isNotBlank()) && r.user.isNotBlank(), name)
             assertTrue("{{" !in r.system + r.user, name)
         }
     }
