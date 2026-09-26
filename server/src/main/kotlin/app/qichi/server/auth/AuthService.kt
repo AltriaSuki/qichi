@@ -35,6 +35,7 @@ import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
 import java.time.Clock
+import java.time.Duration
 import app.qichi.server.plugins.notFound
 import java.util.UUID
 
@@ -153,6 +154,10 @@ class AuthService(
 
     /**
      * 刷新：换一对新令牌，旧的立即作废。已作废的刷新令牌被再次使用 → 这次登录的所有令牌全部作废。
+     *
+     * 例外（5 分钟宽限，P13-08）：弱网下常见「服务端已经换了新令牌、回应没送到手机」，手机只能拿旧令牌再试。
+     * 被换掉的旧令牌 [REFRESH_GRACE] 内再出现、且换出来的新令牌还没被用过，就当作回应丢了：
+     * 作废没送到的那对，再换发一对，并让旧令牌指向新发的这对（回应再丢一次也还能再试）。
      */
     suspend fun refresh(refreshToken: String): AuthTokens {
         val hash = TokenService.hashRefresh(refreshToken)
@@ -164,8 +169,28 @@ class AuthService(
             val familyId = row[RefreshTokens.familyId]
             when {
                 row[RefreshTokens.revokedAt] != null -> {
-                    revokeFamily(familyId)
-                    RefreshOutcome.Reused(row[RefreshTokens.userId], familyId)
+                    val successor = row[RefreshTokens.replacedBy]?.let { id ->
+                        RefreshTokens.selectAll().where { RefreshTokens.id eq id }.forUpdate(ForUpdateOption.ForUpdate).singleOrNull()
+                    }
+                    val lostResponse = successor != null &&
+                        successor[RefreshTokens.revokedAt] == null &&
+                        successor[RefreshTokens.expiresAt].isAfter(now) &&
+                        !row[RefreshTokens.revokedAt]!!.plus(REFRESH_GRACE).isBefore(now)
+                    if (lostResponse) {
+                        val session = createSession(row[RefreshTokens.userId], familyId, row[RefreshTokens.deviceName])
+                        RefreshTokens.update({ RefreshTokens.id eq successor!![RefreshTokens.id] }) {
+                            it[revokedAt] = now
+                            it[replacedBy] = session.refreshTokenId
+                        }
+                        RefreshTokens.update({ RefreshTokens.id eq row[RefreshTokens.id] }) {
+                            it[replacedBy] = session.refreshTokenId
+                            it[lastUsedAt] = now
+                        }
+                        RefreshOutcome.Ok(session.tokens)
+                    } else {
+                        revokeFamily(familyId)
+                        RefreshOutcome.Reused(row[RefreshTokens.userId], familyId)
+                    }
                 }
                 !row[RefreshTokens.expiresAt].isAfter(now) -> RefreshOutcome.Invalid
                 else -> {
@@ -314,5 +339,8 @@ class AuthService(
 
         /** 同时计算的密码哈希个数上限（1GB 的服务器、256MB 的堆） */
         const val HASH_CONCURRENCY = 2
+
+        /** 刷新回应丢失的宽限：被换掉的旧刷新令牌这么久之内再出现、新令牌还没被用过，就再换发一对（人类 2026-09-26 选定） */
+        val REFRESH_GRACE: Duration = Duration.ofMinutes(5)
     }
 }
