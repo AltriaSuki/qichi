@@ -27,7 +27,8 @@ enum class TogetherGroup(val label: String) { Life("生活"), Create("创作"), 
 
 /**
  * 标签之下的二级页面。[slug] 用在深链 `qichi://room/{roomId}/{slug}[/{id}]` 里。
- * 「一起」下的页面压在「一起」的返回栈里；「我的」下的页面压在「我的」的返回栈里。
+ * [tab] 只说明它列在哪个标签的目录里（「一起」的三组、「我的」的列表）；打开时不切标签，
+ * 从哪里打开就压在哪里，返回回到打开它的地方（见 [QichiNavigator]）。
  */
 @androidx.annotation.Keep
 enum class Page(val slug: String, val title: String, val tab: TopTab, val group: TogetherGroup? = null) {
@@ -83,7 +84,7 @@ enum class Page(val slug: String, val title: String, val tab: TopTab, val group:
 }
 
 // ── 类型安全路由 ──
-// 每个标签是一个嵌套导航图，各自保存返回栈。
+// 每个标签是一个嵌套导航图，只装它的根页面，切标签时整个存取；其它页面都在最外层（见 qichiGraph）。
 
 @Serializable data object TodayGraph
 @Serializable data object ChatGraph
@@ -98,10 +99,10 @@ enum class Page(val slug: String, val title: String, val tab: TopTab, val group:
 @Serializable data object TogetherHome
 @Serializable data object MeHome
 
-/** 「一起」下的二级页面。 */
+/** 列在「一起」里的页面（可以从任何地方打开）。 */
 @Serializable data class TogetherPage(val page: Page, val id: String? = null)
 
-/** 「我的」下的二级页面。 */
+/** 列在「我的」里的页面。 */
 @Serializable data class MePage(val page: Page, val id: String? = null)
 
 /** 日历某一天的详情。 */
