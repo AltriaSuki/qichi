@@ -1,14 +1,23 @@
 package app.qichi.feature.reading
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,6 +26,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -26,6 +37,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,14 +47,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.People
@@ -63,8 +79,8 @@ import app.qichi.core.designsystem.component.SwitchRow
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.component.color
 import app.qichi.core.designsystem.component.decor.Ribbon
+import app.qichi.core.designsystem.dashedDivider
 import app.qichi.core.designsystem.icon.QichiIcons
-import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
 import app.qichi.shared.api.Highlight
 import app.qichi.shared.model.HighlightKind
@@ -77,7 +93,10 @@ import org.readium.r2.navigator.DecorableNavigator
 import org.readium.r2.navigator.Decoration
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
 import org.readium.r2.navigator.epub.EpubPreferences
+import org.readium.r2.navigator.input.InputListener
+import org.readium.r2.navigator.input.TapEvent
 import org.readium.r2.navigator.preferences.Color as ReadiumColor
+import org.readium.r2.navigator.util.DirectionalNavigationAdapter
 import org.readium.r2.shared.publication.Locator
 
 private enum class ReaderSheet { Toc, Notes, Search }
@@ -91,10 +110,10 @@ private val HighlightKind.label: String
     }
 
 /**
- * 阅读器（按 Reading.dc.html）：返回条（书名、目录、搜索、书签）、Readium 的正文、底部两个人的进度。
+ * 阅读器：书页铺满整屏（P12-01 沉浸阅读），点中间叫出返回条（书名、目录、搜索、书签）和底部两个人的进度，点左右边缘翻页。
  * 选中文字可以「标注」「摘录」；点标注看感想（自己的可以写、可以设为共同可见）。
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ReaderScreen(
     roomId: UUID,
@@ -116,20 +135,20 @@ fun ReaderScreen(
     LaunchedEffect(state.loaded, state.book) { if (state.loaded && state.book == null) onBack() }
     LaunchedEffect(vm) { vm.openHighlight.collect { openHighlight = it } }
 
-    Column(Modifier.fillMaxSize().background(colors.background)) {
-        val marked = vm.bookmarkAt(locator) != null
-        ItemTopBar(
-            state.book?.title.orEmpty(), onBack, feature = Feature.Reading,
-            actions = listOf(
-                BarAction("目录", QichiIcons.Toc, { sheet = ReaderSheet.Toc }, enabled = state.ready),
-                BarAction(if (marked) "去掉书签" else "加书签", QichiIcons.Bookmark, { locator?.let(vm::toggleBookmark) },
-                    enabled = locator != null, tint = if (marked) colors.accent else null),
-            ),
-            menu = listOf(MenuAction("书内搜索", { sheet = ReaderSheet.Search }, enabled = state.ready)),
-        )
+    // ── 沉浸阅读（P12-01）：书页铺满整屏；顶栏、进度、状态栏默认收起，点页面中间叫出 / 收起 ──
+    var chromeWanted by rememberSaveable { mutableStateOf(false) }
+    // 还没打开、出错了、开着读屏时一直显示，免得找不到返回
+    val talkBack = remember { context.getSystemService(android.view.accessibility.AccessibilityManager::class.java)?.isTouchExplorationEnabled == true }
+    val chrome = chromeWanted || !state.ready || state.error != null || talkBack
+    val reduceMotion = QichiTheme.reduceMotion
+    val marked = vm.bookmarkAt(locator) != null
+    SystemBarsVisible(chrome)
 
-        // ── 正文：一张纸（浮起、圆角），左上挂书签带 ──
-        Box(Modifier.weight(1f).padding(horizontal = Spacing.m).fillMaxWidth().lift(colors, QichiShapes.paper).clip(QichiShapes.paper).background(colors.paper)) {
+    Box(Modifier.fillMaxSize().background(colors.paper)) {
+        // 正文：上面让出状态栏（收起时也按它的高度留，叫出时文字不跳），下面留一行页码
+        val topInset = with(LocalDensity.current) { WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout).getTop(this).toDp() }
+        val bottomInset = with(LocalDensity.current) { WindowInsets.systemBarsIgnoringVisibility.getBottom(this).toDp() }
+        Box(Modifier.fillMaxSize().padding(top = topInset, bottom = bottomInset + PAGE_NUMBER_HEIGHT)) {
             val pub = vm.publication
             when {
                 state.ready && pub != null -> {
@@ -169,27 +188,61 @@ fun ReaderScreen(
                     style = type.caption.copy(color = colors.faint), modifier = Modifier.align(Alignment.Center),
                 )
             }
-            Ribbon(Modifier.padding(start = 24.dp), height = 58.dp)
         }
+        // 书签带：只在这一页加了书签时贴在右上角，不占正文的位置
+        if (marked) Ribbon(Modifier.align(Alignment.TopEnd).padding(end = 28.dp), height = topInset + 34.dp)
 
-        // ── AI 正在看 / 没得到回答 ──
-        if (state.aiPending != null || state.aiFailed) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = Spacing.page, vertical = Spacing.xxs),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Spacing.s),
-            ) {
-                Text("AI", style = type.numeral.copy(fontSize = 17.tsp, color = colors.personB))
-                Text(if (state.aiFailed) "没有得到回答" else "正在看这段……", style = type.caption.copy(color = colors.muted), modifier = Modifier.weight(1f))
-                if (state.aiFailed) {
-                    TextAction("重试", vm::retryAi)
-                    TextAction("算了", vm::dismissAi, color = colors.muted)
+        // 收起时底部只留一行小页码
+        if (!chrome) PageNumber(state, locator, Modifier.align(Alignment.BottomCenter).padding(bottom = bottomInset).height(PAGE_NUMBER_HEIGHT))
+
+        val enter = if (reduceMotion) EnterTransition.None else fadeIn(tween(160))
+        val exit = if (reduceMotion) ExitTransition.None else fadeOut(tween(160))
+        AnimatedVisibility(chrome, Modifier.align(Alignment.TopCenter), enter = enter, exit = exit) {
+            ItemTopBar(
+                state.book?.title.orEmpty(), onBack, feature = Feature.Reading,
+                modifier = Modifier.background(colors.background).dashedDivider(colors),
+                actions = listOf(
+                    BarAction("目录", QichiIcons.Toc, { sheet = ReaderSheet.Toc }, enabled = state.ready),
+                    BarAction(if (marked) "去掉书签" else "加书签", QichiIcons.Bookmark, { locator?.let(vm::toggleBookmark) },
+                        enabled = locator != null, tint = if (marked) colors.accent else null),
+                ),
+                menu = listOf(MenuAction("书内搜索", { sheet = ReaderSheet.Search }, enabled = state.ready)),
+            )
+        }
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+            // ── AI 正在看 / 没得到回答（收起时也显示）──
+            if (state.aiPending != null || state.aiFailed) {
+                Row(
+                    Modifier.fillMaxWidth().background(colors.background).padding(horizontal = Spacing.page, vertical = Spacing.xxs)
+                        .then(if (chrome) Modifier else Modifier.padding(bottom = bottomInset + PAGE_NUMBER_HEIGHT)),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+                ) {
+                    Text("AI", style = type.numeral.copy(fontSize = 17.tsp, color = colors.personB))
+                    Text(if (state.aiFailed) "没有得到回答" else "正在看这段……", style = type.caption.copy(color = colors.muted), modifier = Modifier.weight(1f))
+                    if (state.aiFailed) {
+                        TextAction("重试", vm::retryAi)
+                        TextAction("算了", vm::dismissAi, color = colors.muted)
+                    }
                 }
             }
+            // ── 两个人的进度（叫出时）──
+            AnimatedVisibility(chrome, enter = enter, exit = exit) {
+                ProgressTrack(state, locator, Modifier.background(colors.background).dashedDivider(colors, atTop = true))
+            }
         }
+    }
 
-        // ── 两个人的进度 ──
-        ProgressTrack(state, locator)
+    // 点左右边缘翻页，点中间叫出 / 收起顶栏和进度
+    LaunchedEffect(navigator) {
+        val nav = navigator ?: return@LaunchedEffect
+        nav.addInputListener(DirectionalNavigationAdapter(nav, animatedTransition = !reduceMotion))
+        nav.addInputListener(object : InputListener {
+            override fun onTap(event: TapEvent): Boolean {
+                chromeWanted = !chromeWanted
+                return true
+            }
+        })
     }
 
     // 位置变化：报告给 ViewModel（保存进度）
@@ -245,14 +298,35 @@ fun ReaderScreen(
     }
 }
 
-/** 底部（按 New-Reading）：一条细进度条，我读到的部分是玫瑰色，上面两个人的标记在各自读到的位置；下面居中页码。 */
+/** 收起工具栏时底部那一行：小小的页码（像 Kindle）。 */
+private val PAGE_NUMBER_HEIGHT = 28.dp
+
 @Composable
-private fun ProgressTrack(state: ReaderState, locator: Locator?) {
+private fun PageNumber(state: ReaderState, locator: Locator?, modifier: Modifier = Modifier) {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Text(pageLabel(state, locator), style = QichiTheme.typography.numeral.copy(fontSize = 11.tsp, color = QichiTheme.colors.faint))
+    }
+}
+
+private fun pageLabel(state: ReaderState, locator: Locator?): String {
+    val mine = locator?.locations?.totalProgression ?: state.mine?.progress
+    val position = locator?.locations?.position
+    return when {
+        position != null && state.totalPositions > 0 -> "$position / ${state.totalPositions}"
+        position != null -> "$position"
+        mine != null -> "${(mine * 100).toInt()}%"
+        else -> ""
+    }
+}
+
+/** 叫出工具栏时的底部（按 New-Reading）：一条细进度条，我读到的部分是玫瑰色，上面两个人的标记在各自读到的位置；下面居中页码。 */
+@Composable
+private fun ProgressTrack(state: ReaderState, locator: Locator?, modifier: Modifier = Modifier) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val people = state.people
     val mine = locator?.locations?.totalProgression ?: state.mine?.progress
-    Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 30.dp, end = 30.dp, top = Spacing.l, bottom = Spacing.l)) {
+    Column(modifier.fillMaxWidth().navigationBarsPadding().padding(start = 30.dp, end = 30.dp, top = Spacing.m, bottom = Spacing.s)) {
         BoxWithConstraints(Modifier.fillMaxWidth().height(18.dp).semantics(mergeDescendants = true) {
             contentDescription = buildString {
                 mine?.let { append("我读到 ${(it * 100).toInt()}%") }
@@ -270,16 +344,10 @@ private fun ProgressTrack(state: ReaderState, locator: Locator?) {
                     modifier = Modifier.align(Alignment.CenterStart).offset(x = (maxWidth - 18.dp) * mine.toFloat().coerceIn(0f, 1f)))
             }
         }
-        val position = locator?.locations?.position
         Text(
-            when {
-                position != null && state.totalPositions > 0 -> "$position / ${state.totalPositions}"
-                position != null -> "$position"
-                mine != null -> "${(mine * 100).toInt()}%"
-                else -> ""
-            },
+            pageLabel(state, locator),
             style = type.numeral.copy(fontSize = 13.tsp, color = colors.muted),
-            modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = Spacing.m),
+            modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = Spacing.s),
         )
     }
 }
@@ -408,4 +476,17 @@ private fun HighlightSheet(h: Highlight, people: People, vm: ReaderViewModel, on
     if (deleting) {
         ConfirmDialog("删掉这条${h.kind.label}？", "删掉后不能恢复。", "删掉", onConfirm = { deleting = false; vm.deleteHighlight(h); onDone() }, onDismiss = { deleting = false })
     }
+}
+
+/** 沉浸阅读时收起状态栏和导航栏（从边缘滑一下会临时出现）；离开阅读页时恢复。 */
+@Composable
+private fun SystemBarsVisible(visible: Boolean) {
+    val view = LocalView.current
+    val window = (view.context as? android.app.Activity)?.window ?: return
+    val controller = remember(window) { WindowCompat.getInsetsController(window, view) }
+    LaunchedEffect(visible) {
+        controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (visible) controller.show(WindowInsetsCompat.Type.systemBars()) else controller.hide(WindowInsetsCompat.Type.systemBars())
+    }
+    DisposableEffect(controller) { onDispose { controller.show(WindowInsetsCompat.Type.systemBars()) } }
 }
