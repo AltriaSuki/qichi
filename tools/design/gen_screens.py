@@ -355,12 +355,12 @@ def ribbon(P, key='accent', right=26, h=46):
             f'background:{P[key]};clip-path:polygon(0 0,100% 0,100% 100%,50% 78%,0 100%);box-shadow:0 2px 4px rgba(0,0,0,.15)"></span>')
 
 
-def ruled(P, lh, top, margin=True):
+def ruled(P, lh, top, margin=True, mx=40):
     ln = T(P, 'ink', .09 if not P['dark'] else .12)
     mg = T(P, 'accent', .4)
     layers = []
     if margin:
-        layers.append(f'linear-gradient(90deg,transparent 40px,{mg} 40px,{mg} 41px,transparent 41px)')
+        layers.append(f'linear-gradient(90deg,transparent {mx}px,{mg} {mx}px,{mg} {mx + 1}px,transparent {mx + 1}px)')
     layers.append(f'repeating-linear-gradient(180deg,transparent 0,transparent {lh - 1}px,{ln} {lh - 1}px,{ln} {lh}px)')
     pos = ('0 0,' if margin else '') + f'0 {top}px'
     return f'background-color:{P["paper"]};background-image:{",".join(layers)};background-position:{pos}'
@@ -1247,10 +1247,20 @@ def caret(P):
 LH = 33
 
 
-def editor_paper(P, parts, top=24):
-    return (f'<div style="position:relative;flex:1;min-height:0;margin:0 16px;padding:{top}px 22px 20px 54px;border-radius:6px;'
-            f'{ruled(P, LH, top + LH - 1)};box-shadow:{P["lift"]};overflow:hidden;font-size:16px;line-height:{LH}px">'
-            f'{ribbon(P, "accent", 26, 50)}{parts}</div>')
+def editor_paper(P, parts, top=24, foot=''):
+    """P12-02：横线纸铺到两边（没有留边和阴影），页边线 28px；[foot] 浮在纸面底部。"""
+    return (f'<div style="position:relative;flex:1;min-height:0;padding:{top}px 24px 20px 40px;'
+            f'{ruled(P, LH, top + LH - 1, mx=28)};overflow:hidden;font-size:16px;line-height:{LH}px">'
+            f'{parts}{foot}</div>')
+
+
+def editor_foot(P, count, minutes, status, version, dot=True):
+    """浮在纸面上的底栏：左边一行字数 · 分钟 · 保存状态，右边字号和「存为 vN」，背后纸色渐隐。"""
+    return (f'<div style="position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;gap:6px;'
+            f'padding:24px 16px 20px 40px;background:linear-gradient(180deg,{T(P, "paper", 0)} 0,{T(P, "paper", .92)} 35%,{P["paper"]} 100%)">'
+            f'{"<span style=%swidth:6px;height:6px;border-radius:50%%;background:%s%s></span>" % (chr(34), P["A"], chr(34)) if dot else ""}'
+            f'<div style="flex:1;min-width:0;font-size:12px;color:{P["muted"]};line-height:1.4;white-space:nowrap">{M(count, 15, P["ink"])} 字 · '
+            f'{M(minutes, 15, P["ink"])} 分钟 · {status}</div><span aria-label="字号与行距" style="display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;font-size:17px;color:{P["ink"]}">Aa</span>{primary(P, "存为 " + M(version, 15))}</div>')
 
 
 def ed_head(P, text, lead='## '):
@@ -1271,18 +1281,14 @@ def b_writing():
              + f'<div>{syn(P, "- ")}每个月留出一个不安排任何事的周末</div>'
              + f'<div>{syn(P, "- ")}一起把那本读到一半的书读完{caret(P)}</div>'
              + f'<span style="position:absolute;right:30px;top:{24 + LH * 3 + 4}px">{hand(P, "↑ 小迟加的", 18, "B", -4)}</span>')
-    legend = (f'<div style="flex:none;display:flex;align-items:center;gap:14px;min-height:44px;padding:0 28px 8px">'
+    legend = (f'<div style="flex:none;display:flex;align-items:center;gap:14px;padding:2px 28px 8px">'
               f'<span style="display:inline-flex;align-items:center;gap:8px;font-size:13px;color:{P["muted"]}"><span style="width:22px;'
               f'height:12px;border-radius:3px;background:{T(P, "B", .16)};box-shadow:inset 0 -2px 0 {T(P, "B", .55)}"></span>小迟写的 '
               f'{M("266", 13, P["ink"])} 字</span><span style="font-size:13px;color:{P["muted"]}">我写的 {M("1,020", 13, P["ink"])} 字</span>'
               f'<span style="flex:1"></span>{M("v8", 14, P["muted"])}</div>')
-    foot = (f'<div style="flex:none;display:flex;align-items:center;gap:10px;padding:12px 16px 20px 28px"><div style="flex:1;'
-            f'min-width:0;line-height:1.5"><div style="font-size:13px;color:{P["muted"]}">{M("1,286", 15, P["ink"])} 字 · '
-            f'{M("4", 15, P["ink"])} 分钟</div><div style="display:flex;align-items:center;gap:6px;font-size:12px;'
-            f'color:{P["muted"]}"><span style="width:6px;height:6px;border-radius:50%;background:{P["A"]}"></span>未保存</div></div>'
-            f'{primary(P, "存为 " + M("v9", 15))}</div>')
     trailing = btn_icon(P, '署名', 'people', active=True) + btn_icon(P, '预览', 'eye') + btn_icon(P, '更多', 'more')
-    body = bar3(P, 'New-Writing-List.dc.html', '写作', 'pen', 'B', '给明年秋天的信', trailing) + legend + editor_paper(P, parts) + foot
+    body = (bar3(P, 'New-Writing-List.dc.html', '写作', 'pen', 'B', '给明年秋天的信', trailing) + legend
+            + editor_paper(P, parts, foot=editor_foot(P, "1,286", "4", "未保存", "v9")))
     wr('New-Writing.dc.html', page(P, '写作 · 署名', body))
 
 
@@ -1560,8 +1566,9 @@ def b_reading():
     note = (f'<div style="display:flex;align-items:center;gap:6px;margin:0 0 14px;color:{P["B"]}"><svg width="30" height="20" '
             f'viewBox="0 0 30 20" aria-hidden="true"><path d="M26 2C18 4 10 8 4 16M4 16l1-6M4 16l6-1" fill="none" stroke="{P["B"]}" '
             f'stroke-width="1.3" stroke-linecap="round"/></svg>{mark(P, "迟", 18)}{hand(P, "我也喜欢这一句", 19, "B", -2)}</div>')
-    pg = (f'<div style="position:relative;flex:1;min-height:0;margin:0 16px;padding:24px 24px 20px;border-radius:6px;'
-          f'background:{P["paper"]};box-shadow:{P["lift"]};font-family:{SERIF};font-size:18px;line-height:2">{ribbon(P, "accent", 24, 58)}'
+    # P12-01 沉浸阅读：书页铺满整屏，顶栏、进度、状态栏收起（点中间叫出）；右上角是这一页的书签
+    pg = (f'<div style="position:relative;flex:1;min-height:0;padding:56px 26px 20px;'
+          f'background:{P["paper"]};font-family:{SERIF};font-size:18px;line-height:2">{ribbon(P, "accent", 28, 74)}'
           f'<div style="font-family:{MONO};font-size:14px;color:{P["muted"]};margin-bottom:12px;line-height:1">— iii —</div>'
           f'<p style="margin:0 0 12px"><span style="float:left;font-size:56px;line-height:1;margin:6px 10px 0 0;color:{P["accent"]}">雨</span>'
           f'是从傍晚开始下的。旅店的老板把门口的灯提前点亮，玻璃上很快起了一层薄薄的雾。</p>'
@@ -1570,14 +1577,11 @@ def b_reading():
           f'<p style="margin:0 0 60px;position:relative">她于是真的坐了很久。窗外的雨没有停，<span style="background:{T(P, "accent", .18)};'
           f'border-radius:2px">楼下的灯却一直亮着</span>，像有人特意为她留的。{toolbar}</p>'
           f'<p style="margin:0">她把信重新展开，又慢慢折好。</p></div>')
-    foot = (f'<div style="flex:none;padding:20px 30px 22px"><div style="position:relative;height:4px;border-radius:2px;'
-            f'background:{T(P, "ink", .1)};margin:8px 0 18px"><span style="position:absolute;left:0;top:0;height:4px;border-radius:2px;'
-            f'width:42%;background:{P["A"]}"></span><span style="position:absolute;left:calc(42% - 9px);top:-7px">{mark(P, "栖", 18)}'
-            f'</span><span style="position:absolute;left:calc(61% - 9px);top:-7px">{mark(P, "迟", 18)}</span></div>'
-            f'<div style="display:flex;justify-content:center">{M("118 / 286", 13, P["muted"])}</div></div>')
-    trailing = btn_icon(P, '目录', 'toc') + btn_icon(P, '书签', 'bookmark') + btn_icon(P, '更多', 'more')
-    body = bar3(P, 'New-Reading-Shelf.dc.html', '阅读', 'book', 'B', '海边的旅店', trailing) + pg + foot
-    wr('New-Reading.dc.html', page(P, '阅读 · 海边的旅店', body))
+    # 收起时底部只留一行小页码
+    foot = (f'<div style="flex:none;display:flex;justify-content:center;align-items:center;height:28px;padding-bottom:14px;'
+            f'background:{P["paper"]}">{M("118 / 286", 11, P["faint"])}</div>')
+    body = pg + foot
+    wr('New-Reading.dc.html', page(P, '阅读 · 海边的旅店', body, root_bg=P['paper']))
 
 
 def docthumb(P):
