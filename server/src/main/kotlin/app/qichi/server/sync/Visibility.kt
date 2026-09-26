@@ -1,5 +1,6 @@
 package app.qichi.server.sync
 
+import app.qichi.server.db.Highlights
 import app.qichi.server.db.Messages
 import app.qichi.server.db.QnaRounds
 import app.qichi.shared.api.Answer
@@ -9,10 +10,12 @@ import app.qichi.shared.api.SyncEntity
 import app.qichi.shared.model.EntityType
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.and
+import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.jdbc.select
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -21,6 +24,9 @@ import java.util.UUID
  * - 读书标记：自己的随时可见；对方的要他打开「共享」。对方改回私有时，同步里按删除下发
  * - 已读位置：只给本人，实时提示也只发本人（不做已读回执）
  * - 撤回的消息：正文在撤回时已清空，照常同步（显示「已撤回」）；但导出、搜索、时间线、AI 的资料里都不出现
+ *
+ * AI 在聊天里的回答两个人都看得到，所以它查资料时只能拿「两个人都看得到的」：回答要已揭晓（连提问的人自己的也一样），
+ * 读书标记要已共享（见 [answersPublic]、[publicHighlight]）。
  */
 object Visibility {
 
@@ -40,6 +46,12 @@ object Visibility {
 
     /** 可以当作「说过的话」拿出来的消息：没进回收站、没撤回（导出、搜索、时间线、AI 的资料） */
     fun quotableMessage(): Op<Boolean> = Messages.deletedAt.isNull() and Messages.retractedAt.isNull()
+
+    /** 这一轮的回答两个人都看得到吗：要已揭晓 */
+    fun answersPublic(roundRevealedAt: Instant?): Boolean = roundRevealedAt != null
+
+    /** 两个人都看得到的读书标记：已共享的 */
+    fun publicHighlight(): Op<Boolean> = Highlights.shared eq true
 
     /** 这种变化的实时提示只发给谁；为空 = 房间里的人都发 */
     fun hintOnlyFor(type: EntityType, actorId: UUID?): UUID? = if (type == EntityType.ReadMarker) actorId else null

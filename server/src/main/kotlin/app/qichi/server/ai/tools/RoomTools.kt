@@ -34,6 +34,7 @@ import app.qichi.server.db.Summaries
 import app.qichi.server.db.Todos
 import app.qichi.server.messages.messageQuery
 import app.qichi.server.messages.toMessage
+import app.qichi.server.sync.Visibility
 import app.qichi.shared.api.AiPrefs
 import app.qichi.shared.api.Message
 import app.qichi.shared.model.EntityType
@@ -338,7 +339,7 @@ class RoomTools(
         if ("chat" in want) {
             val grams = terms.sortedByDescending { it.length }.take(8)
             val anyTerm = grams.map<String, Op<Boolean>> { g -> Messages.body like "%${g.replace("%", "").replace("_", "")}%" }.reduce { x, y -> x or y }
-            messageQuery().where { (Messages.roomId eq roomId) and live(Messages.deletedAt) and Messages.retractedAt.isNull() and (Messages.body neq "") and anyTerm }
+            messageQuery().where { (Messages.roomId eq roomId) and Visibility.quotableMessage() and (Messages.body neq "") and anyTerm }
                 .orderBy(Messages.createdSeq, SortOrder.DESC).limit(SEARCH_SCAN).map { it.toMessage() }
                 .forEach { m -> val t = messageText(m) ?: return@forEach; hit(t, m.createdAt) { out, sn -> out.item(EntityType.Message, m.id, cut(t, 80), m.createdAt, messageLine(m, sn)) } }
         }
@@ -448,7 +449,7 @@ class RoomTools(
         val limit = (a.int("limit") ?: 40).coerceIn(1, CHAT_MAX)
         val author = person(a)
         fun base() = messageQuery().where {
-            (Messages.roomId eq roomId) and Messages.deletedAt.isNull() and Messages.retractedAt.isNull() and
+            (Messages.roomId eq roomId) and Visibility.quotableMessage() and
                 (if (author != null) Messages.authorId eq author else Op.TRUE)
         }
         val around = ref(a, EntityType.Message, "around")
@@ -611,7 +612,7 @@ class RoomTools(
         }.orderBy(QnaRounds.roundDate, SortOrder.DESC).toList()
         if (rounds.isEmpty()) return emptyList()
         val questions = Questions.selectAll().where { (Questions.roomId eq roomId) and (Questions.id inList rounds.map { it[QnaRounds.questionId] }) }.associate { it[Questions.id] to it[Questions.text] }
-        val revealed = rounds.filter { it[QnaRounds.revealedAt] != null }.map { it[QnaRounds.id] }
+        val revealed = rounds.filter { Visibility.answersPublic(it[QnaRounds.revealedAt]) }.map { it[QnaRounds.id] }
         val answers = if (revealed.isEmpty()) {
             emptyMap()
         } else {
@@ -620,8 +621,9 @@ class RoomTools(
         }
         return rounds.map { r ->
             val q = questions[r[QnaRounds.questionId]] ?: "（题目已删除）"
-            val a = if (r[QnaRounds.revealedAt] != null) answers[r[QnaRounds.id]].orEmpty() else emptyList()
-            val tail = if (r[QnaRounds.revealedAt] != null) (if (a.isEmpty()) "（没有回答）" else "；" + a.joinToString("；")) else "（还没揭晓，回答看不到）"
+            val public = Visibility.answersPublic(r[QnaRounds.revealedAt])
+            val a = if (public) answers[r[QnaRounds.id]].orEmpty() else emptyList()
+            val tail = if (public) (if (a.isEmpty()) "（没有回答）" else "；" + a.joinToString("；")) else "（还没揭晓，回答看不到）"
             QnaRow(r[QnaRounds.id], startOf(r[QnaRounds.roundDate]), q, a, "问答（${day(r[QnaRounds.roundDate])}）· $q$tail")
         }
     }
@@ -708,7 +710,7 @@ class RoomTools(
     /** 公开的划线、摘录（书签和 AI 解释不算；没公开的是个人笔记，永远不给）。 */
     private fun sharedHighlights(bookId: UUID?): List<ResultRow> =
         Highlights.selectAll().where {
-            (Highlights.roomId eq roomId) and Highlights.deletedAt.isNull() and (Highlights.shared eq true) and
+            (Highlights.roomId eq roomId) and Highlights.deletedAt.isNull() and Visibility.publicHighlight() and
                 (Highlights.kind inList listOf("highlight", "excerpt")) and (if (bookId != null) Highlights.bookId eq bookId else Op.TRUE)
         }.orderBy(Highlights.createdAt).toList()
 
