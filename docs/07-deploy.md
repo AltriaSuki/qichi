@@ -76,7 +76,7 @@ curl https://qichi.你的域名.com/api/v1/health
 ## 5. 第一个账号
 
 1. 编译正式版 App：`cd android && ./gradlew :app:assembleRelease -Pqichi.baseUrl=https://qichi.你的域名.com`，
-   APK 在 `android/app/build/outputs/apk/release/`。正式版签名用 `android/local.properties` 里的 `qichi.release.storeFile / password / alias`
+   APK 在 `android/app/build/outputs/apk/release/`。版本号按 git 提交次数算，要在完整的仓库里打：浅克隆（`git clone --depth …`）时正式包直接失败，先 `git fetch --unshallow`。正式版签名用 `android/local.properties` 里的 `qichi.release.storeFile / password / alias`
    （钥匙文件放在仓库外，**务必另外备份**：丢了以后就不能覆盖安装新版本，只能卸载重装）
 2. 打开 App 注册：系统里还没有用户时，第一个人不需要邀请码
 3. 建房间 → 在「我的 → 成员与邀请」生成邀请码 → 发给对方
