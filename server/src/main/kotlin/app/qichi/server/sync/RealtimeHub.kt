@@ -50,7 +50,7 @@ class RealtimeHub : ChangeNotifier {
      * 提示了反而让对方的手机知道「我刚读了」，等于已读回执，还白白唤醒一次（P13-09）。
      */
     override suspend fun entityChanged(change: CommittedChange) {
-        val onlyFor = if (change.type == EntityType.ReadMarker) change.actorId else null
+        val onlyFor = Visibility.hintOnlyFor(change.type, change.actorId)
         flow.emit(RoomEvent(change.roomId, WsEvent.Changed(change.roomId, change.seq), onlyFor))
     }
 

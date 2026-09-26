@@ -13,6 +13,7 @@ import app.qichi.server.db.DocumentVersions
 import app.qichi.server.db.Documents
 import app.qichi.server.db.DocComments
 import app.qichi.server.documents.toDocComment
+import app.qichi.server.sync.Visibility
 import app.qichi.shared.rules.DocumentImages
 import app.qichi.server.db.Events
 import app.qichi.server.db.Files
@@ -62,7 +63,6 @@ import app.qichi.server.reading.bookQuery
 import app.qichi.server.reading.toBook
 import app.qichi.server.reading.toHighlight
 import app.qichi.server.reading.toReadingProgress
-import app.qichi.server.reading.visibleTo
 import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomService
 import app.qichi.server.summaries.toSummary
@@ -120,10 +120,8 @@ class ExportService(
             val names = members.associate { it.userId to it.displayName }
             val zone = runCatching { ZoneId.of(room.timezone) }.getOrDefault(ZoneId.of("Asia/Shanghai"))
 
-            val messages = messageQuery().where { (Messages.roomId eq roomId) and Messages.deletedAt.isNull() and Messages.retractedAt.isNull() }
+            val messages = messageQuery().where { (Messages.roomId eq roomId) and Visibility.quotableMessage() }
                 .orderBy(Messages.createdSeq, SortOrder.ASC).map { it.toMessage() }
-            val revealed = QnaRounds.select(QnaRounds.id, QnaRounds.revealedAt).where { QnaRounds.roomId eq roomId }
-                .associate { it[QnaRounds.id] to (it[QnaRounds.revealedAt] != null) }
             val documents = Documents.selectAll().where { (Documents.roomId eq roomId) and Documents.deletedAt.isNull() }.map { it.toDocument() }
             val latestBodies = documents.filter { it.latestVersion > 0 }.associate { d ->
                 d.id to DocumentVersions.select(DocumentVersions.body)
@@ -149,8 +147,8 @@ class ExportService(
                 put("questions", QichiJson.encodeToJsonElement(Questions.selectAll().where { (Questions.roomId eq roomId) and Questions.deletedAt.isNull() }.map { it.toQuestion() }))
                 put("qnaRounds", QichiJson.encodeToJsonElement(QnaRounds.selectAll().where { QnaRounds.roomId eq roomId }.map { it.toQnaRound() }))
                 // 还没揭晓的回答只导出自己的
-                put("answers", QichiJson.encodeToJsonElement(Answers.selectAll().where { (Answers.roomId eq roomId) and Answers.deletedAt.isNull() }.map { it.toAnswer() }
-                    .filter { it.authorId == userId || revealed[it.roundId] == true }))
+                put("answers", QichiJson.encodeToJsonElement(Visibility.answers(
+                    Answers.selectAll().where { (Answers.roomId eq roomId) and Answers.deletedAt.isNull() }.map { it.toAnswer() }, userId)))
                 put("plans", QichiJson.encodeToJsonElement(Plans.selectAll().where { (Plans.roomId eq roomId) and Plans.deletedAt.isNull() }.map { it.toPlan() }))
                 put("planStages", QichiJson.encodeToJsonElement(PlanStages.selectAll().where { (PlanStages.roomId eq roomId) and PlanStages.deletedAt.isNull() }.map { it.toPlanStage() }))
                 put("milestones", QichiJson.encodeToJsonElement(Milestones.selectAll().where { (Milestones.roomId eq roomId) and Milestones.deletedAt.isNull() }.map { it.toMilestone() }))
@@ -163,8 +161,8 @@ class ExportService(
                 put("decisions", QichiJson.encodeToJsonElement(Decisions.selectAll().where { (Decisions.roomId eq roomId) and Decisions.deletedAt.isNull() }.map { it.toDecision() }))
                 put("books", QichiJson.encodeToJsonElement(bookQuery().where { (Books.roomId eq roomId) and Books.deletedAt.isNull() }.map { it.toBook() }))
                 put("readingProgress", QichiJson.encodeToJsonElement(ReadingProgressTable.selectAll().where { ReadingProgressTable.roomId eq roomId }.map { it.toReadingProgress() }))
-                put("highlights", QichiJson.encodeToJsonElement(Highlights.selectAll().where { (Highlights.roomId eq roomId) and Highlights.deletedAt.isNull() }
-                    .map { it.toHighlight() }.filter { it.visibleTo(userId) }))
+                put("highlights", QichiJson.encodeToJsonElement(Visibility.highlights(
+                    Highlights.selectAll().where { (Highlights.roomId eq roomId) and Highlights.deletedAt.isNull() }.map { it.toHighlight() }, userId)))
                 put("summaries", QichiJson.encodeToJsonElement(Summaries.selectAll().where { (Summaries.roomId eq roomId) and Summaries.deletedAt.isNull() }.map { it.toSummary() }))
                 put("reviewDocuments", QichiJson.encodeToJsonElement(reviewDocs))
                 put("reviewVersions", QichiJson.encodeToJsonElement(reviewVersions))

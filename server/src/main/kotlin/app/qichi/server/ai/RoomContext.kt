@@ -9,6 +9,7 @@ import app.qichi.server.db.Moods
 import app.qichi.server.db.Plans
 import app.qichi.server.db.Todos
 import app.qichi.server.summaries.SourceLine
+import app.qichi.server.sync.Visibility
 import app.qichi.shared.api.AiPrefs
 import app.qichi.shared.api.SummarySource
 import app.qichi.shared.model.EntityType
@@ -234,7 +235,7 @@ object RoomContext {
             val grams = terms.sortedByDescending { it.length }.take(8)
             val anyTerm = grams.map<String, Op<Boolean>> { g -> Messages.body like "%${g.replace("%", "").replace("_", "")}%" }.reduce { a, b -> a or b }
             Messages.selectAll().where {
-                (Messages.roomId eq roomId) and Messages.deletedAt.isNull() and Messages.retractedAt.isNull() and Messages.authorId.isNotNull() and
+                (Messages.roomId eq roomId) and Visibility.quotableMessage() and Messages.authorId.isNotNull() and
                     (Messages.kind eq MessageKind.Text.wireName) and (Messages.body neq "") and
                     (if (excludeMessageIds.isEmpty()) Op.TRUE else (Messages.id notInList excludeMessageIds)) and anyTerm
             }.orderBy(Messages.createdSeq, SortOrder.DESC).limit(200)

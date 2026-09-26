@@ -21,6 +21,7 @@ import app.qichi.server.files.toFileMeta
 import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
 import app.qichi.server.rooms.RoomService
+import app.qichi.server.sync.Visibility
 import app.qichi.shared.api.DayPhoto
 import app.qichi.shared.api.OnThisDay
 import app.qichi.shared.api.TimelineAnswer
@@ -160,7 +161,7 @@ class TimelineService(
             .filterValues { it.toSet().size >= 2 }.keys
         if (bothPicked.isNotEmpty()) {
             // 照片下面的说明（P10-04）取发这张照片的那条消息
-            val captions = Messages.select(Messages.fileId, Messages.body).where { (Messages.fileId inList bothPicked) and Messages.retractedAt.isNull() }
+            val captions = Messages.select(Messages.fileId, Messages.body).where { (Messages.fileId inList bothPicked) and Visibility.quotableMessage() }
                 .associate { it[Messages.fileId]!! to it[Messages.body] }
             Files.selectAll().where { Files.id inList bothPicked }.forEach {
                 val meta = it.toFileMeta()
@@ -176,7 +177,7 @@ class TimelineService(
         val from = date.atStartOfDay(zone).toInstant()
         val until = date.plusDays(1).atStartOfDay(zone).toInstant()
         val photos = Messages.join(Files, JoinType.INNER, Messages.fileId, Files.id).selectAll().where {
-            (Messages.roomId eq roomId) and Messages.deletedAt.isNull() and Messages.retractedAt.isNull() and
+            (Messages.roomId eq roomId) and Visibility.quotableMessage() and
                 (Messages.kind eq MessageKind.Image.wireName) and (Messages.createdAt greaterEq from) and (Messages.createdAt less until)
         }.orderBy(Messages.createdAt).limit(12).map { DayPhoto(it[Messages.id], it.toFileMeta(), it[Messages.authorId], it[Messages.createdAt]) }
         OnThisDay(date, photos)

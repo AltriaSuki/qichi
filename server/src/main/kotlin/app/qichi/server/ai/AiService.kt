@@ -31,7 +31,6 @@ import app.qichi.server.plugins.ApiException
 import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
 import app.qichi.server.reading.toHighlight
-import app.qichi.server.reading.visibleTo
 import app.qichi.server.review.FindingParser
 import app.qichi.server.review.toAiFinding
 import app.qichi.server.rooms.RoomRepository
@@ -39,6 +38,7 @@ import app.qichi.server.rooms.RoomService
 import app.qichi.server.summaries.SourceLine
 import app.qichi.server.summaries.SummaryData
 import app.qichi.server.sync.RealtimeHub
+import app.qichi.server.sync.Visibility
 import app.qichi.shared.api.AiChatRequest
 import app.qichi.shared.api.AiFinding
 import app.qichi.shared.api.AiJob
@@ -177,7 +177,7 @@ class AiService(
             if (gateway == null) throw unavailable()
             req.sourceMessageId?.let { sourceId ->
                 val ok = Messages.select(Messages.id).where {
-                    (Messages.id eq sourceId) and (Messages.roomId eq roomId) and Messages.deletedAt.isNull() and Messages.retractedAt.isNull()
+                    (Messages.id eq sourceId) and (Messages.roomId eq roomId) and Visibility.quotableMessage()
                 }.any()
                 validate { check(ok, "sourceMessageId", "要整理的消息不存在") }
             }
@@ -336,7 +336,7 @@ class AiService(
             // 对比时只用提问的人看得到的：自己的全部，加上对方共享的
             val list = Highlights.selectAll().where { (Highlights.bookId eq bookId) and Highlights.deletedAt.isNull() }
                 .map { it.toHighlight() }
-                .filter { it.visibleTo(askerId) && (it.kind == HighlightKind.Highlight || it.kind == HighlightKind.Excerpt) }
+                .filter { Visibility.highlight(it, askerId) && (it.kind == HighlightKind.Highlight || it.kind == HighlightKind.Excerpt) }
                 .sortedBy { it.createdAt }.takeLast(COMPARE_NOTES)
                 .joinToString("\n") { h -> "${names[h.userId] ?: "其中一人"}：${h.text.take(CONTEXT_LINE_MAX)}" + (h.note?.let { " —— ${it.take(CONTEXT_LINE_MAX)}" } ?: "") }
             b to list
@@ -1016,7 +1016,7 @@ class AiService(
             val names = RoomRepository.activeMembers(roomId).associate { it.userId to it.displayName }
             val zone = roomZone(roomId)
             val focus = sourceId?.let { id ->
-                messageQuery().where { (Messages.id eq id) and Messages.retractedAt.isNull() }.singleOrNull()?.toMessage()
+                messageQuery().where { (Messages.id eq id) and Visibility.quotableMessage() }.singleOrNull()?.toMessage()
             }
             val query = listOfNotNull(prompt, focus?.body).joinToString(" ")
             val prefs = roomPrefs(roomId)
@@ -1186,7 +1186,7 @@ class AiService(
     /** 最近 [CONTEXT_MESSAGES] 条没撤回、没删除的消息，从早到晚。 */
     private fun chatContext(roomId: UUID): List<ContextLine> =
         messageQuery()
-            .where { (Messages.roomId eq roomId) and Messages.deletedAt.isNull() and Messages.retractedAt.isNull() }
+            .where { (Messages.roomId eq roomId) and Visibility.quotableMessage() }
             .orderBy(Messages.createdSeq, SortOrder.DESC)
             .limit(CONTEXT_MESSAGES)
             .map { it.toMessage() }

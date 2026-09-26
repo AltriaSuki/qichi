@@ -15,6 +15,7 @@ import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
 import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomService
+import app.qichi.server.sync.Visibility
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.MessagePage
 import app.qichi.shared.api.MessageSearchPage
@@ -253,7 +254,7 @@ class MessageService(
             val rows = messageQuery()
                 .where {
                     // 与部分索引的条件一致（未删除、未撤回），才能用上索引
-                    var cond = (Messages.roomId eq roomId) and Messages.deletedAt.isNull() and Messages.retractedAt.isNull() and
+                    var cond = (Messages.roomId eq roomId) and Visibility.quotableMessage() and
                         (Messages.body neq "") and (Messages.body ilike pattern)
                     if (before != null) cond = cond and (Messages.createdSeq less before)
                     cond

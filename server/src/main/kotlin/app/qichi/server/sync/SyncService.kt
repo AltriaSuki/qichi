@@ -63,7 +63,6 @@ import app.qichi.server.summaries.toSummary
 import app.qichi.server.reading.toBook
 import app.qichi.server.reading.toHighlight
 import app.qichi.server.reading.toReadingProgress
-import app.qichi.server.reading.visibleTo
 import app.qichi.server.plans.toMilestone
 import app.qichi.server.plans.toPlan
 import app.qichi.server.plans.toPlanLog
@@ -95,7 +94,7 @@ import java.util.UUID
 
 /**
  * 首次快照与增量同步（docs/05-sync-offline.md §2.2）。
- * 对方的 read_marker 永远不下发（不做已读回执）。
+ * 谁能看见什么（对方没揭晓的回答、没共享的标记、对方的已读位置）统一由 [Visibility] 判断。
  */
 class SyncService(private val db: QichiDatabase) {
 
@@ -112,9 +111,8 @@ class SyncService(private val db: QichiDatabase) {
                 room = RoomRepository.room(roomId)!!,
                 members = RoomRepository.allMembers(roomId),
                 lastSeq = RoomRepository.lastSeq(roomId),
-                readMarker = ReadMarkers.selectAll()
-                    .where { (ReadMarkers.roomId eq roomId) and (ReadMarkers.userId eq userId) }
-                    .singleOrNull()?.toReadMarker(),
+                readMarker = ReadMarkers.selectAll().where { ReadMarkers.roomId eq roomId }.map { it.toReadMarker() }
+                    .singleOrNull { Visibility.readMarker(it, userId) },
                 moods = Moods.selectAll().where { Moods.roomId eq roomId }.orderBy(Moods.seq).map { it.toMood() },
                 moodReplies = MoodResponses.selectAll().where { MoodResponses.roomId eq roomId }
                     .orderBy(MoodResponses.seq).map { it.toMoodReply() },
@@ -124,8 +122,7 @@ class SyncService(private val db: QichiDatabase) {
                 hasMoreMessages = messages.size > Limits.BOOTSTRAP_MESSAGES,
                 questions = Questions.selectAll().where { Questions.roomId eq roomId }.map { it.toQuestion() },
                 qnaRounds = QnaRounds.selectAll().where { QnaRounds.roomId eq roomId }.map { it.toQnaRound() },
-                answers = Answers.selectAll().where { Answers.roomId eq roomId }.map { it.toAnswer() }
-                    .filter { answer -> answer.authorId == userId || QnaRounds.selectAll().where { QnaRounds.id eq answer.roundId }.single()[QnaRounds.revealedAt] != null },
+                answers = Visibility.answers(Answers.selectAll().where { Answers.roomId eq roomId }.map { it.toAnswer() }, userId),
                 plans = Plans.selectAll().where { Plans.roomId eq roomId }.map { it.toPlan() },
                 planStages = PlanStages.selectAll().where { PlanStages.roomId eq roomId }.map { it.toPlanStage() },
                 milestones = Milestones.selectAll().where { Milestones.roomId eq roomId }.map { it.toMilestone() },
@@ -139,7 +136,7 @@ class SyncService(private val db: QichiDatabase) {
                 decisions = Decisions.selectAll().where { Decisions.roomId eq roomId }.map { it.toDecision() },
                 books = bookQuery().where { Books.roomId eq roomId }.map { it.toBook() },
                 readingProgress = ReadingProgressTable.selectAll().where { ReadingProgressTable.roomId eq roomId }.map { it.toReadingProgress() },
-                highlights = Highlights.selectAll().where { Highlights.roomId eq roomId }.map { it.toHighlight() }.filter { it.visibleTo(userId) },
+                highlights = Visibility.highlights(Highlights.selectAll().where { Highlights.roomId eq roomId }.map { it.toHighlight() }, userId),
                 summaries = Summaries.selectAll().where { Summaries.roomId eq roomId }.map { it.toSummary() },
                 reviewDocuments = ReviewDocuments.selectAll().where { ReviewDocuments.roomId eq roomId }.map { it.toReviewDocument() },
                 reviewVersions = reviewVersionQuery().where { ReviewVersions.roomId eq roomId }.map { it.toReviewVersion() },
@@ -173,18 +170,18 @@ class SyncService(private val db: QichiDatabase) {
             // 同一实体只保留本页里最后一次变化
             val latest = page.groupBy { it.type to it.id }.values.map { changes -> changes.maxBy { it.seq } }
             val entities = loadEntities(latest.filter { it.op == ChangeOp.Upsert })
+            val delivery = Visibility.deliveryFor(entities.values, userId)
 
             val changes = latest.sortedBy { it.seq }.mapNotNull { row ->
                 val entity = entities[row.type to row.id]
+                val deleted = Change(row.seq, row.type, row.id, ChangeOp.Delete, null)
                 when {
-                    // 对方的未读位置不下发
-                    row.type == EntityType.ReadMarker && entity is app.qichi.shared.api.ReadMarker && entity.userId != userId -> null
-                    row.type == EntityType.Answer && entity is app.qichi.shared.api.Answer && entity.authorId != userId &&
-                        QnaRounds.selectAll().where { QnaRounds.id eq entity.roundId }.singleOrNull()?.get(QnaRounds.revealedAt) == null -> null
-                    // 对方没共享的标记：对我来说等于不存在（从共享改回私有时，我这边删掉）
-                    row.op == ChangeOp.Delete || entity == null ||
-                        (entity is app.qichi.shared.api.Highlight && !entity.visibleTo(userId)) -> Change(row.seq, row.type, row.id, ChangeOp.Delete, null)
-                    else -> Change(row.seq, row.type, row.id, ChangeOp.Upsert, EntityCodec.encode(row.type, entity))
+                    row.op == ChangeOp.Delete || entity == null -> deleted
+                    else -> when (delivery(entity)) {
+                        Visibility.Delivery.Show -> Change(row.seq, row.type, row.id, ChangeOp.Upsert, EntityCodec.encode(row.type, entity))
+                        Visibility.Delivery.AsDeleted -> deleted
+                        Visibility.Delivery.Skip -> null
+                    }
                 }
             }
             SyncResponse(fromSeq = since, toSeq = toSeq, hasMore = rows.size > limit, changes = changes)
