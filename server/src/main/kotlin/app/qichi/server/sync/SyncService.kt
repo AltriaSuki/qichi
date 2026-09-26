@@ -1,105 +1,55 @@
 package app.qichi.server.sync
 
 import app.qichi.server.db.ChangeLog
-import app.qichi.server.db.Events
-import app.qichi.server.db.MoodResponses
-import app.qichi.server.db.Moods
-import app.qichi.server.db.QichiDatabase
-import app.qichi.server.db.Answers
-import app.qichi.server.db.Questions
-import app.qichi.server.db.QnaRounds
-import app.qichi.server.db.ReadMarkers
 import app.qichi.server.db.Messages
-import app.qichi.server.db.Milestones
-import app.qichi.server.db.PlanLogs
-import app.qichi.server.db.PlanStages
-import app.qichi.server.db.Ideas
-import app.qichi.server.db.Documents
-import app.qichi.server.db.BoardPosts
-import app.qichi.server.db.BoardReactions
-import app.qichi.server.db.BoardTopics
-import app.qichi.server.db.ArchiveItems
-import app.qichi.server.db.Decisions
-import app.qichi.server.db.Books
-import app.qichi.server.db.Summaries
-import app.qichi.server.db.AnnotationReplies
-import app.qichi.server.db.AiFindings
-import app.qichi.server.db.AiActions
-import app.qichi.server.db.DocComments
-import app.qichi.server.documents.toDocComment
-import app.qichi.server.ai.toAiAction
-import app.qichi.server.review.toAiFinding
-import app.qichi.server.db.Annotations
-import app.qichi.server.db.ReviewDocuments
-import app.qichi.server.db.ReviewVersions
-import app.qichi.server.review.reviewVersionQuery
-import app.qichi.server.review.toAnnotation
-import app.qichi.server.review.toAnnotationReply
-import app.qichi.server.review.toReviewDocument
-import app.qichi.server.review.toReviewVersion
-import app.qichi.server.db.Highlights
-import app.qichi.server.db.ReadingProgressTable
-import app.qichi.server.db.Plans
-import app.qichi.server.db.RoomMembers
-import app.qichi.server.db.Todos
+import app.qichi.server.db.QichiDatabase
+import app.qichi.server.db.ReadMarkers
 import app.qichi.server.db.tx
-import app.qichi.server.events.toEvent
 import app.qichi.server.messages.messageQuery
 import app.qichi.server.messages.toMessage
 import app.qichi.server.messages.toReadMarker
-import app.qichi.server.moods.toMood
-import app.qichi.server.moods.toMoodReply
 import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
-import app.qichi.server.ideas.toIdea
-import app.qichi.server.documents.toDocument
-import app.qichi.server.board.toBoardPost
-import app.qichi.server.board.toBoardReaction
-import app.qichi.server.board.toBoardTopic
-import app.qichi.server.archive.toArchiveItem
-import app.qichi.server.decisions.toDecision
-import app.qichi.server.reading.bookQuery
-import app.qichi.server.summaries.toSummary
-import app.qichi.server.reading.toBook
-import app.qichi.server.reading.toHighlight
-import app.qichi.server.reading.toReadingProgress
-import app.qichi.server.plans.toMilestone
-import app.qichi.server.plans.toPlan
-import app.qichi.server.plans.toPlanLog
-import app.qichi.server.plans.toPlanStage
-import app.qichi.server.qna.toAnswer
-import app.qichi.server.qna.toQuestion
-import app.qichi.server.qna.toQnaRound
 import app.qichi.server.rooms.RoomRepository
-import app.qichi.server.rooms.RoomRepository.toMember
-import app.qichi.server.todos.toTodo
-import app.qichi.shared.api.Bootstrap
 import app.qichi.shared.api.Change
 import app.qichi.shared.api.EntityCodec
+import app.qichi.shared.api.Member
+import app.qichi.shared.api.Message
+import app.qichi.shared.api.QichiJson
+import app.qichi.shared.api.ReadMarker
+import app.qichi.shared.api.Room
 import app.qichi.shared.api.SyncEntity
 import app.qichi.shared.api.SyncResponse
 import app.qichi.shared.model.ChangeOp
 import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.fromWire
 import app.qichi.shared.rules.Limits
-import org.jetbrains.exposed.v1.core.JoinType
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.nullable
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
-import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import java.sql.Connection
 import java.util.UUID
 
 /**
  * 首次快照与增量同步（docs/05-sync-offline.md §2.2）。
- * 谁能看见什么（对方没揭晓的回答、没共享的标记、对方的已读位置）统一由 [Visibility] 判断。
+ * 每种实体怎么读由 [EntityRegistry] 登记（P13-13），谁能看见什么（对方没揭晓的回答、没共享的标记、对方的已读位置）
+ * 统一由 [Visibility] 判断，这里不再逐种实体各写一遍。
  */
 class SyncService(private val db: QichiDatabase) {
 
-    /** 同一个一致性快照里返回房间的当前状态；之后用 sync?since=lastSeq 增量拉取。 */
-    suspend fun bootstrap(userId: UUID, roomId: UUID): Bootstrap =
+    /**
+     * 同一个一致性快照里返回房间的当前状态（形状见 shared 的 Bootstrap）；之后用 sync?since=lastSeq 增量拉取。
+     * 房间、成员、最近的消息、自己的已读位置单独给，其余每种实体按登记表一个字段一个列表。
+     */
+    suspend fun bootstrap(userId: UUID, roomId: UUID): JsonObject =
         db.tx(isolation = Connection.TRANSACTION_REPEATABLE_READ, readOnly = true) {
             if (!RoomRepository.isMember(roomId, userId)) notFound()
             val messages = messageQuery()
@@ -107,45 +57,23 @@ class SyncService(private val db: QichiDatabase) {
                 .orderBy(Messages.createdSeq, SortOrder.DESC)
                 .limit(Limits.BOOTSTRAP_MESSAGES + 1)
                 .map { it.toMessage() }
-            Bootstrap(
-                room = RoomRepository.room(roomId)!!,
-                members = RoomRepository.allMembers(roomId),
-                lastSeq = RoomRepository.lastSeq(roomId),
-                readMarker = ReadMarkers.selectAll().where { ReadMarkers.roomId eq roomId }.map { it.toReadMarker() }
-                    .singleOrNull { Visibility.readMarker(it, userId) },
-                moods = Moods.selectAll().where { Moods.roomId eq roomId }.orderBy(Moods.seq).map { it.toMood() },
-                moodReplies = MoodResponses.selectAll().where { MoodResponses.roomId eq roomId }
-                    .orderBy(MoodResponses.seq).map { it.toMoodReply() },
-                todos = Todos.selectAll().where { Todos.roomId eq roomId }.orderBy(Todos.seq).map { it.toTodo() },
-                events = Events.selectAll().where { Events.roomId eq roomId }.orderBy(Events.seq).map { it.toEvent() },
-                messages = messages.take(Limits.BOOTSTRAP_MESSAGES),
-                hasMoreMessages = messages.size > Limits.BOOTSTRAP_MESSAGES,
-                questions = Questions.selectAll().where { Questions.roomId eq roomId }.map { it.toQuestion() },
-                qnaRounds = QnaRounds.selectAll().where { QnaRounds.roomId eq roomId }.map { it.toQnaRound() },
-                answers = Visibility.answers(Answers.selectAll().where { Answers.roomId eq roomId }.map { it.toAnswer() }, userId),
-                plans = Plans.selectAll().where { Plans.roomId eq roomId }.map { it.toPlan() },
-                planStages = PlanStages.selectAll().where { PlanStages.roomId eq roomId }.map { it.toPlanStage() },
-                milestones = Milestones.selectAll().where { Milestones.roomId eq roomId }.map { it.toMilestone() },
-                planLogs = PlanLogs.selectAll().where { PlanLogs.roomId eq roomId }.map { it.toPlanLog() },
-                ideas = Ideas.selectAll().where { Ideas.roomId eq roomId }.map { it.toIdea() },
-                documents = Documents.selectAll().where { Documents.roomId eq roomId }.map { it.toDocument() },
-                boardTopics = BoardTopics.selectAll().where { BoardTopics.roomId eq roomId }.map { it.toBoardTopic() },
-                boardPosts = BoardPosts.selectAll().where { BoardPosts.roomId eq roomId }.map { it.toBoardPost() },
-                boardReactions = BoardReactions.selectAll().where { BoardReactions.roomId eq roomId }.map { it.toBoardReaction() },
-                archiveItems = ArchiveItems.selectAll().where { ArchiveItems.roomId eq roomId }.map { it.toArchiveItem() },
-                decisions = Decisions.selectAll().where { Decisions.roomId eq roomId }.map { it.toDecision() },
-                books = bookQuery().where { Books.roomId eq roomId }.map { it.toBook() },
-                readingProgress = ReadingProgressTable.selectAll().where { ReadingProgressTable.roomId eq roomId }.map { it.toReadingProgress() },
-                highlights = Visibility.highlights(Highlights.selectAll().where { Highlights.roomId eq roomId }.map { it.toHighlight() }, userId),
-                summaries = Summaries.selectAll().where { Summaries.roomId eq roomId }.map { it.toSummary() },
-                reviewDocuments = ReviewDocuments.selectAll().where { ReviewDocuments.roomId eq roomId }.map { it.toReviewDocument() },
-                reviewVersions = reviewVersionQuery().where { ReviewVersions.roomId eq roomId }.map { it.toReviewVersion() },
-                annotations = Annotations.selectAll().where { Annotations.roomId eq roomId }.map { it.toAnnotation() },
-                annotationReplies = AnnotationReplies.selectAll().where { AnnotationReplies.roomId eq roomId }.map { it.toAnnotationReply() },
-                aiFindings = AiFindings.selectAll().where { AiFindings.roomId eq roomId }.map { it.toAiFinding() },
-                aiActions = AiActions.selectAll().where { AiActions.roomId eq roomId }.map { it.toAiAction() },
-                docComments = DocComments.selectAll().where { DocComments.roomId eq roomId }.map { it.toDocComment() },
-            )
+            val readMarker = ReadMarkers.selectAll().where { ReadMarkers.roomId eq roomId }.map { it.toReadMarker() }
+                .singleOrNull { Visibility.readMarker(it, userId) }
+            buildJsonObject {
+                put("room", QichiJson.encodeToJsonElement(Room.serializer(), RoomRepository.room(roomId)!!))
+                put("members", QichiJson.encodeToJsonElement(ListSerializer(Member.serializer()), RoomRepository.allMembers(roomId)))
+                put("lastSeq", RoomRepository.lastSeq(roomId))
+                put("readMarker", QichiJson.encodeToJsonElement(ReadMarker.serializer().nullable, readMarker))
+                put("messages", QichiJson.encodeToJsonElement(ListSerializer(Message.serializer()), messages.take(Limits.BOOTSTRAP_MESSAGES)))
+                put("hasMoreMessages", messages.size > Limits.BOOTSTRAP_MESSAGES)
+                for (entry in EntityRegistry.snapshots) {
+                    val all = entry.inRoom(roomId)
+                    val delivery = Visibility.deliveryFor(all, userId)
+                    // 快照里只有「原样下发」的：对方没揭晓的回答、没共享的标记都不出现
+                    val visible = all.filter { delivery(it) == Visibility.Delivery.Show }
+                    put(entry.snapshotField!!, JsonArray(visible.map { EntityCodec.encode(entry.type, it) }))
+                }
+            }
         }
 
     /**
@@ -194,44 +122,7 @@ class SyncService(private val db: QichiDatabase) {
     private fun loadEntities(rows: List<ChangeRow>): Map<Pair<EntityType, UUID>, SyncEntity> {
         val result = HashMap<Pair<EntityType, UUID>, SyncEntity>()
         for ((type, group) in rows.groupBy { it.type }) {
-            val ids = group.map { it.id }
-            val loaded: List<SyncEntity> = when (type) {
-                EntityType.Room -> ids.mapNotNull { RoomRepository.room(it) }
-                EntityType.Member -> RoomMembers.join(app.qichi.server.db.Users, JoinType.INNER, RoomMembers.userId, app.qichi.server.db.Users.id)
-                    .selectAll().where { RoomMembers.id inList ids }.map { it.toMember() }
-                EntityType.Message -> messageQuery().where { Messages.id inList ids }.map { it.toMessage() }
-                EntityType.ReadMarker -> ReadMarkers.selectAll().where { ReadMarkers.id inList ids }.map { it.toReadMarker() }
-                EntityType.Mood -> Moods.selectAll().where { Moods.id inList ids }.map { it.toMood() }
-                EntityType.MoodResponse -> MoodResponses.selectAll().where { MoodResponses.id inList ids }.map { it.toMoodReply() }
-                EntityType.Todo -> Todos.selectAll().where { Todos.id inList ids }.map { it.toTodo() }
-                EntityType.Event -> Events.selectAll().where { Events.id inList ids }.map { it.toEvent() }
-                EntityType.Question -> Questions.selectAll().where { Questions.id inList ids }.map { it.toQuestion() }
-                EntityType.QnaRound -> QnaRounds.selectAll().where { QnaRounds.id inList ids }.map { it.toQnaRound() }
-                EntityType.Answer -> Answers.selectAll().where { Answers.id inList ids }.map { it.toAnswer() }
-                EntityType.Plan -> Plans.selectAll().where { Plans.id inList ids }.map { it.toPlan() }
-                EntityType.Idea -> Ideas.selectAll().where { Ideas.id inList ids }.map { it.toIdea() }
-                EntityType.Document -> Documents.selectAll().where { Documents.id inList ids }.map { it.toDocument() }
-                EntityType.BoardTopic -> BoardTopics.selectAll().where { BoardTopics.id inList ids }.map { it.toBoardTopic() }
-                EntityType.BoardPost -> BoardPosts.selectAll().where { BoardPosts.id inList ids }.map { it.toBoardPost() }
-                EntityType.BoardReaction -> BoardReactions.selectAll().where { BoardReactions.id inList ids }.map { it.toBoardReaction() }
-                EntityType.ArchiveItem -> ArchiveItems.selectAll().where { ArchiveItems.id inList ids }.map { it.toArchiveItem() }
-                EntityType.Decision -> Decisions.selectAll().where { Decisions.id inList ids }.map { it.toDecision() }
-                EntityType.Book -> bookQuery().where { Books.id inList ids }.map { it.toBook() }
-                EntityType.ReadingProgress -> ReadingProgressTable.selectAll().where { ReadingProgressTable.id inList ids }.map { it.toReadingProgress() }
-                EntityType.Highlight -> Highlights.selectAll().where { Highlights.id inList ids }.map { it.toHighlight() }
-                EntityType.Summary -> Summaries.selectAll().where { Summaries.id inList ids }.map { it.toSummary() }
-                EntityType.PlanStage -> PlanStages.selectAll().where { PlanStages.id inList ids }.map { it.toPlanStage() }
-                EntityType.Milestone -> Milestones.selectAll().where { Milestones.id inList ids }.map { it.toMilestone() }
-                EntityType.PlanLog -> PlanLogs.selectAll().where { PlanLogs.id inList ids }.map { it.toPlanLog() }
-                EntityType.ReviewDocument -> ReviewDocuments.selectAll().where { ReviewDocuments.id inList ids }.map { it.toReviewDocument() }
-                EntityType.ReviewVersion -> reviewVersionQuery().where { ReviewVersions.id inList ids }.map { it.toReviewVersion() }
-                EntityType.Annotation -> Annotations.selectAll().where { Annotations.id inList ids }.map { it.toAnnotation() }
-                EntityType.AnnotationReply -> AnnotationReplies.selectAll().where { AnnotationReplies.id inList ids }.map { it.toAnnotationReply() }
-                EntityType.AiFinding -> AiFindings.selectAll().where { AiFindings.id inList ids }.map { it.toAiFinding() }
-                EntityType.AiAction -> AiActions.selectAll().where { AiActions.id inList ids }.map { it.toAiAction() }
-                EntityType.DocComment -> DocComments.selectAll().where { DocComments.id inList ids }.map { it.toDocComment() }
-            }
-            loaded.forEach { result[type to it.id] = it }
+            EntityRegistry.load(type, group.map { it.id }).forEach { result[type to it.id] = it }
         }
         return result
     }

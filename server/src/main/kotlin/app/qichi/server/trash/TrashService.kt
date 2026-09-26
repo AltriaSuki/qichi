@@ -60,6 +60,7 @@ import app.qichi.server.plans.toPlanStage
 import app.qichi.server.plans.toMilestone
 import app.qichi.server.qna.toQuestion
 import app.qichi.server.rooms.RoomService
+import app.qichi.server.sync.EntityRegistry
 import app.qichi.server.todos.TodoService
 import app.qichi.server.todos.toTodo
 import app.qichi.shared.api.Change
@@ -435,27 +436,8 @@ class TrashService(
     private fun hardDelete(tx: Tx, roomId: UUID, userId: UUID, type: EntityType, id: UUID, table: SyncedTable, at: Instant) =
         writes.hardDelete(tx, roomId, userId, type, id, table, at)
 
-    private fun load(type: TrashType, id: UUID): SyncEntity? = when (type) {
-        TrashType.Message -> messageQuery().where { Messages.id eq id }.singleOrNull()?.toMessage()
-        TrashType.Mood -> Moods.selectAll().where { Moods.id eq id }.singleOrNull()?.toMood()
-        TrashType.Todo -> Todos.selectAll().where { Todos.id eq id }.singleOrNull()?.toTodo()
-        TrashType.Event -> Events.selectAll().where { Events.id eq id }.singleOrNull()?.toEvent()
-        TrashType.Question -> Questions.selectAll().where { Questions.id eq id }.singleOrNull()?.toQuestion()
-        TrashType.Plan -> Plans.selectAll().where { Plans.id eq id }.singleOrNull()?.toPlan()
-        TrashType.Idea -> Ideas.selectAll().where { Ideas.id eq id }.singleOrNull()?.toIdea()
-        TrashType.Document -> Documents.selectAll().where { Documents.id eq id }.singleOrNull()?.toDocument()
-        TrashType.BoardTopic -> BoardTopics.selectAll().where { BoardTopics.id eq id }.singleOrNull()?.toBoardTopic()
-        TrashType.BoardPost -> BoardPosts.selectAll().where { BoardPosts.id eq id }.singleOrNull()?.toBoardPost()
-        TrashType.ArchiveItem -> ArchiveItems.selectAll().where { ArchiveItems.id eq id }.singleOrNull()?.toArchiveItem()
-        TrashType.Decision -> Decisions.selectAll().where { Decisions.id eq id }.singleOrNull()?.toDecision()
-        TrashType.Book -> bookQuery().where { Books.id eq id }.singleOrNull()?.toBook()
-        TrashType.Summary -> Summaries.selectAll().where { Summaries.id eq id }.singleOrNull()?.toSummary()
-        TrashType.PlanStage -> PlanStages.selectAll().where { PlanStages.id eq id }.singleOrNull()?.toPlanStage()
-        TrashType.Milestone -> Milestones.selectAll().where { Milestones.id eq id }.singleOrNull()?.toMilestone()
-        TrashType.ReviewDocument -> ReviewDocuments.selectAll().where { ReviewDocuments.id eq id }.singleOrNull()?.toReviewDocument()
-        TrashType.Annotation -> Annotations.selectAll().where { Annotations.id eq id }.singleOrNull()?.toAnnotation()
-        TrashType.DocComment -> DocComments.selectAll().where { DocComments.id eq id }.singleOrNull()?.toDocComment()
-    }
+    /** 读回收站里那一项的当前状态（读法见 EntityRegistry） */
+    private fun load(type: TrashType, id: UUID): SyncEntity? = EntityRegistry.load(type.entityType, listOf(id)).singleOrNull()
 
     /** 在查询上加「这个房间、已删除、在游标之后」，按 (deletedAt, id) 降序取 [take] 条。 */
     private fun Query.deleted(table: SyncedTable, roomId: UUID, cursor: Cursor?, take: Int): Query {
