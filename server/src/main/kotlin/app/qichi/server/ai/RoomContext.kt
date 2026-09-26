@@ -52,7 +52,7 @@ object RoomContext {
     private const val MOOD_DAYS = 3L
 
     private val weekdays = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
-    private fun weekday(d: DayOfWeek) = weekdays[d.value - 1]
+    internal fun weekday(d: DayOfWeek) = weekdays[d.value - 1]
 
     fun now(at: Instant, zone: ZoneId, names: Map<UUID, String>, askerId: UUID?): String {
         val t = at.atZone(zone)
@@ -61,10 +61,10 @@ object RoomContext {
             if (people.isEmpty()) "" else "\n房间里的人：$people。"
     }
 
-    private fun cut(text: String, max: Int = LINE_MAX) =
+    internal fun cut(text: String, max: Int = LINE_MAX) =
         text.replace(Regex("\\s+"), " ").trim().let { if (it.length <= max) it else it.take(max - 1) + "…" }
 
-    private fun day(d: LocalDate, today: LocalDate): String {
+    internal fun day(d: LocalDate, today: LocalDate): String {
         val base = if (d.year == today.year) "${d.monthValue}月${d.dayOfMonth}日" else "${d.year}年${d.monthValue}月${d.dayOfMonth}日"
         val rel = when (d) {
             today -> "，今天"
@@ -75,7 +75,7 @@ object RoomContext {
         return "$base（${weekday(d.dayOfWeek)}$rel）"
     }
 
-    private fun time(t: ZonedDateTime, today: LocalDate) = day(t.toLocalDate(), today) + " %02d:%02d".format(t.hour, t.minute)
+    internal fun time(t: ZonedDateTime, today: LocalDate) = day(t.toLocalDate(), today) + " %02d:%02d".format(t.hour, t.minute)
 
     // ── 问题里的词 ──
 
@@ -100,7 +100,7 @@ object RoomContext {
         return out
     }
 
-    private fun score(text: String, terms: Set<String>): Int {
+    internal fun score(text: String, terms: Set<String>): Int {
         if (terms.isEmpty()) return 0
         val t = text.lowercase()
         return terms.count { it in t }
@@ -256,8 +256,8 @@ object RoomContext {
      * 回答里引用到的来源按第一次出现的顺序重新编成 1、2、3……（给 AI 的编号是检索时排的，会跳号）；
      * 同一句里重复的编号只留一个，不存在的编号去掉。
      */
-    fun renumber(text: String, all: List<SourceLine>): Cited {
-        val byNumber = all.associate { it.source.number to it.source }
+    fun renumber(text: String, all: List<SummarySource>): Cited {
+        val byNumber = all.associateBy { it.number }
         val mapping = linkedMapOf<Int, Int>()
         val body = citation.replace(text) { m ->
             val n = m.groupValues[1].toInt()

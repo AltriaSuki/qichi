@@ -1059,7 +1059,7 @@ class AiService(
         if (result == null) {
             // 停下了：存已经写出来的部分（去掉没写完的动作段和半个引用编号），不带动作提议。用量按字数估。
             val written = soFar.substringBefore("<act").replace(Regex("""\[\d*$"""), "").trimEnd()
-            val answer = RoomContext.renumber(written, sources)
+            val answer = RoomContext.renumber(written, sources.map { it.source })
             db.tx {
                 insertAnswer(jobId, roomId, askerId, prompt, answer.body, answer.sources, emptyList(), stopped = true)
                 finishJob(jobId, gateway.model, (rendered.system.length + rendered.user.length) / 2, soFar.length)
@@ -1071,7 +1071,7 @@ class AiService(
         stopRequested -= jobId
 
         val parsed = AiActionParser(zone, names.entries.associate { (id, name) -> name to id }, input.plans).parse(result.text)
-        val answer = RoomContext.renumber(parsed.text.ifBlank { if (parsed.actions.isEmpty()) result.text else "可以记下这些：" }, sources)
+        val answer = RoomContext.renumber(parsed.text.ifBlank { if (parsed.actions.isEmpty()) result.text else "可以记下这些：" }, sources.map { it.source })
         db.tx {
             insertAnswer(jobId, roomId, askerId, prompt, answer.body, answer.sources, parsed.actions, stopped = false)
             finishJob(jobId, result.model, result.inputTokens, result.outputTokens)
