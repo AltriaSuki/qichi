@@ -18,8 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TimePickerDialog
@@ -56,6 +54,7 @@ import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.SectionLabel
+import app.qichi.core.designsystem.component.SwitchRow
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.network.ApiException
@@ -405,12 +404,8 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
             BuiltInSection(vm)
             SectionLabel("提醒我", modifier = Modifier.padding(top = Spacing.l))
             @Composable
-            fun toggle(label: String, value: Boolean, change: (Boolean) -> NotificationPrefs) {
-                Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(label, style = type.bodyLarge.copy(color = colors.ink), modifier = Modifier.weight(1f))
-                    Switch(value, { vm.save(change(it)) }, enabled = saved != null, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent))
-                }
-            }
+            fun toggle(label: String, value: Boolean, change: (Boolean) -> NotificationPrefs) =
+                SwitchRow(label, value, { vm.save(change(it)) }, enabled = saved != null)
             toggle("新消息", p.messages) { p.copy(messages = it) }
             toggle("心情与回应", p.moods) { p.copy(moods = it) }
             toggle("问答", p.qna) { p.copy(qna = it) }
@@ -549,18 +544,15 @@ private fun BuiltInSection(vm: NotificationsViewModel) {
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { resumed++ }
 
     SectionLabel("接收消息")
-    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("后台接收消息", style = type.bodyLarge.copy(color = colors.ink), modifier = Modifier.weight(1f))
-        Switch(on, { enabled ->
-            vm.setBuiltIn(enabled)
-            if (enabled) {
-                if (android.os.Build.VERSION.SDK_INT >= 33 && !canNotify) permission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                app.qichi.core.push.BackgroundConnectionService.start(context)
-            } else {
-                app.qichi.core.push.BackgroundConnectionService.stop(context)
-            }
-        }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent))
-    }
+    SwitchRow("后台接收消息", on, { enabled ->
+        vm.setBuiltIn(enabled)
+        if (enabled) {
+            if (android.os.Build.VERSION.SDK_INT >= 33 && !canNotify) permission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            app.qichi.core.push.BackgroundConnectionService.start(context)
+        } else {
+            app.qichi.core.push.BackgroundConnectionService.stop(context)
+        }
+    })
     Text(
         if (on) "栖迟在后台和服务器保持连接，对方发消息会像 QQ 那样弹出来，不用装别的软件。通知栏会常驻一条「栖迟正在接收消息」（安卓的要求），可以长按它把这类通知设为静默。"
         else "关掉后，只有打开栖迟时才能收到新消息（或者用下面的 ntfy）。",

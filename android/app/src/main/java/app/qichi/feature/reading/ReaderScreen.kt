@@ -24,8 +24,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -61,6 +59,7 @@ import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.QuickInput
 import app.qichi.core.designsystem.component.SectionLabel
+import app.qichi.core.designsystem.component.SwitchRow
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.component.color
 import app.qichi.core.designsystem.component.decor.Ribbon
@@ -391,21 +390,12 @@ private fun HighlightSheet(h: Highlight, people: People, vm: ReaderViewModel, on
         if (h.kind == HighlightKind.Ai) {
             h.note?.let { Text(it, style = type.body.copy(color = colors.ink)) }
             if (mine) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("共同可见", style = type.body.copy(color = colors.ink), modifier = Modifier.weight(1f))
-                    Switch(shared, { shared = it; vm.updateHighlight(h, h.note, it) }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent))
-                }
+                SwitchRow("共同可见", shared, { shared = it; vm.updateHighlight(h, h.note, it) })
                 TextAction("删除", { deleting = true }, color = colors.muted)
             }
         } else if (mine) {
             QichiTextField(note, { note = it.take(Limits.HIGHLIGHT_NOTE_MAX) }, label = "感想（可以不写）", singleLine = false)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("共同可见", style = type.body.copy(color = colors.ink))
-                    Text("打开后${people.partner?.displayName ?: "对方"}也能看到这条和你的感想", style = type.caption.copy(color = colors.muted))
-                }
-                Switch(shared, { shared = it }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent))
-            }
+            SwitchRow("共同可见", shared, { shared = it }, description = "打开后${people.partner?.displayName ?: "对方"}也能看到这条和你的感想")
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
                 TextAction("保存", { vm.updateHighlight(h, note, shared); onDone() })
                 TextAction("删除", { deleting = true }, color = colors.muted)

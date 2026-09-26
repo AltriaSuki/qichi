@@ -29,8 +29,6 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
@@ -65,6 +63,7 @@ import app.qichi.core.designsystem.component.FogSeaHero
 import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.SectionLabel
+import app.qichi.core.designsystem.component.SwitchRow
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.network.ApiClient
@@ -321,10 +320,7 @@ fun RoomSettingsScreen(
                 SectionLabel("导出房间数据")
                 Text("把房间里的内容打包成一个文件：聊天记录、文稿和全部数据。撤回的内容和回收站里的不会导出。",
                     style = type.caption.copy(color = colors.muted))
-                Row(Modifier.fillMaxWidth().heightIn(min = Sizes.listRow), verticalAlignment = Alignment.CenterVertically) {
-                    Text("带上照片和附件（可能很大）", style = type.body.copy(color = colors.ink), modifier = Modifier.weight(1f))
-                    Switch(includeFiles, { includeFiles = it }, colors = SwitchDefaults.colors(checkedTrackColor = colors.accent))
-                }
+                SwitchRow("带上照片和附件（可能很大）", includeFiles, { includeFiles = it })
                 TextAction(
                     exporting?.let { "正在导出 ${(it * 100).toInt()}%" } ?: "导出……",
                     onClick = { saveExport.launch("qichi-export-${LocalDate.now()}.zip") },

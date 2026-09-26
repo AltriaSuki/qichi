@@ -184,8 +184,14 @@ class RoomToolsTest {
         chi.post("$docs/${doc.id}/versions", SaveDocumentVersionRequest(UuidV7.generate(), 1, long))
         aqi.post(docs, CreateDocumentRequest(UuidV7.generate(), "没保存过的"))
 
+        // 关掉「写作」：不提供文稿工具，搜索也搜不到正文
+        val noWriting = room(aqi, chi, roomId).tools(AiPrefs(writing = false))
+        assertTrue(noWriting.definitions.none { it.name == "documents" })
+        assertTrue(noWriting.call("search", """{"query":"慢慢走"}""").startsWith("没有找到"))
+
         val book = SourceBook()
         val tools = room(aqi, chi, roomId).tools(book = book)
+        assertTrue(tools.call("search", """{"query":"慢慢走"}""").contains("给明年秋天的信"))
         val list = tools.call("documents")
         assertTrue(list.contains("《没保存过的》 · 还没保存过"), list)
         val n = Regex("\\[(\\d+)] 文稿《给明年秋天的信》").find(list)!!.groupValues[1].toInt()
