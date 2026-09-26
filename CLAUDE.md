@@ -42,6 +42,8 @@ cd shared && ./gradlew test
 docker compose -f deploy/docker-compose.dev.yml up -d
 cd server && ./gradlew run          # http://localhost:8080/api/v1/health
 cd server && ./gradlew test
+# 没有 Docker（云端会话）：本机起库后指定它，不起容器（见 tools/README.md）
+tools/local_pg.sh && cd server && QICHI_TEST_DATABASE_URL=jdbc:postgresql://127.0.0.1:5432/qichi_test ./gradlew test
 
 # 服务端镜像（在仓库根目录）
 docker build -f deploy/server.Dockerfile .

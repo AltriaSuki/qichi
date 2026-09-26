@@ -208,7 +208,7 @@ AI 做完后，你检查三件事：测试是否全部通过、截图或演示�
 > 依据 `docs/11-review.md`（问题编号 S、B、Q 都在那里）。人类的决定：全部修完再推送；刷新令牌宽限 5 分钟；登录被动失效时保留本机数据；发件箱失败上限 24 小时。
 > 这台云端机器编译不了 Android（`dl.google.com` 被网络策略拦截），客户端改动推送后由 CI 编译测试；服务端测试用本机的 PostgreSQL 跑。
 
-- [ ] **P13-01 没有 Docker 也能跑服务端测试** — 设了 `QICHI_TEST_DATABASE_URL`（和用户名、密码）时测试连现成的 PostgreSQL，不起 Testcontainers；`tools/README.md` 写明用法。
+- [x] **P13-01 没有 Docker 也能跑服务端测试** — 设了 `QICHI_TEST_DATABASE_URL`（和用户名、密码）时测试连现成的 PostgreSQL，不起 Testcontainers；`tools/README.md` 写明用法。
   - 验收：本机 PostgreSQL 16 上 `./gradlew test` 全部通过；不设变量时照旧用 Testcontainers。
 - [ ] **P13-02 注册与登录防刷（Q1）** — 注册先判断「允不允许注册、邀请码是否有效」再算密码哈希；登录另加按 IP 的失败次数限制，随机用户名也绕不过。
   - 验收：测试：已有用户时无邀请码注册直接 `registration_closed` 且不计算哈希；同一 IP 换用户名连错也会被限流。

@@ -24,6 +24,9 @@ import java.util.TimeZone
 /**
  * 所有测试共用一个 PostgreSQL 16 容器（Testcontainers），第一次用到时启动并执行迁移。
  * 每个测试开始前调用 [reset] 清空业务数据。
+ *
+ * 没有 Docker 的机器：设 `QICHI_TEST_DATABASE_URL`（可选 `QICHI_TEST_DATABASE_USER` / `_PASSWORD`，默认都是 qichi）
+ * 就改用这个现成的库，不起容器。这个库会被清空，只能专门给测试用（见 tools/README.md）。
  */
 object TestDatabase {
     init {
@@ -39,7 +42,14 @@ object TestDatabase {
     }
 
     val config: DatabaseConfig by lazy {
-        DatabaseConfig(container.jdbcUrl, container.username, container.password, maxPoolSize = 10)
+        System.getenv("QICHI_TEST_DATABASE_URL")?.takeIf { it.isNotBlank() }?.let { url ->
+            DatabaseConfig(
+                url,
+                System.getenv("QICHI_TEST_DATABASE_USER") ?: "qichi",
+                System.getenv("QICHI_TEST_DATABASE_PASSWORD") ?: "qichi",
+                maxPoolSize = 10,
+            )
+        } ?: DatabaseConfig(container.jdbcUrl, container.username, container.password, maxPoolSize = 10)
     }
 
     val database: QichiDatabase by lazy { QichiDatabase.start(config) }
