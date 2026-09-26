@@ -13,6 +13,7 @@ import app.qichi.server.db.tx
 import app.qichi.server.plugins.ApiException
 import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
+import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomService
 import app.qichi.shared.api.CreateDocumentRequest
 import app.qichi.shared.api.Document
@@ -126,6 +127,7 @@ class DocumentService(
         val title = (req.title as? Patch.Value)?.value?.let(::checkTitle)
         return db.tx {
             rooms.requireMember(roomId, userId)
+            RoomRepository.lockRoom(roomId)
             val current = liveDocument(roomId, id)
             val pinned = req.pinned.orNull() ?: current.pinned
             val category = if (req.category.isPresent) req.category.orNull() else current.category

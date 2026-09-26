@@ -67,6 +67,7 @@ class QnaService(
 
     suspend fun adopt(userId: UUID, roomId: UUID, id: UUID): Question = db.tx {
         rooms.requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId)
         val row = Questions.selectAll().where { (Questions.id eq id) and (Questions.roomId eq roomId) and Questions.deletedAt.isNull() }.singleOrNull() ?: notFound()
         if (row[Questions.adoptedAt] == null) writes.update(this, roomId, userId, EntityType.Question, id, Questions) {
             it[Questions.adoptedBy] = userId

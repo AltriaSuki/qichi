@@ -33,6 +33,13 @@ abstract class SyncedTable(name: String) : Table(name) {
     val deletedAt: Column<Instant?> = timestamp("deleted_at").nullable()
     val deletedBy: Column<UUID?> = javaUUID("deleted_by").nullable()
     override val primaryKey = PrimaryKey(id)
+
+    /**
+     * 记着是谁创建的那一列：幂等创建时核对「同一个作者」（05 §2.3），别人拿同一个 id 来建 → 409。
+     * 为空的只核对房间：计划的负责人可以是对方，阶段、里程碑没有作者，服务端生成的没有人，内容本来就对两人都可见。
+     * 这一列本身可以为空（如 AI 出的题）：为空时谁拿这个 id 来建都算冲突。消息不走 [EntityWrites]，自己核对。
+     */
+    open val creator: Column<*>? get() = null
 }
 
 object Users : Table("users") {
@@ -152,12 +159,14 @@ object Moods : SyncedTable("moods") {
     val intensity = short("intensity")
     val note = text("note").nullable()
     val needsComfort = bool("needs_comfort")
+    override val creator get() = authorId
 }
 
 object MoodResponses : SyncedTable("mood_responses") {
     val moodId = javaUUID("mood_id")
     val authorId = javaUUID("author_id")
     val kind = text("kind")
+    override val creator get() = authorId
 }
 
 object Todos : SyncedTable("todos") {
@@ -173,6 +182,7 @@ object Todos : SyncedTable("todos") {
     val doneAt = timestamp("done_at").nullable()
     val doneBy = javaUUID("done_by").nullable()
     val planId = javaUUID("plan_id").nullable()
+    override val creator get() = createdBy
 }
 
 object Events : SyncedTable("events") {
@@ -187,6 +197,7 @@ object Events : SyncedTable("events") {
     val participantIds = array<UUID>("participant_ids", UUIDColumnType())
     val createdBy = javaUUID("created_by")
     val icsUid = text("ics_uid").nullable()
+    override val creator get() = createdBy
 }
 
 object Questions : SyncedTable("questions") {
@@ -196,6 +207,7 @@ object Questions : SyncedTable("questions") {
     val suggestedByJobId = javaUUID("suggested_by_job_id").nullable()
     val adoptedBy = javaUUID("adopted_by").nullable()
     val adoptedAt = timestamp("adopted_at").nullable()
+    override val creator get() = createdBy
 }
 
 object QnaRounds : SyncedTable("qna_rounds") {
@@ -209,6 +221,7 @@ object Answers : SyncedTable("answers") {
     val authorId = javaUUID("author_id")
     val body = text("body")
     val confirmedAt = timestamp("confirmed_at").nullable()
+    override val creator get() = authorId
 }
 
 object Plans : SyncedTable("plans") {
@@ -242,11 +255,13 @@ object PlanLogs : SyncedTable("plan_logs") {
     val planId = javaUUID("plan_id")
     val authorId = javaUUID("author_id")
     val body = text("body")
+    override val creator get() = authorId
 }
 
 object Ideas : SyncedTable("ideas") {
     val authorId = javaUUID("author_id")
     val body = text("body")
+    override val creator get() = authorId
 }
 
 object Documents : SyncedTable("documents") {
@@ -257,6 +272,7 @@ object Documents : SyncedTable("documents") {
     val charCount = integer("char_count")
     val pinned = bool("pinned").default(false)
     val category = text("category").nullable()
+    override val creator get() = createdBy
 }
 
 /** 不可变：只插入，不更新。 */
@@ -277,6 +293,7 @@ object BoardTopics : SyncedTable("board_topics") {
     val title = text("title")
     val authorId = javaUUID("author_id")
     val pinnedAt = timestamp("pinned_at").nullable()
+    override val creator get() = authorId
 }
 
 object BoardPosts : SyncedTable("board_posts") {
@@ -288,6 +305,7 @@ object BoardPosts : SyncedTable("board_posts") {
     val quoteExcerpt = text("quote_excerpt").nullable()
     val revision = integer("revision")
     val revisedAt = timestamp("revised_at").nullable()
+    override val creator get() = authorId
 }
 
 /** 不可变：只插入，不更新。 */
@@ -303,6 +321,7 @@ object BoardReactions : SyncedTable("board_reactions") {
     val postId = javaUUID("post_id")
     val authorId = javaUUID("author_id")
     val kind = text("kind")
+    override val creator get() = authorId
 }
 
 object ArchiveItems : SyncedTable("archive_items") {
@@ -313,6 +332,7 @@ object ArchiveItems : SyncedTable("archive_items") {
     val currentRevision = integer("current_revision")
     val revisedBy = javaUUID("revised_by")
     val sourceMessageId = javaUUID("source_message_id").nullable()
+    override val creator get() = createdBy
 }
 
 /** 不可变：只插入，不更新。 */
@@ -337,6 +357,7 @@ object Decisions : SyncedTable("decisions") {
     val decidedBy = javaUUID("decided_by").nullable()
     val reviewDate = date("review_date").nullable()
     val createdBy = javaUUID("created_by")
+    override val creator get() = createdBy
 }
 
 object TimelinePicks : Table("timeline_picks") {
@@ -354,6 +375,7 @@ object Books : SyncedTable("books") {
     val addedBy = javaUUID("added_by")
     val planTargetDate = date("plan_target_date").nullable()
     val planNote = text("plan_note").nullable()
+    override val creator get() = addedBy
 }
 
 object ReadingProgressTable : SyncedTable("reading_progress") {
@@ -361,6 +383,7 @@ object ReadingProgressTable : SyncedTable("reading_progress") {
     val userId = javaUUID("user_id")
     val locator = text("locator")
     val progress = double("progress")
+    override val creator get() = userId
 }
 
 object Highlights : SyncedTable("highlights") {
@@ -371,6 +394,7 @@ object Highlights : SyncedTable("highlights") {
     val text = text("text")
     val note = text("note").nullable()
     val shared = bool("shared")
+    override val creator get() = userId
 }
 
 object Summaries : SyncedTable("summaries") {
@@ -388,6 +412,7 @@ object ReviewDocuments : SyncedTable("review_documents") {
     val title = text("title")
     val createdBy = javaUUID("created_by")
     val latestVersion = integer("latest_version")
+    override val creator get() = createdBy
 }
 
 object ReviewVersions : SyncedTable("review_versions") {
@@ -399,6 +424,7 @@ object ReviewVersions : SyncedTable("review_versions") {
     val previewStatus = text("preview_status")
     val pageCount = integer("page_count").nullable()
     val previewError = text("preview_error").nullable()
+    override val creator get() = uploadedBy
 }
 
 /** 预览页：不走同步（没有 seq），生成一次就不再变。 */
@@ -425,12 +451,14 @@ object Annotations : SyncedTable("annotations") {
     val anchorLost = bool("anchor_lost")
     val resolvedBy = javaUUID("resolved_by").nullable()
     val resolvedAt = timestamp("resolved_at").nullable()
+    override val creator get() = authorId
 }
 
 object AnnotationReplies : SyncedTable("annotation_replies") {
     val annotationId = javaUUID("annotation_id")
     val authorId = javaUUID("author_id")
     val body = text("body")
+    override val creator get() = authorId
 }
 
 object AiFindings : SyncedTable("ai_findings") {
@@ -468,6 +496,7 @@ object DocComments : SyncedTable("doc_comments") {
     val version = integer("version").nullable()
     val resolvedAt = timestamp("resolved_at").nullable()
     val resolvedBy = javaUUID("resolved_by").nullable()
+    override val creator get() = authorId
 }
 
 object Devices : Table("devices") {

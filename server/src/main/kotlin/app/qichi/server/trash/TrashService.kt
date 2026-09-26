@@ -34,7 +34,6 @@ import app.qichi.server.db.QichiDatabase
 import app.qichi.server.db.Questions
 import app.qichi.server.db.QnaRounds
 import app.qichi.server.db.Answers
-import app.qichi.server.db.RoomWriter
 import app.qichi.server.db.SyncedTable
 import app.qichi.server.db.Todos
 import app.qichi.server.db.Tx
@@ -84,7 +83,6 @@ import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.Query
 import org.jetbrains.exposed.v1.jdbc.andWhere
-import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import java.time.Clock
@@ -99,7 +97,6 @@ import java.util.UUID
 class TrashService(
     private val db: QichiDatabase,
     private val rooms: RoomService,
-    private val writer: RoomWriter,
     private val writes: EntityWrites,
     private val todos: TodoService,
     private val files: FileService,
@@ -306,6 +303,11 @@ class TrashService(
                     hardDelete(this, roomId, userId, EntityType.Question, id, Questions, now)
                 }
                 TrashType.Plan -> {
+                    // 挂在它下面的待办（包括回收站里的）：计划断开。外键也会把 plan_id 置空，但那样不写变化，
+                    // 两台手机上的待办会一直指向不存在的计划（S6），所以这里逐条写上
+                    Todos.select(Todos.id).where { Todos.planId eq id }.map { it[Todos.id] }.forEach { todo ->
+                        writes.update(this, roomId, userId, EntityType.Todo, todo, Todos) { it[Todos.planId] = null }
+                    }
                     PlanLogs.select(PlanLogs.id).where { PlanLogs.planId eq id }.map { it[PlanLogs.id] }
                         .forEach { hardDelete(this, roomId, userId, EntityType.PlanLog, it, PlanLogs, now) }
                     Milestones.select(Milestones.id).where { Milestones.planId eq id }.map { it[Milestones.id] }
@@ -430,10 +432,8 @@ class TrashService(
         hardDelete(tx, roomId, userId, EntityType.BoardPost, id, BoardPosts, now)
     }
 
-    private fun hardDelete(tx: Tx, roomId: UUID, userId: UUID, type: EntityType, id: UUID, table: SyncedTable, at: Instant) {
-        writer.change(tx, roomId, type, id, userId, at, ChangeOp.Delete)
-        table.deleteWhere { table.id eq id }
-    }
+    private fun hardDelete(tx: Tx, roomId: UUID, userId: UUID, type: EntityType, id: UUID, table: SyncedTable, at: Instant) =
+        writes.hardDelete(tx, roomId, userId, type, id, table, at)
 
     private fun load(type: TrashType, id: UUID): SyncEntity? = when (type) {
         TrashType.Message -> messageQuery().where { Messages.id eq id }.singleOrNull()?.toMessage()

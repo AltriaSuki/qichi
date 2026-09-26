@@ -124,6 +124,7 @@ class ReadingService(
         val note = (req.planNote as? Patch.Value)?.let { cleanOptional(it.value, Limits.BOOK_PLAN_NOTE_MAX, "planNote") }
         return db.tx {
             rooms.requireMember(roomId, userId)
+            RoomRepository.lockRoom(roomId)
             val current = liveBook(roomId, id)
             val target = (req.planTargetDate as? Patch.Value)?.value
             val changes = listOf(
@@ -222,6 +223,7 @@ class ReadingService(
         val note = (req.note as? Patch.Value)?.let { cleanOptional(it.value, Limits.HIGHLIGHT_NOTE_MAX, "note") }
         return db.tx {
             rooms.requireMember(roomId, userId)
+            RoomRepository.lockRoom(roomId)
             val current = ownHighlight(roomId, bookId, id, userId)
             val shared = (req.shared as? Patch.Value)?.value
             val noteChanged = req.note is Patch.Value && note != current.note

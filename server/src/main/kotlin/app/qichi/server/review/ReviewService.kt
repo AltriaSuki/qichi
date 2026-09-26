@@ -186,7 +186,8 @@ class ReviewService(
             RoomRepository.lockRoom(roomId)
             val existing = document(req.id)
             if (existing != null) {
-                if (existing.roomId != roomId) throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
+                // 重试原样返回；别的房间、别人建的说明 id 撞了（05 §2.3）
+                if (existing.roomId != roomId || existing.createdBy != userId) throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
                 return@tx existing to false
             }
             val format = reviewFileFormat(roomId, req.firstVersion.fileId)
@@ -205,6 +206,7 @@ class ReviewService(
         val title = (req.title as? Patch.Value)?.value?.let(::cleanTitle)
         return db.tx {
             rooms.requireMember(roomId, userId)
+            RoomRepository.lockRoom(roomId)
             val current = liveDocument(roomId, id)
             if (title != null && title != current.title) {
                 writes.update(this, roomId, userId, EntityType.ReviewDocument, id, ReviewDocuments) { it[ReviewDocuments.title] = title }
@@ -226,7 +228,9 @@ class ReviewService(
         val doc = liveDocument(roomId, documentId)
         val existing = version(req.id)
         if (existing != null) {
-            if (existing.roomId != roomId || existing.documentId != documentId) throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
+            if (existing.roomId != roomId || existing.documentId != documentId || existing.uploadedBy != userId) {
+                throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
+            }
             return@tx existing to false
         }
         val format = reviewFileFormat(roomId, req.fileId)
@@ -502,6 +506,7 @@ class ReviewService(
 
     suspend fun dismissFinding(userId: UUID, roomId: UUID, id: UUID): AiFinding = db.tx {
         rooms.requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId)
         val f = liveFinding(roomId, id)
         if (f.status == FindingStatus.New) {
             writes.update(this, roomId, userId, EntityType.AiFinding, id, AiFindings) {
@@ -597,6 +602,7 @@ class ReviewService(
         val status = (req.status as? Patch.Value)?.value
         return db.tx {
             rooms.requireMember(roomId, userId)
+            RoomRepository.lockRoom(roomId)
             val current = liveAnnotation(roomId, documentId, id)
             if (body != null && body != current.body && current.authorId != userId) forbidden("只能改自己写的批注")
             val bodyChanged = body != null && body != current.body

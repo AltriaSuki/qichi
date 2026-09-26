@@ -9,6 +9,7 @@ import app.qichi.server.plugins.ApiException
 import app.qichi.server.plugins.forbidden
 import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
+import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomService
 import app.qichi.shared.api.CreateIdeaRequest
 import app.qichi.shared.api.Idea
@@ -71,6 +72,7 @@ class IdeaService(
         val body = checkBody(req.body)
         return db.tx {
             rooms.requireMember(roomId, userId)
+            RoomRepository.lockRoom(roomId)
             val current = idea(id)?.takeIf { it.roomId == roomId && it.deletedAt == null } ?: notFound()
             if (current.authorId != userId) forbidden("只能修改自己记下的灵感")
             if (current.body != body) writes.update(this, roomId, userId, EntityType.Idea, id, Ideas) { it[Ideas.body] = body }

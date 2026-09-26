@@ -222,7 +222,7 @@ class AppContext(
     val summaries = SummaryService(database, rooms, writes)
     val export = ExportService(database, rooms, fileStorage, clock)
     val reviews = ReviewService(database, rooms, writes, writer, files, jobs, converter, clock)
-    val trash = TrashService(database, rooms, writer, writes, todos, files, clock, reviews)
+    val trash = TrashService(database, rooms, writes, todos, files, clock, reviews)
     val calendar = CalendarService(database, rooms, writes, writer, clock, config.publicBaseUrl)
 }
 

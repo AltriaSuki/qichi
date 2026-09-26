@@ -84,6 +84,7 @@ class AiActionService(
 
     suspend fun dismiss(userId: UUID, roomId: UUID, id: UUID): AiAction = db.tx {
         rooms.requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId)
         val a = action(roomId, id)
         if (a.status == AiActionStatus.Proposed) {
             writes.update(this, roomId, userId, EntityType.AiAction, id, AiActions) {

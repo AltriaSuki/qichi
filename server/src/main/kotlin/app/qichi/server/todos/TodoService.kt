@@ -77,6 +77,7 @@ class TodoService(
 
     suspend fun update(userId: UUID, roomId: UUID, id: UUID, req: UpdateTodoRequest): Todo = db.tx {
         rooms.requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId) // 先锁再读：读到的是最新的，两人同时改不会互相覆盖（Q9）
         val current = existingInRoom(roomId, id)
         val title = (req.title as? Patch.Value)?.value?.trim() ?: current.title
         val note = if (req.note.isPresent) req.note.orNull()?.trim()?.takeIf { it.isNotEmpty() } else current.note

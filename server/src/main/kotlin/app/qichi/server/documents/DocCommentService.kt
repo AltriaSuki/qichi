@@ -9,6 +9,7 @@ import app.qichi.server.plugins.ApiException
 import app.qichi.server.plugins.forbidden
 import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
+import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomService
 import app.qichi.shared.api.CreateDocCommentRequest
 import app.qichi.shared.api.DocComment
@@ -98,6 +99,7 @@ class DocCommentService(
         val body = cleanBody(req.body)
         return db.tx {
             rooms.requireMember(roomId, userId)
+            RoomRepository.lockRoom(roomId)
             val c = liveComment(roomId, id)
             if (c.authorId != userId) forbidden("只能改自己写的留言")
             if (c.body != body) writes.update(this, roomId, userId, EntityType.DocComment, id, DocComments) { it[DocComments.body] = body }
@@ -107,6 +109,7 @@ class DocCommentService(
 
     suspend fun setResolved(userId: UUID, roomId: UUID, id: UUID, resolved: Boolean): DocComment = db.tx {
         rooms.requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId)
         val c = liveComment(roomId, id)
         validate { check(c.parentId == null, "id", "只有讨论的开头能标为解决") }
         if ((c.resolvedAt != null) != resolved) {

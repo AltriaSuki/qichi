@@ -106,6 +106,7 @@ class PlanService(
 
     suspend fun update(userId: UUID, roomId: UUID, id: UUID, request: UpdatePlanRequest): Plan = db.tx {
         rooms.requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId)
         val row = Plans.selectAll().where { (Plans.id eq id) and (Plans.roomId eq roomId) and Plans.deletedAt.isNull() }
             .singleOrNull() ?: notFound()
         validate {
@@ -143,6 +144,7 @@ class PlanService(
 
     suspend fun complete(userId: UUID, roomId: UUID, id: UUID, request: CompletePlanRequest): Plan = db.tx {
         rooms.requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId)
         val row = Plans.selectAll().where { (Plans.id eq id) and (Plans.roomId eq roomId) and Plans.deletedAt.isNull() }
             .singleOrNull() ?: notFound()
         val note = request.completionNote.trim()
@@ -185,6 +187,7 @@ class PlanService(
 
     suspend fun updateStage(userId: UUID, roomId: UUID, planId: UUID, id: UUID, request: UpdatePlanStageRequest): PlanStage = db.tx {
         rooms.requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId)
         PlanStages.selectAll().where { (PlanStages.id eq id) and (PlanStages.roomId eq roomId) and (PlanStages.planId eq planId) and PlanStages.deletedAt.isNull() }
             .singleOrNull() ?: notFound()
         validate {
@@ -222,6 +225,7 @@ class PlanService(
 
     suspend fun updateMilestone(userId: UUID, roomId: UUID, planId: UUID, id: UUID, request: UpdateMilestoneRequest): Milestone = db.tx {
         rooms.requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId)
         Milestones.selectAll().where { (Milestones.id eq id) and (Milestones.roomId eq roomId) and (Milestones.planId eq planId) and Milestones.deletedAt.isNull() }
             .singleOrNull() ?: notFound()
         validate { check(listOf(request.title, request.targetDate, request.doneAt).any { it.isPresent }, "body", "至少修改一个字段") }

@@ -165,6 +165,7 @@ class MessageService(
         val orphanPaths = mutableListOf<String>()
         val result = db.tx {
             rooms.requireMember(roomId, userId)
+            RoomRepository.lockRoom(roomId)
             val current = message(id)?.takeIf { it.roomId == roomId } ?: notFound()
             if (current.authorId != userId) forbidden("只能撤回自己发的消息")
             if (current.retractedAt != null) return@tx current
