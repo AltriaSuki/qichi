@@ -54,8 +54,27 @@ object TestDatabase {
 
     val database: QichiDatabase by lazy { QichiDatabase.start(config) }
 
-    /** 清空除迁移记录外的所有表。 */
+    /**
+     * 清空除迁移记录外的所有表。
+     * 上一个测试里的推送是在后台算的（PushService 自己的协程，不随测试结束），可能还在读 users、rooms，
+     * 和这里的 TRUNCATE 互相等锁，被数据库判成死锁：遇到死锁稍等一下再清。
+     */
     fun reset() {
+        repeat(RESET_ATTEMPTS) { attempt ->
+            try {
+                truncateAll()
+                return
+            } catch (e: java.sql.SQLException) {
+                if (e.sqlState != DEADLOCK || attempt == RESET_ATTEMPTS - 1) throw e
+                Thread.sleep(100L * (attempt + 1))
+            }
+        }
+    }
+
+    private const val RESET_ATTEMPTS = 5
+    private const val DEADLOCK = "40P01"
+
+    private fun truncateAll() {
         database.dataSource.connection.use { conn ->
             val tables = conn.createStatement().use { st ->
                 st.executeQuery(
