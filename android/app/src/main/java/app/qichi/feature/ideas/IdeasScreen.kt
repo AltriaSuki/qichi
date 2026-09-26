@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,9 +18,9 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -193,22 +194,23 @@ fun IdeasScreen(
     }
 }
 
-/** 两列便签：第二列往下错开一点；每张的颜色、倾斜、胶带按位置轮换。 */
+/**
+ * 两列便签（懒加载瀑布流，每张放进当前较矮的一列）：右列开头垫一小块空白，往下错开；
+ * 每张的颜色、倾斜、胶带按位置轮换。
+ */
 @Composable
 private fun IdeaBoard(ideas: List<Local<Idea>>, people: People, zone: ZoneId, modifier: Modifier, onClick: (Idea) -> Unit, onLongPress: (Idea) -> Unit) {
-    val left = ideas.filterIndexed { i, _ -> i % 2 == 0 }
-    val right = ideas.filterIndexed { i, _ -> i % 2 == 1 }
-    Row(
-        modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = Spacing.cardPage, end = Spacing.cardPage, top = Spacing.xs),
+    LazyVerticalStaggeredGrid(
+        columns = StaggeredGridCells.Fixed(2),
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(start = Spacing.cardPage, end = Spacing.cardPage, top = Spacing.xs, bottom = FabClearance),
         horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        verticalItemSpacing = Spacing.m,
     ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
-            left.forEachIndexed { i, idea -> IdeaNote(idea, people, zone, i * 2, onClick, onLongPress) }
-            Spacer(Modifier.height(FabClearance))
-        }
-        Column(Modifier.weight(1f).padding(top = Spacing.ml), verticalArrangement = Arrangement.spacedBy(Spacing.m)) {
-            right.forEachIndexed { i, idea -> IdeaNote(idea, people, zone, i * 2 + 1, onClick, onLongPress) }
-            Spacer(Modifier.height(FabClearance))
+        ideas.forEachIndexed { i, idea ->
+            item(key = idea.value.id, contentType = "idea") { IdeaNote(idea, people, zone, i, onClick, onLongPress) }
+            // 第一张之后垫在右列最上面
+            if (i == 0) item(key = "offset", contentType = "offset") { Spacer(Modifier.height(Spacing.ml - Spacing.m)) }
         }
     }
 }

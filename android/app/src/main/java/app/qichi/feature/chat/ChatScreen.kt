@@ -106,6 +106,7 @@ import app.qichi.core.designsystem.component.decor.Tape
 import app.qichi.core.designsystem.component.topBarInset
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.lift
+import app.qichi.core.designsystem.liftFlat
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.network.FileUrls
 import app.qichi.core.sync.Local
@@ -645,7 +646,7 @@ private fun TextBubble(
         Column(
             Modifier
                 .widthIn(max = maxBubble)
-                .then(if (!mine && !unsent) Modifier.lift(colors, shape) else Modifier)
+                .then(if (!mine && !unsent) Modifier.liftFlat(colors, shape) else Modifier)
                 .clip(shape)
                 .then(
                     when {
