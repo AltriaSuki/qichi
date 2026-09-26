@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -62,6 +63,12 @@ class SessionManager(
     }
 
     val currentUserId: UUID? get() = (state.value as? SessionState.LoggedIn)?.userId
+
+    /**
+     * 等本机令牌读完，给出确定的登录状态（不会是 [SessionState.Loading]）。
+     * 被通知回复、推送、后台任务冷启动拉起来的代码用它：这时令牌往往还在读，不能当成没登录把事情丢掉（P13-04）。
+     */
+    suspend fun awaitLoaded(): SessionState = state.first { it !is SessionState.Loading }
 
     suspend fun register(username: String, password: String, displayName: String, inviteCode: String?) {
         val tokens = api.post<AuthTokens>(

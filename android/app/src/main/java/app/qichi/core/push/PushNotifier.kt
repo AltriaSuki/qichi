@@ -60,6 +60,8 @@ object PushNotifier {
         return false
     }
 
+    // 推送（主线程）、内置通知和通知回复（后台线程）都会读改写同一份聊天记录，一次只让一个来（P13-04）
+    @Synchronized
     fun show(context: Context, payload: PushPayload) {
         if (!canNotify(context) || seen(payload)) return
         ensureChannels(context)
@@ -67,6 +69,7 @@ object PushNotifier {
     }
 
     /** 打开了这个房间的聊天：聊天通知清掉，叠着的记录也忘掉。 */
+    @Synchronized
     fun clearChat(context: Context, roomId: UUID) {
         val tag = "$roomId:chat"
         NotificationManagerCompat.from(context).cancel(tag, 0)
@@ -109,6 +112,7 @@ object PushNotifier {
     }
 
     /** 在通知里回复之后：把自己的话接在记录后面，通知留着（和 QQ 一样看得到自己回了什么）。 */
+    @Synchronized
     fun appendMyReply(context: Context, tag: String, text: String, myName: String, iAmCreator: Boolean) {
         val lines = history(context, tag)
         if (lines.isEmpty()) return

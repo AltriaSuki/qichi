@@ -13,6 +13,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.qichi.core.auth.SessionManager
+import app.qichi.core.auth.SessionState
 import app.qichi.core.database.QichiDatabase
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -65,7 +66,8 @@ class PeriodicSyncWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        if (session.currentUserId == null) return Result.success()
+        // 冷启动时由 WorkManager 拉起，登录状态可能还在读取：等读出来再判断，不能当成没登录跳过（P13-04）
+        if (session.awaitLoaded() !is SessionState.LoggedIn) return Result.success()
         var failed = false
         for (room in db.syncState().roomIds()) {
             try {

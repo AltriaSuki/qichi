@@ -5,6 +5,7 @@ import app.qichi.core.auth.InMemoryTokenStore
 import app.qichi.core.auth.LocalDataCleaner
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.auth.SessionState
+import app.qichi.core.auth.TokenStore
 import app.qichi.shared.api.AuthTokens
 import app.qichi.shared.api.Health
 import app.qichi.shared.api.LoginRequest
@@ -20,6 +21,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.OutgoingContent
 import io.ktor.http.headersOf
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -28,6 +30,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import java.io.IOException
 import java.time.Instant
@@ -37,6 +40,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -204,6 +208,29 @@ class ApiClientTest {
         assertNull(store.read())
         assertEquals(1, cleared)
         assertEquals(SessionState.LoggedOut, session.state.value)
+        scope.cancel()
+    }
+
+    @Test
+    fun `令牌还在读时 awaitLoaded 一直等，读完给出登录状态（冷启动时不当成没登录）`() = runTest {
+        val saved = InMemoryTokenStore(tokens(1))
+        val gate = CompletableDeferred<Unit>()
+        val slow = object : TokenStore by saved {
+            override suspend fun read(): AuthTokens? {
+                gate.await()
+                return saved.read()
+            }
+        }
+        val api = ApiClient(MockEngine { throw IOException("offline") }, "http://test", slow, "test")
+        val scope = eagerScope()
+        val session = SessionManager(api, slow, emptySet(), "test", scope)
+        assertEquals(SessionState.Loading, session.state.value)
+
+        val loaded = async { session.awaitLoaded() }
+        runCurrent()
+        assertFalse(loaded.isCompleted)
+        gate.complete(Unit)
+        assertEquals(SessionState.LoggedIn(userId), loaded.await())
         scope.cancel()
     }
 
