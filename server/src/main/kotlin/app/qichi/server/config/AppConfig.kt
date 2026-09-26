@@ -23,6 +23,8 @@ data class AppConfig(
     val unifiedPushAllowedHosts: Set<String> = emptySet(),
     /** 审稿文档转换服务（Gotenberg，内含 LibreOffice）；没配时只能预览 PDF */
     val converterUrl: String? = null,
+    /** App 最低版本（versionCode）；更旧的 App 收到 426 upgrade_required。0 = 不限制（P13-07） */
+    val minAndroidVersionCode: Int = 0,
 ) {
     enum class Env { Development, Production }
 
@@ -91,6 +93,13 @@ data class AppConfig(
                 tools = get("AI_TOOLS")?.lowercase() != "off",
             )
 
+            val minAndroidVersionCode = get("MIN_ANDROID_VERSION_CODE")?.let { raw ->
+                raw.toIntOrNull()?.takeIf { it >= 0 } ?: run {
+                    problems += "MIN_ANDROID_VERSION_CODE 不是非负整数：$raw"
+                    0
+                }
+            } ?: 0
+
             if (problems.isNotEmpty()) throw ConfigException(problems)
 
             return AppConfig(
@@ -104,6 +113,7 @@ data class AppConfig(
                 pushProviders = pushProviders,
                 unifiedPushAllowedHosts = get("UNIFIEDPUSH_ALLOWED_HOSTS").orEmpty().split(',').map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet(),
                 converterUrl = get("CONVERTER_URL")?.trim()?.trimEnd('/')?.ifEmpty { null },
+                minAndroidVersionCode = minAndroidVersionCode,
             )
         }
     }

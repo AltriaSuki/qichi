@@ -1,6 +1,9 @@
 package app.qichi.server
 
 import app.qichi.shared.api.AuthTokens
+import app.qichi.shared.api.Bootstrap
+import app.qichi.shared.api.Lenient
+import app.qichi.shared.api.MessagePage
 import app.qichi.shared.api.CreateRoomRequest
 import app.qichi.shared.api.Invite
 import app.qichi.shared.api.LoginRequest
@@ -32,6 +35,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 /** 测试里调用接口的小工具。 */
 class Api(val client: HttpClient) {
@@ -78,13 +82,31 @@ class Api(val client: HttpClient) {
     }
 }
 
+/**
+ * 所有测试经 [Session.get] 拉的快照、同步、历史消息都顺便检查（P13-07）：同版本的服务端给的数据，App 必须能严格解开
+ * ——没有不认识的类型、枚举和字段。否则旧版兼容逻辑会把它当成「新版才懂的内容」，一直提示更新。
+ */
+private suspend fun assertSameVersionReadable(path: String, response: HttpResponse) {
+    // 压缩过的（测试压缩的那条）不看
+    if (response.status != HttpStatusCode.OK || response.headers[HttpHeaders.ContentEncoding] != null) return
+    val route = path.substringBefore('?')
+    val decoded = when {
+        route.endsWith("/bootstrap") -> Lenient.container(Bootstrap.serializer(), QichiJson.parseToJsonElement(response.bodyAsText()))
+        route.endsWith("/sync") -> Lenient.syncPage(QichiJson.parseToJsonElement(response.bodyAsText()))
+        route.endsWith("/messages") -> Lenient.container(MessagePage.serializer(), QichiJson.parseToJsonElement(response.bodyAsText()))
+        else -> return
+    }
+    assertFalse(decoded.incomplete, "$route 的数据有 App 解不开的内容：跳过 ${decoded.skipped} 个、多字段 ${decoded.partial} 个")
+}
+
 /** 一个已登录的会话。 */
 class Session(val api: Api, var tokens: AuthTokens) {
     private val client get() = api.client
 
     private fun HttpRequestBuilder.auth() = bearerAuth(tokens.accessToken)
 
-    suspend fun get(path: String, block: HttpRequestBuilder.() -> Unit = {}): HttpResponse = client.get(path) { auth(); block() }
+    suspend fun get(path: String, block: HttpRequestBuilder.() -> Unit = {}): HttpResponse =
+        client.get(path) { auth(); block() }.also { assertSameVersionReadable(path, it) }
     suspend fun delete(path: String): HttpResponse = client.delete(path) { auth() }
     suspend fun post(path: String, body: Any? = null): HttpResponse = client.post(path) { auth(); if (body != null) json(body) }
     suspend fun patch(path: String, body: Any): HttpResponse = client.patch(path) { auth(); json(body) }

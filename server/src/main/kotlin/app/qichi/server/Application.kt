@@ -63,6 +63,7 @@ import app.qichi.server.moods.MoodService
 import app.qichi.server.todos.TodoService
 import app.qichi.server.me.MeService
 import app.qichi.server.plugins.installCallLogging
+import app.qichi.server.plugins.installClientVersionCheck
 import app.qichi.server.plugins.installDefaultHeaders
 import app.qichi.server.plugins.installErrorHandling
 import app.qichi.server.plugins.installSecurity
@@ -135,6 +136,7 @@ fun Application.module(ctx: AppContext) {
     installCallLogging()
     installDefaultHeaders()
     installSecurity(ctx.tokens, ctx.auth)
+    installClientVersionCheck(ctx.config.minAndroidVersionCode)
     installWebSockets()
     // 文件下载支持 Range（断点续传、视频拖动）
     install(PartialContent)

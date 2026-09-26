@@ -10,7 +10,10 @@ info:
     通用约定：
     - JSON，UTF-8，字段名 camelCase；时间 ISO-8601 UTC（`2026-09-21T11:30:00Z`）；纯日期 `2026-09-21`。
     - 枚举值是英文小写字符串（多个单词用下划线，如 `mood_response`）。
-    - 请求头 `X-Qichi-Client: android/{versionName}`，便于排查。
+    - 请求头 `X-Qichi-Client: android/{versionName} ({versionCode})`，便于排查；服务端也据此判断 App 是否太旧。
+    - App 版本低于服务端要求（服务端配置 `MIN_ANDROID_VERSION_CODE`，默认不限制）时，除健康检查、注册、登录、刷新令牌、
+      App 更新（`/app/*`）外的接口一律返回 **426** `upgrade_required`，App 提示更新。
+    - 新增实体类型、枚举取值、字段时，旧版 App 逐条解码：认不出来的跳过、同步位置照常前进，升级后重新快照（docs/05-sync-offline.md §3.2）。
     - 房间内资源都在 `/rooms/{roomId}/…` 下；不是该房间成员一律返回 **404**。
     - 创建：请求体带客户端生成的 `id`（UUIDv7）；新建返回 **201**，同 id 已存在返回 **200** 与已有对象；
       同 id 属于别人或别的房间返回 **409** `conflict_id`。
@@ -395,6 +398,7 @@ paths:
         - `toSeq` 是本页扫描到的最大 seq，下次用它作为 `since`。它可能大于 `changes` 里最大的 `seq`
           （有些变化被合并了，或对你不可见，比如对方的 `read_marker`）。
         - `hasMore = true` 时立即用 `toSeq` 继续拉。
+        - `changes` 里可能出现客户端不认识的 `type` 或枚举取值（服务端比 App 新）：客户端跳过这几条，照常前进到 `toSeq`。
       parameters:
         - name: since
           in: query
@@ -412,6 +416,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '426': { $ref: '#/components/responses/UpgradeRequired' }
 
   /ws:
     get:
@@ -2709,6 +2714,11 @@ components:
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
+    UpgradeRequired:
+      description: App 版本低于服务端要求（`upgrade_required`）。除健康检查、注册、登录、刷新令牌、`/app/*` 外的接口都可能返回
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
     AiQuotaExceeded:
       description: 本月 AI 额度用完（`ai_quota_exceeded`）
       content:
@@ -2832,6 +2842,7 @@ components:
         - rate_limited
         - ai_unavailable
         - ai_quota_exceeded
+        - upgrade_required
         - internal_error
     Problem:
       type: object

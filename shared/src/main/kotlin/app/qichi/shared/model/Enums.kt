@@ -210,6 +210,8 @@ enum class ProblemCode {
     @SerialName("rate_limited") RateLimited,
     @SerialName("ai_unavailable") AiUnavailable,
     @SerialName("ai_quota_exceeded") AiQuotaExceeded,
+    /** App 版本低于服务端要求（426，P13-07） */
+    @SerialName("upgrade_required") UpgradeRequired,
     @SerialName("internal_error") InternalError,
 }
 

@@ -99,6 +99,8 @@ services:
       # 审稿：Word、Excel、PowerPoint 先转成 PDF 再生成预览（开了 converter 才填 http://converter:3000）
       CONVERTER_URL: ${CONVERTER_URL:-}
       DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-5}
+      # App 最低版本（versionCode）：更旧的 App 提示更新、不再同步。0 = 不限制
+      MIN_ANDROID_VERSION_CODE: ${MIN_ANDROID_VERSION_CODE:-0}
       # 内存：堆上限 256MB（1GB 的服务器也能跑）；内存充足时可以在 .env 里调大
       JAVA_OPTS: ${JAVA_OPTS:--Xmx256m -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -Xss512k}
     volumes:

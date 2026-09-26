@@ -75,6 +75,14 @@ class AppConfigTest {
         assertFailsWith<ConfigException> { AppConfig.fromEnv(mapOf("PUSH_PROVIDERS" to "fcm")) }
         assertFailsWith<ConfigException> { AppConfig.fromEnv(mapOf("PORT" to "abc")) }
         assertFailsWith<ConfigException> { AppConfig.fromEnv(mapOf("QICHI_ENV" to "staging")) }
+        assertFailsWith<ConfigException> { AppConfig.fromEnv(mapOf("MIN_ANDROID_VERSION_CODE" to "-1")) }
+        assertFailsWith<ConfigException> { AppConfig.fromEnv(mapOf("MIN_ANDROID_VERSION_CODE" to "新版")) }
+    }
+
+    @Test
+    fun `App 最低版本：默认不限制，填了就用`() {
+        assertEquals(0, AppConfig.fromEnv(emptyMap()).minAndroidVersionCode)
+        assertEquals(300, AppConfig.fromEnv(mapOf("MIN_ANDROID_VERSION_CODE" to "300")).minAndroidVersionCode)
     }
 
     @Test

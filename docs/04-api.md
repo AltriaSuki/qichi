@@ -16,7 +16,8 @@
 | 删除 | `DELETE` = 软删除（进回收站），返回完整对象（带 `deletedAt`）；彻底删除走回收站接口 |
 | 版本冲突 | 需要基线的写入（文稿、档案、留言编辑）带 `baseVersion`；不是最新 → **409**，`code = "conflict_version"`，响应里附最新版本号 |
 | 分页 | 游标式：消息用 `beforeSeq`（指消息的 `createdSeq`），其它列表用 `cursor` + `limit`，响应带 `nextCursor` |
-| 客户端信息 | 请求头 `X-Qichi-Client: android/{versionName}`，便于排查 |
+| 客户端信息 | 请求头 `X-Qichi-Client: android/{versionName} ({versionCode})`，便于排查；服务端据此判断 App 是否太旧（见 `upgrade_required`） |
+| 新旧版本 | 服务端可以比 App 新：新增实体类型、枚举取值、字段时，旧版 App 逐条解码，认不出来的跳过并记下，升级后重新快照（05 §3.2）；太旧的 App 由 `MIN_ANDROID_VERSION_CODE` 拦下 |
 | 大小限制 | 文字消息正文 ≤ 10,000 字；图片 ≤ 20MB；其它文件、EPUB、审稿文件 ≤ 100MB |
 
 ### 错误格式
@@ -53,6 +54,7 @@
 | `rate_limited` | 429 | 请求太频繁，看 `Retry-After` |
 | `ai_unavailable` | 503 | AI 服务未配置或暂时不可用 |
 | `ai_quota_exceeded` | 429 | 本月 AI 额度用完 |
+| `upgrade_required` | 426 | App 版本低于服务端要求（`MIN_ANDROID_VERSION_CODE`，默认不限制）。健康检查、注册、登录、刷新令牌、`/app/*`（下载新版）不受限 |
 | `internal_error` | 500 | 服务端未预料的错误（日志里有详情，响应里不含堆栈） |
 
 ### 令牌
