@@ -170,6 +170,12 @@ class RoomService(
         detail(roomId)
     }
 
+    /** 邀请码现在能不能用（注册前的预检，不加锁；真正兑换时 [redeem] 还会在锁内再判断）。 */
+    fun checkInvite(code: String) {
+        val invite = Invites.selectAll().where { Invites.code eq code }.singleOrNull() ?: inviteInvalid()
+        if (invite[Invites.usedBy] != null || !invite[Invites.expiresAt].isAfter(clock.instant())) inviteInvalid()
+    }
+
     /**
      * 兑换邀请码（注册时也用它）：校验邀请码 → 已是成员直接返回 → 锁房间校验人数 → 加入 → 标记已使用。
      * @return 房间 id

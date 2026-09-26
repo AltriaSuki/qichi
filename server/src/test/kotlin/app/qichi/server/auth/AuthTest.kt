@@ -58,6 +58,41 @@ class AuthTest {
         api.register("xiaochi", inviteCode = "ABCDEFGH").assertProblem(HttpStatusCode.BadRequest, ProblemCode.InviteInvalid)
     }
 
+    /** 数一数算了几次密码哈希（参数调低，和 fastHasher 一样快）。 */
+    private class CountingHasher : PasswordHasher(memoryKib = 1024, iterations = 1, parallelism = 1) {
+        @Volatile var hashes = 0
+        override fun hash(password: String): String = super.hash(password).also { hashes++ }
+    }
+
+    @Test
+    fun `注定失败的注册不计算密码哈希（没有邀请码、邀请码无效、用户名重复）`() {
+        val hasher = CountingHasher()
+        serverTest(ctx = testContext(hasher = hasher)) { client ->
+            val api = Api(client)
+            api.registerOk("aqi")
+            assertEquals(1, hasher.hashes)
+            api.register("xiaochi").assertProblem(HttpStatusCode.Forbidden, ProblemCode.RegistrationClosed)
+            api.register("xiaochi", inviteCode = "ABCDEFGH").assertProblem(HttpStatusCode.BadRequest, ProblemCode.InviteInvalid)
+            api.register("aqi", inviteCode = "ABCDEFGH").assertProblem(HttpStatusCode.Conflict, ProblemCode.UsernameTaken)
+            assertEquals(1, hasher.hashes, "被拒绝的注册一次哈希都不算")
+        }
+    }
+
+    @Test
+    fun `同一个 IP 换着用户名乱试也会被限流，窗口过后恢复`() {
+        val clock = MutableClock()
+        serverTest(ctx = testContext(clock = clock)) { client ->
+            val api = Api(client)
+            api.registerOk("aqi")
+            repeat(20) { api.login("nobody$it", "whatever").assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized) }
+            // 这个 IP 已经错了 20 次：连正确的密码也要等
+            api.login("aqi").assertProblem(HttpStatusCode.TooManyRequests, ProblemCode.RateLimited)
+
+            clock.advance(Duration.ofMinutes(16))
+            api.loginOk("aqi")
+        }
+    }
+
     @Test
     fun `注册参数不合法时列出每个字段`() = serverTest { client ->
         val problem = Api(client).register("A!", password = "short", displayName = "  ")

@@ -84,7 +84,8 @@ fun testContext(
     aiGateway: AiGateway? = null,
     pushSender: app.qichi.server.push.PushSender? = null,
     converter: app.qichi.server.review.DocumentConverter? = null,
-): AppContext = AppContext(config, TestDatabase.database, clock, BuildInfo.load(), fastHasher, aiGateway, pushSender, converter)
+    hasher: PasswordHasher = fastHasher,
+): AppContext = AppContext(config, TestDatabase.database, clock, BuildInfo.load(), hasher, aiGateway, pushSender, converter)
 
 /** 可以拨动的时钟：测试过期、限流窗口。 */
 class MutableClock(private var now: Instant = Instant.now()) : Clock() {

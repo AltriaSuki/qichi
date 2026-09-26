@@ -17,6 +17,10 @@ import app.qichi.shared.api.RegisterRequest
 import app.qichi.shared.model.ProblemCode
 import app.qichi.shared.rules.Limits
 import app.qichi.shared.util.UuidV7
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
@@ -49,10 +53,18 @@ class AuthService(
 ) {
     private val log = LoggerFactory.getLogger(AuthService::class.java)
 
-    /** 登录按用户名限流；改密码按用户限流；邀请码按 IP 限流。 */
+    /**
+     * 登录按用户名限流，另按 IP 限流（换着用户名猜也绕不过，P13-02）；改密码按用户限流；邀请码按 IP 限流。
+     */
     val loginThrottle = FailureThrottle(clock)
+    val loginIpThrottle = FailureThrottle(clock, maxFailures = LOGIN_IP_MAX_FAILURES)
     val passwordThrottle = FailureThrottle(clock)
     val inviteThrottle = FailureThrottle(clock, maxFailures = 10)
+
+    /** 密码哈希（Argon2id，每次约 19MB 内存）：同时最多算这么多个，并且不占处理请求的线程。 */
+    private val hashPermits = Semaphore(HASH_CONCURRENCY)
+
+    private suspend fun <T> hashing(block: () -> T): T = hashPermits.withPermit { withContext(Dispatchers.Default) { block() } }
 
     data class Registered(val userId: UUID, val tokens: AuthTokens)
 
@@ -67,19 +79,16 @@ class AuthService(
             check((req.deviceName?.length ?: 0) <= Limits.DEVICE_NAME_MAX, "deviceName", "设备名太长")
         }
         if (inviteCode != null) inviteThrottle.check("invite:$clientIp")
-        val passwordHash = hasher.hash(req.password)
-
         return try {
+            // 先用便宜的查询挡掉注定失败的注册，再算密码哈希：Argon2 很贵，不能让任何人随便刷（P13-02）。
+            // 这里不加锁，下面的事务里在锁内还会再判断一次。
+            db.tx(readOnly = true) { checkCanRegister(username, inviteCode, precheckInvite = true) }
+            val passwordHash = hashing { hasher.hash(req.password) }
             db.tx {
                 // 串行化注册：保证「系统里还没有用户」的判断不会被两个并发请求同时通过
                 jdbc.exec("SELECT pg_advisory_xact_lock($REGISTER_LOCK_KEY)")
-                val hasUsers = Users.select(Users.id).limit(1).any()
-                if (hasUsers && inviteCode == null) {
-                    throw ApiException(ProblemCode.RegistrationClosed, "注册需要邀请码")
-                }
-                if (Users.select(Users.id).where { Users.username eq username }.any()) {
-                    throw ApiException(ProblemCode.UsernameTaken, "这个用户名已经有人用了")
-                }
+                // 邀请码由下面的 redeem 在锁内完整校验
+                checkCanRegister(username, inviteCode, precheckInvite = false)
                 val now = clock.instant()
                 val userId = UuidV7.generate()
                 Users.insert {
@@ -100,22 +109,41 @@ class AuthService(
         }
     }
 
-    suspend fun login(req: LoginRequest): AuthTokens {
+    /**
+     * 注册资格：系统里已有用户时必须带邀请码；用户名不能重复。
+     * [precheckInvite] 为 true 时顺带（不加锁地）看一眼邀请码能不能用，免得为注定失败的注册算哈希。
+     */
+    private fun checkCanRegister(username: String, inviteCode: String?, precheckInvite: Boolean) {
+        if (inviteCode == null && Users.select(Users.id).limit(1).any()) {
+            throw ApiException(ProblemCode.RegistrationClosed, "注册需要邀请码")
+        }
+        if (Users.select(Users.id).where { Users.username eq username }.any()) {
+            throw ApiException(ProblemCode.UsernameTaken, "这个用户名已经有人用了")
+        }
+        if (inviteCode != null && precheckInvite) rooms.checkInvite(inviteCode)
+    }
+
+    suspend fun login(req: LoginRequest, clientIp: String): AuthTokens {
         val username = req.username.trim().lowercase()
         val key = "login:$username"
+        val ipKey = "login-ip:$clientIp"
         loginThrottle.check(key)
+        loginIpThrottle.check(ipKey)
 
         val user = db.tx {
             Users.select(Users.id, Users.passwordHash).where { Users.username eq username }.singleOrNull()
         }
-        val ok = if (user == null) {
-            hasher.dummyVerify(req.password)
-            false
-        } else {
-            hasher.verify(req.password, user[Users.passwordHash])
+        val ok = hashing {
+            if (user == null) {
+                hasher.dummyVerify(req.password)
+                false
+            } else {
+                hasher.verify(req.password, user[Users.passwordHash])
+            }
         }
         if (!ok) {
             loginThrottle.recordFailure(key)
+            loginIpThrottle.recordFailure(ipKey)
             throw ApiException(ProblemCode.Unauthorized, "用户名或密码不正确")
         }
         loginThrottle.reset(key)
@@ -185,12 +213,12 @@ class AuthService(
         val current = db.tx {
             Users.select(Users.passwordHash).where { Users.id eq principal.userId }.single()[Users.passwordHash]
         }
-        if (!hasher.verify(req.currentPassword, current)) {
+        if (!hashing { hasher.verify(req.currentPassword, current) }) {
             passwordThrottle.recordFailure(key)
             throw ApiException(ProblemCode.Unauthorized, "当前密码不正确")
         }
         passwordThrottle.reset(key)
-        val newHash = hasher.hash(req.newPassword)
+        val newHash = hashing { hasher.hash(req.newPassword) }
         return db.tx {
             val now = clock.instant()
             Users.update({ Users.id eq principal.userId }) {
@@ -280,5 +308,11 @@ class AuthService(
     private companion object {
         /** pg_advisory_xact_lock 的固定键：注册串行化 */
         const val REGISTER_LOCK_KEY = 7_140_001L
+
+        /** 同一个 IP 15 分钟内最多输错这么多次（不管是哪个用户名） */
+        const val LOGIN_IP_MAX_FAILURES = 20
+
+        /** 同时计算的密码哈希个数上限（1GB 的服务器、256MB 的堆） */
+        const val HASH_CONCURRENCY = 2
     }
 }

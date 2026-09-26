@@ -28,7 +28,7 @@ fun Route.authRoutes(ctx: AppContext) {
             call.respond(HttpStatusCode.Created, registered.tokens)
         }
         post("/login") {
-            call.respond(ctx.auth.login(call.receive<LoginRequest>()))
+            call.respond(ctx.auth.login(call.receive<LoginRequest>(), call.clientIp))
         }
         post("/refresh") {
             call.respond(ctx.auth.refresh(call.receive<RefreshRequest>().refreshToken))
