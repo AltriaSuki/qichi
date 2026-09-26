@@ -1,6 +1,8 @@
 package app.qichi.server.sync
 
 import app.qichi.server.db.ChangeNotifier
+import app.qichi.server.db.CommittedChange
+import app.qichi.shared.model.EntityType
 import app.qichi.shared.api.PushPayload
 import app.qichi.shared.api.WsEvent
 import kotlinx.coroutines.channels.BufferOverflow
@@ -15,21 +17,41 @@ import java.util.UUID
  */
 data class RoomEvent(val roomId: UUID, val event: WsEvent, val userId: UUID? = null, val cap: String? = null)
 
+/** 这几次登录（family）被作废了：它们的实时连接马上断开（P13-09）。 */
+data class SessionsRevoked(val userId: UUID, val familyIds: Set<UUID>)
+
 /**
  * 进程内的实时事件总线：RoomWriter 提交后发布 changed，AI 任务结束时发布 ai.done；
  * WebSocket 连接各自订阅并过滤自己所在的房间。
  * 事件只是提示（客户端收到后调用 sync 拉取），所以缓冲满了可以丢最旧的。
+ * 登录被作废时另走 [revocations]（不能丢），连接收到就断开。
  */
 class RealtimeHub : ChangeNotifier {
     private val flow = MutableSharedFlow<RoomEvent>(
         extraBufferCapacity = 256,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
+    private val revoked = MutableSharedFlow<SessionsRevoked>(extraBufferCapacity = 64)
 
     val events: SharedFlow<RoomEvent> = flow.asSharedFlow()
 
-    override suspend fun roomChanged(roomId: UUID, seq: Long) {
-        flow.emit(RoomEvent(roomId, WsEvent.Changed(roomId, seq)))
+    /** 登出、改密码、踢设备、刷新令牌被盗用时发出。 */
+    val revocations: SharedFlow<SessionsRevoked> = revoked.asSharedFlow()
+
+    suspend fun sessionsRevoked(userId: UUID, familyIds: Set<UUID>) {
+        if (familyIds.isNotEmpty()) revoked.emit(SessionsRevoked(userId, familyIds))
+    }
+
+    /** changed 在 [entityChanged] 里发：要看是哪种实体。 */
+    override suspend fun roomChanged(roomId: UUID, seq: Long) = Unit
+
+    /**
+     * 房间有变化就提示在线的成员去拉取。已读位置的变化只提示本人：对方拉取时本来就看不到它，
+     * 提示了反而让对方的手机知道「我刚读了」，等于已读回执，还白白唤醒一次（P13-09）。
+     */
+    override suspend fun entityChanged(change: CommittedChange) {
+        val onlyFor = if (change.type == EntityType.ReadMarker) change.actorId else null
+        flow.emit(RoomEvent(change.roomId, WsEvent.Changed(change.roomId, change.seq), onlyFor))
     }
 
     suspend fun aiDone(roomId: UUID, jobId: UUID, status: String) {

@@ -51,6 +51,8 @@ class AuthService(
     private val tokens: TokenService,
     private val rooms: RoomService,
     private val clock: Clock,
+    /** 这几次登录被作废之后（事务已提交）调用：断开它们的实时连接（P13-09） */
+    private val onRevoked: suspend (userId: UUID, familyIds: Set<UUID>) -> Unit = { _, _ -> },
 ) {
     private val log = LoggerFactory.getLogger(AuthService::class.java)
 
@@ -209,6 +211,7 @@ class AuthService(
             is RefreshOutcome.Ok -> outcome.tokens
             is RefreshOutcome.Reused -> {
                 log.warn("刷新令牌被重复使用，已作废该登录的全部令牌：user={} family={}", outcome.userId, outcome.familyId)
+                onRevoked(outcome.userId, setOf(outcome.familyId))
                 throw ApiException(ProblemCode.Unauthorized, "登录已失效，请重新登录")
             }
             RefreshOutcome.Invalid -> throw ApiException(ProblemCode.Unauthorized, "登录已失效，请重新登录")
@@ -226,6 +229,7 @@ class AuthService(
         db.tx {
             revokeFamily(principal.familyId)
         }
+        onRevoked(principal.userId, setOf(principal.familyId))
     }
 
     /** 改密码：作废其它所有登录；当前设备拿到一对新令牌。 */
@@ -244,8 +248,12 @@ class AuthService(
         }
         passwordThrottle.reset(key)
         val newHash = hashing { hasher.hash(req.newPassword) }
-        return db.tx {
+        var others: Set<UUID> = emptySet()
+        val fresh = db.tx {
             val now = clock.instant()
+            others = RefreshTokens.select(RefreshTokens.familyId)
+                .where { (RefreshTokens.userId eq principal.userId) and RefreshTokens.revokedAt.isNull() }
+                .map { it[RefreshTokens.familyId] }.toSet() - principal.familyId
             Users.update({ Users.id eq principal.userId }) {
                 it[passwordHash] = newHash
                 it[passwordChangedAt] = now
@@ -262,6 +270,8 @@ class AuthService(
             }
             newSession(principal.userId, principal.familyId, deviceName)
         }
+        onRevoked(principal.userId, others)
+        return fresh
     }
 
     /** 「安全」页：我的有效登录（每次登录一行），最近用过的在前。 */
@@ -283,12 +293,15 @@ class AuthService(
     }
 
     /** 让某台设备退出登录（可以是自己这台，等于登出）；不是自己的登录一律 404。 */
-    suspend fun revokeSession(principal: UserPrincipal, familyId: UUID) = db.tx {
-        val mine = RefreshTokens.select(RefreshTokens.id).where {
-            (RefreshTokens.familyId eq familyId) and (RefreshTokens.userId eq principal.userId) and RefreshTokens.revokedAt.isNull()
-        }.limit(1).any()
-        if (!mine) notFound()
-        revokeFamily(familyId)
+    suspend fun revokeSession(principal: UserPrincipal, familyId: UUID) {
+        db.tx {
+            val mine = RefreshTokens.select(RefreshTokens.id).where {
+                (RefreshTokens.familyId eq familyId) and (RefreshTokens.userId eq principal.userId) and RefreshTokens.revokedAt.isNull()
+            }.limit(1).any()
+            if (!mine) notFound()
+            revokeFamily(familyId)
+        }
+        onRevoked(principal.userId, setOf(familyId))
     }
 
     /** 访问令牌所属的登录是否仍然有效（登出、改密码、重复使用检测后立即失效）。 */

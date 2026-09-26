@@ -197,7 +197,7 @@ class AppContext(
     val appReleases = AppReleases(config.filesDir)
     val files = FileService(database, fileStorage, clock)
     val rooms = RoomService(database, writer, clock, files)
-    val auth = AuthService(database, hasher, tokens, rooms, clock)
+    val auth = AuthService(database, hasher, tokens, rooms, clock, onRevoked = realtime::sessionsRevoked)
     val me = MeService(database, writer, clock, aiEnabled = aiGateway != null)
     val sync = SyncService(database)
     val writes = EntityWrites(writer, clock)
