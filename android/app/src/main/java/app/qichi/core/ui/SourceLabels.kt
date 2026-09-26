@@ -14,6 +14,13 @@ fun sourceKind(type: String) = when (type) {
     "mood" -> "心情"
     "event" -> "日程"
     "todo" -> "待办"
+    // AI 自己查到的（P11）
+    "qna_round" -> "问答"
+    "document" -> "文稿"
+    "board_topic" -> "留言"
+    "book" -> "书"
+    "review_document" -> "审稿"
+    "summary" -> "总结"
     else -> "记录"
 }
 
