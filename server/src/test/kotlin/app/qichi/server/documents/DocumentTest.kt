@@ -187,4 +187,16 @@ class DocumentTest {
         aqi.get("$path/search?q=").assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
         api.outsider(aqi).get("$path/search?q=a").assertProblem(HttpStatusCode.NotFound, ProblemCode.NotFound)
     }
+
+    @Test fun `搜索只看最新一版；百分号按字面匹配`() = serverTest { client ->
+        val (aqi, _, room) = Api(client).pair()
+        val path = "/api/v1/rooms/$room/documents"
+        val doc = aqi.post(path, CreateDocumentRequest(UuidV7.generate(), "计划")).body<Document>()
+        aqi.post("$path/${doc.id}/versions", SaveDocumentVersionRequest(UuidV7.generate(), 0, "去看海"))
+        aqi.post("$path/${doc.id}/versions", SaveDocumentVersionRequest(UuidV7.generate(), 1, "改成去爬山，预算 100%"))
+        assertTrue(aqi.get("$path/search?q=%E7%9C%8B%E6%B5%B7").body<List<DocumentSearchHit>>().isEmpty(), "旧版本里的字不算")
+        assertEquals(listOf(doc.id), aqi.get("$path/search?q=%E7%88%AC%E5%B1%B1").body<List<DocumentSearchHit>>().map { it.documentId })
+        assertEquals(listOf(doc.id), aqi.get("$path/search?q=100%25").body<List<DocumentSearchHit>>().map { it.documentId })
+        assertTrue(aqi.get("$path/search?q=10%25%25").body<List<DocumentSearchHit>>().isEmpty(), "% 不当通配符")
+    }
 }

@@ -69,6 +69,28 @@ class TimelineTest {
         aqi.get("$base/timeline?year=2020").assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
     }
 
+    @Test fun `按房间时区分月：每月的条数和那个月取到的内容一致，只取要看的那个月`() {
+        // 房间在东八区：8 月 31 日 23:55 和 9 月 1 日 00:05，只差十分钟，却在两个月
+        val clock = MutableClock(Instant.parse("2026-08-31T15:55:00Z"))
+        timelineAcrossMonths(clock)
+    }
+
+    private fun timelineAcrossMonths(clock: MutableClock) = serverTest(testContext(clock = clock)) { client ->
+        val (aqi, _, room) = Api(client).pair()
+        val base = "/api/v1/rooms/$room"
+        aqi.post("$base/ideas", CreateIdeaRequest(UuidV7.generate(), "八月最后一晚"))
+        clock.advance(Duration.ofMinutes(10))
+        aqi.post("$base/ideas", CreateIdeaRequest(UuidV7.generate(), "九月第一件事"))
+        aqi.post("$base/ideas", CreateIdeaRequest(UuidV7.generate(), "九月第二件事"))
+
+        val latest = aqi.get("$base/timeline").body<TimelinePage>()
+        assertEquals(2026 to 9, latest.year to latest.month)
+        assertEquals(listOf("九月第一件事", "九月第二件事"), latest.entries.map { it.title })
+        assertEquals(listOf((2026 to 9) to 2, (2026 to 8) to 1), latest.months.map { (it.year to it.month) to it.count })
+        val august = aqi.get("$base/timeline?year=2026&month=8").body<TimelinePage>()
+        assertEquals(listOf("八月最后一晚"), august.entries.map { it.title })
+    }
+
     @Test fun `照片要两个人都选中才上时间线；取消任一人的选中就下来`() = serverTest { client ->
         val api = Api(client)
         val (aqi, chi, room) = api.pair()

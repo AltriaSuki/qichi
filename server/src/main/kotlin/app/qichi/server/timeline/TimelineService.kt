@@ -42,7 +42,9 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import java.util.UUID
+import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.JoinType
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greaterEq
@@ -65,8 +67,6 @@ class TimelineService(
     private val rooms: RoomService,
     private val clock: Clock,
 ) {
-    private data class Raw(val entry: TimelineEntry)
-
     suspend fun month(userId: UUID, roomId: UUID, year: Int?, month: Int?): TimelinePage {
         validate {
             check((year == null) == (month == null), "month", "年和月要一起给")
@@ -76,21 +76,82 @@ class TimelineService(
         return db.tx(readOnly = true) {
             rooms.requireMember(roomId, userId)
             val zone = zoneOf(roomId)
-            val all = entries(roomId) + diaryEntries(roomId, zone)
-            fun ym(at: Instant) = YearMonth.from(at.atZone(zone))
-            val months = all.groupingBy { ym(it.at) }.eachCount()
+            // 每个月有几条：只读各处的时间，不读内容（P13-16）
+            val months = times(roomId, zone).groupingBy { YearMonth.from(it.atZone(zone)) }.eachCount()
                 .entries.sortedByDescending { it.key }.map { TimelineMonthCount(it.key.year, it.key.monthValue, it.value) }
             val target = if (year != null) YearMonth.of(year, month!!) else months.firstOrNull()?.let { YearMonth.of(it.year, it.month) } ?: YearMonth.from(clock.instant().atZone(zone))
-            TimelinePage(target.year, target.monthValue, all.filter { ym(it.at) == target }.sortedBy { it.at }, months)
+            // 只读要看的这一个月
+            val range = Range(target.atDay(1).atStartOfDay(zone).toInstant(), target.plusMonths(1).atDay(1).atStartOfDay(zone).toInstant())
+            TimelinePage(target.year, target.monthValue, (entries(roomId, range) + diaryEntries(roomId, zone, range)).sortedBy { it.at }, months)
         }
     }
 
     private fun zoneOf(roomId: UUID): ZoneId =
         Rooms.select(Rooms.timezone).where { Rooms.id eq roomId }.single()[Rooms.timezone].let { runCatching { ZoneId.of(it) }.getOrDefault(ZoneId.of("Asia/Shanghai")) }
 
-    /** 心情、揭晓的问答、计划进展、文稿存档（P10-09）。 */
-    private fun diaryEntries(roomId: UUID, zone: ZoneId): List<TimelineEntry> = buildList {
-        Moods.selectAll().where { (Moods.roomId eq roomId) and Moods.deletedAt.isNull() }.forEach {
+    /** 时间在 [from, until) 里 */
+    private class Range(val from: Instant, val until: Instant)
+
+    private fun Column<Instant>.within(range: Range): Op<Boolean> = (this greaterEq range.from) and (this less range.until)
+
+    @JvmName("withinNullable")
+    private fun Column<Instant?>.within(range: Range): Op<Boolean> = (this greaterEq range.from) and (this less range.until)
+
+    // ── 哪些能上时间线：数条数和取内容共用同一个条件，两边不会对不上 ──
+
+    private fun moods(roomId: UUID) = (Moods.roomId eq roomId) and Moods.deletedAt.isNull()
+
+    /** 问答：只有两个人都答完、揭晓了的才上时间线 */
+    private fun rounds(roomId: UUID) = (QnaRounds.roomId eq roomId) and QnaRounds.deletedAt.isNull() and QnaRounds.revealedAt.isNotNull()
+
+    private fun livePlans(roomId: UUID) = (Plans.roomId eq roomId) and Plans.deletedAt.isNull()
+
+    private fun doneStages(roomId: UUID) = (PlanStages.roomId eq roomId) and PlanStages.deletedAt.isNull() and PlanStages.doneAt.isNotNull()
+
+    private fun doneMilestones(roomId: UUID) = (Milestones.roomId eq roomId) and Milestones.deletedAt.isNull() and Milestones.doneAt.isNotNull()
+
+    private fun liveDocuments(roomId: UUID) = (Documents.roomId eq roomId) and Documents.deletedAt.isNull()
+
+    private fun decided(roomId: UUID) = (Decisions.roomId eq roomId) and Decisions.deletedAt.isNull() and Decisions.decidedAt.isNotNull()
+
+    private fun ideas(roomId: UUID) = (Ideas.roomId eq roomId) and Ideas.deletedAt.isNull()
+
+    private fun completedPlans(roomId: UUID) =
+        livePlans(roomId) and (Plans.status eq PlanStatus.Done.wireName) and Plans.completedAt.isNotNull()
+
+    /** 两个人都选中的照片 */
+    private fun bothPicked(roomId: UUID): Set<UUID> =
+        TimelinePicks.select(TimelinePicks.fileId, TimelinePicks.userId).where { TimelinePicks.roomId eq roomId }
+            .groupBy({ it[TimelinePicks.fileId] }, { it[TimelinePicks.userId] })
+            .filterValues { it.toSet().size >= 2 }.keys
+
+    /** 时间线上每一条的时间（只读时间列，用来按月数条数） */
+    private fun times(roomId: UUID, zone: ZoneId): List<Instant> = buildList {
+        Moods.select(Moods.createdAt).where { moods(roomId) }.forEach { add(it[Moods.createdAt]) }
+        QnaRounds.select(QnaRounds.revealedAt).where { rounds(roomId) }.forEach { add(it[QnaRounds.revealedAt]!!) }
+        val plans = Plans.select(Plans.id).where { livePlans(roomId) }.map { it[Plans.id] }.toSet()
+        PlanStages.select(PlanStages.planId, PlanStages.doneAt).where { doneStages(roomId) }
+            .forEach { if (it[PlanStages.planId] in plans) add(it[PlanStages.doneAt]!!) }
+        Milestones.select(Milestones.planId, Milestones.doneAt).where { doneMilestones(roomId) }
+            .forEach { if (it[Milestones.planId] in plans) add(it[Milestones.doneAt]!!) }
+        // 文稿：同一篇同一天只算一条
+        val docs = Documents.select(Documents.id).where { liveDocuments(roomId) }.map { it[Documents.id] }
+        if (docs.isNotEmpty()) {
+            DocumentVersions.select(DocumentVersions.documentId, DocumentVersions.createdAt).where { DocumentVersions.documentId inList docs }
+                .map { it[DocumentVersions.documentId] to it[DocumentVersions.createdAt] }
+                .distinctBy { (doc, at) -> doc to at.atZone(zone).toLocalDate() }
+                .forEach { add(it.second) }
+        }
+        Decisions.select(Decisions.decidedAt).where { decided(roomId) }.forEach { add(it[Decisions.decidedAt]!!) }
+        Ideas.select(Ideas.createdAt).where { ideas(roomId) }.forEach { add(it[Ideas.createdAt]) }
+        Plans.select(Plans.completedAt).where { completedPlans(roomId) }.forEach { add(it[Plans.completedAt]!!) }
+        val photos = bothPicked(roomId)
+        if (photos.isNotEmpty()) Files.select(Files.createdAt).where { Files.id inList photos }.forEach { add(it[Files.createdAt]) }
+    }
+
+    /** 心情、揭晓的问答、计划进展、文稿存档（P10-09），只取 [range] 这段时间的。 */
+    private fun diaryEntries(roomId: UUID, zone: ZoneId, range: Range): List<TimelineEntry> = buildList {
+        Moods.selectAll().where { moods(roomId) and Moods.createdAt.within(range) }.forEach {
             add(
                 TimelineEntry(
                     TimelineEntryKind.Mood, it[Moods.id], it[Moods.createdAt], it[Moods.label], it[Moods.note], it[Moods.authorId],
@@ -98,8 +159,7 @@ class TimelineService(
                 ),
             )
         }
-        // 问答：只有两个人都答完、揭晓了的才上时间线
-        val rounds = QnaRounds.selectAll().where { (QnaRounds.roomId eq roomId) and QnaRounds.deletedAt.isNull() and QnaRounds.revealedAt.isNotNull() }.toList()
+        val rounds = QnaRounds.selectAll().where { rounds(roomId) and QnaRounds.revealedAt.within(range) }.toList()
         if (rounds.isNotEmpty()) {
             val questions = Questions.select(Questions.id, Questions.text).where { Questions.id inList rounds.map { it[QnaRounds.questionId] } }
                 .associate { it[Questions.id] to it[Questions.text] }
@@ -115,20 +175,20 @@ class TimelineService(
             }
         }
         // 计划进展：阶段、里程碑做完
-        val planTitles = Plans.select(Plans.id, Plans.title).where { (Plans.roomId eq roomId) and Plans.deletedAt.isNull() }.associate { it[Plans.id] to it[Plans.title] }
-        PlanStages.selectAll().where { (PlanStages.roomId eq roomId) and PlanStages.deletedAt.isNull() and PlanStages.doneAt.isNotNull() }.forEach {
+        val planTitles = Plans.select(Plans.id, Plans.title).where { livePlans(roomId) }.associate { it[Plans.id] to it[Plans.title] }
+        PlanStages.selectAll().where { doneStages(roomId) and PlanStages.doneAt.within(range) }.forEach {
             val plan = planTitles[it[PlanStages.planId]] ?: return@forEach
             add(TimelineEntry(TimelineEntryKind.PlanProgress, it[PlanStages.planId], it[PlanStages.doneAt]!!, plan, "完成了「${it[PlanStages.title]}」"))
         }
-        Milestones.selectAll().where { (Milestones.roomId eq roomId) and Milestones.deletedAt.isNull() and Milestones.doneAt.isNotNull() }.forEach {
+        Milestones.selectAll().where { doneMilestones(roomId) and Milestones.doneAt.within(range) }.forEach {
             val plan = planTitles[it[Milestones.planId]] ?: return@forEach
             add(TimelineEntry(TimelineEntryKind.PlanProgress, it[Milestones.planId], it[Milestones.doneAt]!!, plan, "到了里程碑「${it[Milestones.title]}」"))
         }
-        // 文稿：同一篇同一天只列最新一版
-        val docs = Documents.select(Documents.id, Documents.title).where { (Documents.roomId eq roomId) and Documents.deletedAt.isNull() }.associate { it[Documents.id] to it[Documents.title] }
+        // 文稿：同一篇同一天只列最新一版（一个月的起止正好是那个时区里一天的开头，同一天的版本不会被拆开）
+        val docs = Documents.select(Documents.id, Documents.title).where { liveDocuments(roomId) }.associate { it[Documents.id] to it[Documents.title] }
         if (docs.isNotEmpty()) {
             DocumentVersions.select(DocumentVersions.documentId, DocumentVersions.version, DocumentVersions.authorId, DocumentVersions.charCount, DocumentVersions.createdAt)
-                .where { DocumentVersions.documentId inList docs.keys }
+                .where { (DocumentVersions.documentId inList docs.keys) and DocumentVersions.createdAt.within(range) }
                 .groupBy { it[DocumentVersions.documentId] to it[DocumentVersions.createdAt].atZone(zone).toLocalDate() }
                 .values.forEach { sameDay ->
                     val last = sameDay.maxBy { it[DocumentVersions.version] }
@@ -143,29 +203,27 @@ class TimelineService(
         }
     }
 
-    /** 房间里所有能上时间线的事（两个人的房间，量不大，一次取出再按月分）。 */
-    private fun entries(roomId: UUID): List<TimelineEntry> = buildList {
-        Decisions.selectAll().where { (Decisions.roomId eq roomId) and Decisions.deletedAt.isNull() and Decisions.decidedAt.isNotNull() }.forEach {
+    /** 定下的决定、灵感、完成的计划、两个人都选中的照片，只取 [range] 这段时间的。 */
+    private fun entries(roomId: UUID, range: Range): List<TimelineEntry> = buildList {
+        Decisions.selectAll().where { decided(roomId) and Decisions.decidedAt.within(range) }.forEach {
             add(TimelineEntry(TimelineEntryKind.Decision, it[Decisions.id], it[Decisions.decidedAt]!!, it[Decisions.question], it[Decisions.finalChoice], it[Decisions.decidedBy]))
         }
-        Ideas.selectAll().where { (Ideas.roomId eq roomId) and Ideas.deletedAt.isNull() }.forEach {
+        Ideas.selectAll().where { ideas(roomId) and Ideas.createdAt.within(range) }.forEach {
             add(TimelineEntry(TimelineEntryKind.Idea, it[Ideas.id], it[Ideas.createdAt], it[Ideas.body], null, it[Ideas.authorId]))
         }
-        Plans.selectAll().where {
-            (Plans.roomId eq roomId) and Plans.deletedAt.isNull() and (Plans.status eq PlanStatus.Done.wireName) and Plans.completedAt.isNotNull()
-        }.forEach {
+        Plans.selectAll().where { completedPlans(roomId) and Plans.completedAt.within(range) }.forEach {
             add(TimelineEntry(TimelineEntryKind.Plan, it[Plans.id], it[Plans.completedAt]!!, it[Plans.title], it[Plans.completionNote], it[Plans.ownerId]))
         }
-        val bothPicked = TimelinePicks.select(TimelinePicks.fileId, TimelinePicks.userId).where { TimelinePicks.roomId eq roomId }
-            .groupBy({ it[TimelinePicks.fileId] }, { it[TimelinePicks.userId] })
-            .filterValues { it.toSet().size >= 2 }.keys
+        val bothPicked = bothPicked(roomId)
         if (bothPicked.isNotEmpty()) {
-            // 照片下面的说明（P10-04）取发这张照片的那条消息
-            val captions = Messages.select(Messages.fileId, Messages.body).where { (Messages.fileId inList bothPicked) and Visibility.quotableMessage() }
-                .associate { it[Messages.fileId]!! to it[Messages.body] }
-            Files.selectAll().where { Files.id inList bothPicked }.forEach {
-                val meta = it.toFileMeta()
-                add(TimelineEntry(TimelineEntryKind.Photo, meta.id, meta.createdAt, meta.fileName, captions[meta.id]?.ifBlank { null }, meta.uploadedBy, meta))
+            val files = Files.selectAll().where { (Files.id inList bothPicked) and Files.createdAt.within(range) }.map { it.toFileMeta() }
+            if (files.isNotEmpty()) {
+                // 照片下面的说明（P10-04）取发这张照片的那条消息
+                val captions = Messages.select(Messages.fileId, Messages.body).where { (Messages.fileId inList files.map { it.id }) and Visibility.quotableMessage() }
+                    .associate { it[Messages.fileId]!! to it[Messages.body] }
+                files.forEach { meta ->
+                    add(TimelineEntry(TimelineEntryKind.Photo, meta.id, meta.createdAt, meta.fileName, captions[meta.id]?.ifBlank { null }, meta.uploadedBy, meta))
+                }
             }
         }
     }
