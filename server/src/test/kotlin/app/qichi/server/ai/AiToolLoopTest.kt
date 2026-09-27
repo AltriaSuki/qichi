@@ -10,9 +10,13 @@ import app.qichi.server.testContext
 import app.qichi.shared.api.AiChatRequest
 import app.qichi.shared.api.AiJob
 import app.qichi.shared.api.AiPrefs
+import app.qichi.shared.api.Book
+import app.qichi.shared.api.CreateBookRequest
 import app.qichi.shared.api.CreateEventRequest
+import app.qichi.shared.api.CreateHighlightRequest
 import app.qichi.shared.api.CreateIdeaRequest
 import app.qichi.shared.api.CreateMoodRequest
+import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.MessagePage
 import app.qichi.shared.api.Patch
@@ -21,6 +25,7 @@ import app.qichi.shared.api.SendMessageRequest
 import app.qichi.shared.api.UpdateMeRequest
 import app.qichi.shared.api.WsEvent
 import app.qichi.shared.model.AiJobStatus
+import app.qichi.shared.model.HighlightKind
 import app.qichi.shared.model.MoodLabel
 import app.qichi.shared.util.UuidV7
 import io.ktor.client.call.body
@@ -232,6 +237,49 @@ class AiToolLoopTest {
             assertTrue(request.tools.isEmpty())
             assertTrue(request.messages.single().content.contains("有点低落"))
             assertFalse(request.system.contains("用工具"))
+        }
+    }
+
+    @Test
+    fun `我没公开的阅读记录：打开开关的人，AI 查得到他没公开的划线；关着时查不到（P14-02）`() {
+        var toolResult = ""
+        val gateway = ScriptedGateway { round, request, _ ->
+            if (round % 2 == 0) {
+                lookup("search", """{"query":"不必急着"}""")
+            } else {
+                toolResult = request.messages.last().content
+                answer("好的。")
+            }
+        }
+        val ctx = testContext(clock = clock, aiGateway = gateway)
+        serverTest(ctx) { client ->
+            val (aqi, chi, room) = Api(client).pair()
+            val epub = java.io.ByteArrayOutputStream().also { out ->
+                java.util.zip.ZipOutputStream(out).use { zip ->
+                    zip.putNextEntry(java.util.zip.ZipEntry("mimetype")); zip.write("application/epub+zip".toByteArray()); zip.closeEntry()
+                    zip.putNextEntry(java.util.zip.ZipEntry("META-INF/container.xml")); zip.write("<container/>".toByteArray()); zip.closeEntry()
+                }
+            }.toByteArray()
+            val file = aqi.upload(room, epub, fileName = "book.epub", kind = "epub", contentType = "application/epub+zip").body<FileMeta>()
+            val book = aqi.post("/api/v1/rooms/$room/books", CreateBookRequest(UuidV7.generate(), file.id, "海边的旅店")).body<Book>()
+            aqi.post("/api/v1/rooms/$room/books/${book.id}/highlights", CreateHighlightRequest(UuidV7.generate(), HighlightKind.Highlight, "{}", "不必急着去哪里"))
+
+            suspend fun ask() {
+                chi.post("/api/v1/rooms/$room/ai/chat", AiChatRequest(UuidV7.generate(), "阿栖最近读到什么了？"))
+                ctx.jobs.drain()
+            }
+            ask()
+            assertTrue(toolResult.startsWith("没有找到"), "开关关着：没公开的划线谁问都查不到。$toolResult")
+
+            // 阿栖打开开关：小迟问 AI 也查得到（回答两个人都看得到，这是阿栖自己愿意的）
+            aqi.patch("/api/v1/me", UpdateMeRequest(aiPrefs = Patch.of(AiPrefs(readingPrivate = true).toJson())))
+            ask()
+            assertTrue(toolResult.contains("不必急着去哪里"), toolResult)
+
+            // 小迟关掉「阅读」这一类：谁打开了也不给
+            chi.patch("/api/v1/me", UpdateMeRequest(aiPrefs = Patch.of(AiPrefs(reading = false).toJson())))
+            ask()
+            assertTrue(toolResult.startsWith("没有找到"), toolResult)
         }
     }
 }

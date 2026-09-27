@@ -901,12 +901,12 @@ class AiService(
             val plans = Plans.select(Plans.id, Plans.title)
                 .where { (Plans.roomId eq roomId) and Plans.deletedAt.isNull() and (Plans.status eq PlanStatus.Active.wireName) }
                 .associate { it[Plans.title] to it[Plans.id] }
-            ChatInputs(context, names, sources, zone, focus, plans, prefs)
+            ChatInputs(context, names, sources, zone, focus, plans, prefs, openReaders(roomId))
         }
         val (context, names, sources, zone) = input
         // 事先备料和工具查到的共用一套编号
         val book = SourceBook(sources)
-        val tools = if (config.tools) RoomTools(roomId, now, zone, names, input.prefs, book).takeIf { it.definitions.isNotEmpty() } else null
+        val tools = if (config.tools) RoomTools(roomId, now, zone, names, input.prefs, book, input.openReaders).takeIf { it.definitions.isNotEmpty() } else null
         val focusText = input.focus?.let { m ->
             val t = m.createdAt.atZone(zone)
             "要整理的消息（${m.authorId?.let(names::get) ?: "AI"}，${t.monthValue}月${t.dayOfMonth}日 %02d:%02d）：${m.body.take(CONTEXT_LINE_MAX * 3)}\n".format(t.hour, t.minute) +
@@ -1049,6 +1049,8 @@ class AiService(
         val plans: Map<String, UUID>,
         /** 两个人都允许 AI 看的类别 */
         val prefs: AiPrefs,
+        /** 打开了「我没公开的阅读记录」的人（P14-02） */
+        val openReaders: Set<UUID>,
     )
 
     /** 某人自己的「AI 能看什么」设置。 */
@@ -1058,6 +1060,10 @@ class AiService(
     /** 房间里两个人都允许的类别（P11：谁发起的 AI 请求都按这个）。 */
     private fun roomPrefs(roomId: UUID): AiPrefs =
         RoomRepository.activeMembers(roomId).map { prefsOf(it.userId) }.fold(AiPrefs()) { a, b -> a and b }
+
+    /** 打开了「我没公开的阅读记录」的人（P14-02：各管各的，不取交集；「阅读」这一类有人关掉时用不上）。 */
+    private fun openReaders(roomId: UUID): Set<UUID> =
+        RoomRepository.activeMembers(roomId).filter { prefsOf(it.userId).readingPrivate }.map { it.userId }.toSet()
 
     /** 最近 [CONTEXT_MESSAGES] 条没撤回、没删除的消息，从早到晚。 */
     private fun chatContext(roomId: UUID): List<ContextLine> =

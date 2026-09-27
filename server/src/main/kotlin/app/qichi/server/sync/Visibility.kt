@@ -8,12 +8,15 @@ import app.qichi.shared.api.Highlight
 import app.qichi.shared.api.ReadMarker
 import app.qichi.shared.api.SyncEntity
 import app.qichi.shared.model.EntityType
+import app.qichi.shared.model.HighlightKind
+import app.qichi.shared.model.wireName
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
+import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.select
 import java.time.Instant
 import java.util.UUID
@@ -26,7 +29,8 @@ import java.util.UUID
  * - 撤回的消息：正文在撤回时已清空，照常同步（显示「已撤回」）；但导出、搜索、时间线、AI 的资料里都不出现
  *
  * AI 在聊天里的回答两个人都看得到，所以它查资料时只能拿「两个人都看得到的」：回答要已揭晓（连提问的人自己的也一样），
- * 读书标记要已共享（见 [answersPublic]、[publicHighlight]）。
+ * 读书标记要已共享（见 [answersPublic]、[publicHighlight]）。例外是本人愿意：打开了「我没公开的阅读记录」的人，
+ * 自己没公开的读书记录也给 AI（P14-02，见 [aiReading]）。
  */
 object Visibility {
 
@@ -52,6 +56,17 @@ object Visibility {
 
     /** 两个人都看得到的读书标记：已共享的 */
     fun publicHighlight(): Op<Boolean> = Highlights.shared eq true
+
+    /**
+     * AI 能用的读书记录（P14-02）：划线、摘录、AI 解释里已共享的，加上 [openReaders]（打开了「我没公开的阅读记录」的人）
+     * 自己没共享的；书签只是位置，不给。「阅读」这一类有人关掉时，调用方根本不该来查。
+     */
+    fun aiReading(openReaders: Set<UUID>): Op<Boolean> {
+        val kinds = Highlights.kind inList AI_READING_KINDS
+        return if (openReaders.isEmpty()) kinds and publicHighlight() else kinds and (publicHighlight() or (Highlights.userId inList openReaders))
+    }
+
+    private val AI_READING_KINDS = listOf(HighlightKind.Highlight, HighlightKind.Excerpt, HighlightKind.Ai).map { it.wireName }
 
     /** 这种变化的实时提示只发给谁；为空 = 房间里的人都发 */
     fun hintOnlyFor(type: EntityType, actorId: UUID?): UUID? = if (type == EntityType.ReadMarker) actorId else null

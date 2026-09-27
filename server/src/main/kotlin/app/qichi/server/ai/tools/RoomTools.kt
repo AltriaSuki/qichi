@@ -38,6 +38,7 @@ import app.qichi.server.sync.Visibility
 import app.qichi.shared.api.AiPrefs
 import app.qichi.shared.api.Message
 import app.qichi.shared.model.EntityType
+import app.qichi.shared.model.HighlightKind
 import app.qichi.shared.model.MessageKind
 import app.qichi.shared.model.PlanStatus
 import app.qichi.shared.model.wireName
@@ -71,7 +72,8 @@ import org.jetbrains.exposed.v1.jdbc.selectAll
  * 问 AI 时给模型用的只读查询工具（P11-02，docs/10-ai-assistant.md 第七节）。
  *
  * - 只查本房间 [roomId]；删除的、撤回的一律不给。
- * - 没揭晓的问答回答不给（否则提问的人能借 AI 先看到对方的答案）；没公开的摘录不给（AI 的回答在两人共享的聊天里）。
+ * - 没揭晓的问答回答不给（否则提问的人能借 AI 先看到对方的答案）；没公开的读书记录不给（AI 的回答在两人共享的聊天里），
+ *   除非是 [openReaders] 里的人自己的——他们打开了「我没公开的阅读记录」（P14-02，见 Visibility.aiReading）。
  * - 「AI 能看什么」：[prefs] 是两个人都允许的类别（调用方算好交集），关掉的类别不提供工具，搜索也跳过。
  * - 结果里每条记录带 [n] 编号，和事先备料共用 [book]：AI 用编号引用，也用编号看详情。
  *
@@ -84,6 +86,8 @@ class RoomTools(
     private val names: Map<UUID, String>,
     private val prefs: AiPrefs,
     val book: SourceBook,
+    /** 打开了「我没公开的阅读记录」的人（各管各的，不取交集） */
+    private val openReaders: Set<UUID> = emptySet(),
 ) {
     private val today: LocalDate = now.atZone(zone).toLocalDate()
 
@@ -178,7 +182,7 @@ class RoomTools(
             prefs.board, { a -> if (a.int("ref") != null) "留言" else "留言板" }, ::board,
         ),
         Spec(
-            AiTool("reading", "不给 ref：列出书架上的书和两个人的进度；给 ref：看这本书的进度和两个人公开的摘录、划线、感想。", schema("ref" to refParam("书"))),
+            AiTool("reading", "不给 ref：列出书架上的书和两个人的进度；给 ref：看这本书的进度和能给你看的划线、摘录、感想、AI 解释。", schema("ref" to refParam("书"))),
             prefs.reading, { a -> if (a.int("ref") != null) "书里的摘录" else "书架" }, ::reading,
         ),
         Spec(
@@ -413,7 +417,7 @@ class RoomTools(
         if ("reading" in want) {
             val books = Books.selectAll().where { (Books.roomId eq roomId) and live(Books.deletedAt) }.associateBy { it[Books.id] }
             books.values.forEach { b -> hit(b[Books.title] + " " + (b[Books.author] ?: ""), b[Books.createdAt]) { out, _ -> out.item(EntityType.Book, b[Books.id], cut(b[Books.title], 80), b[Books.createdAt], "书《${b[Books.title]}》" + (b[Books.author]?.let { "（$it）" } ?: "")) } }
-            sharedHighlights(null).forEach { h ->
+            aiHighlights(null).forEach { h ->
                 val b = books[h[Highlights.bookId]] ?: return@forEach
                 hit(h[Highlights.text] + " " + (h[Highlights.note] ?: ""), h[Highlights.createdAt]) { out, _ ->
                     out.item(EntityType.Book, b[Books.id], cut(b[Books.title], 80), b[Books.createdAt], "《${b[Books.title]}》里${highlightLine(h)}")
@@ -708,15 +712,23 @@ class RoomTools(
 
     // ── 阅读、审稿、总结 ──
 
-    /** 公开的划线、摘录（书签和 AI 解释不算；没公开的是个人笔记，永远不给）。 */
-    private fun sharedHighlights(bookId: UUID?): List<ResultRow> =
+    /** 能给 AI 的划线、摘录、AI 解释（规则见 Visibility.aiReading；书签不算）。 */
+    private fun aiHighlights(bookId: UUID?): List<ResultRow> =
         Highlights.selectAll().where {
-            (Highlights.roomId eq roomId) and Highlights.deletedAt.isNull() and Visibility.publicHighlight() and
-                (Highlights.kind inList listOf("highlight", "excerpt")) and (if (bookId != null) Highlights.bookId eq bookId else Op.TRUE)
+            (Highlights.roomId eq roomId) and Highlights.deletedAt.isNull() and Visibility.aiReading(openReaders) and
+                (if (bookId != null) Highlights.bookId eq bookId else Op.TRUE)
         }.orderBy(Highlights.createdAt).toList()
 
-    private fun highlightLine(h: ResultRow) =
-        "${who(h[Highlights.userId])}的${if (h[Highlights.kind] == "excerpt") "摘录" else "划线"}：「${cut(h[Highlights.text], 200)}」" + (h[Highlights.note]?.let { " 感想：${cut(it, 200)}" } ?: "")
+    private fun highlightLine(h: ResultRow): String {
+        val quote = "「${cut(h[Highlights.text], 200)}」"
+        val note = h[Highlights.note]
+        return when (h[Highlights.kind]) {
+            // AI 解释：感想那一栏是 AI 写的解释
+            HighlightKind.Ai.wireName -> "${who(h[Highlights.userId])}请 AI 解释过$quote" + (note?.let { "，AI 说：${cut(it, 300)}" } ?: "")
+            HighlightKind.Excerpt.wireName -> "${who(h[Highlights.userId])}的摘录：$quote" + (note?.let { " 感想：${cut(it, 200)}" } ?: "")
+            else -> "${who(h[Highlights.userId])}的划线：$quote" + (note?.let { " 感想：${cut(it, 200)}" } ?: "")
+        }
+    }
 
     private fun reading(a: Args): String {
         val id = ref(a, EntityType.Book)
@@ -734,7 +746,7 @@ class RoomTools(
         }
         val b = Books.selectAll().where { (Books.id eq id) and (Books.roomId eq roomId) and Books.deletedAt.isNull() }.singleOrNull() ?: return "这本书已经删掉了"
         out.item(EntityType.Book, id, cut(b[Books.title], 80), b[Books.createdAt], line(b))
-        sharedHighlights(id).forEach { h -> out.text(highlightLine(h)) }
+        aiHighlights(id).forEach { h -> out.text(highlightLine(h)) }
         return out.result("")
     }
 
