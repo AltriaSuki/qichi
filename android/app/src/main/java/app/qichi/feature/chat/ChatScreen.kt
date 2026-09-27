@@ -94,6 +94,7 @@ import app.qichi.core.designsystem.Sizes
 import app.qichi.core.designsystem.Spacing
 import app.qichi.core.designsystem.component.AiMark
 import app.qichi.core.designsystem.component.ConfirmDialog
+import app.qichi.core.designsystem.component.FoldableText
 import app.qichi.core.designsystem.component.IconAction
 import app.qichi.core.designsystem.component.PersonMark
 import app.qichi.core.designsystem.component.RefChip
@@ -547,6 +548,7 @@ private fun MessageBody(
         m.kind == MessageKind.Ai -> AiBlock(
             prompt = m.aiPrompt, asker = aiAsker(m, people),
             modifier = Modifier.combinedClickable(onClick = {}, onLongClickLabel = "更多操作", onLongClick = onLongPress),
+            onLongPress = onLongPress,
         ) {
             AiAnswer(m, onOpenSource)
             AiActionCards(aiActions, people, zone, actionHandlers)
@@ -738,9 +740,18 @@ private fun Notice(text: String) {
 /** 谁问的 AI（旧版服务端的回答没有这一项时为空，只写「问：」）。 */
 private fun aiAsker(m: Message, people: People): String? = m.aiAskedBy?.let { people.name(it) }
 
-/** AI 的回答（按 New-Chat）：左边「✦AI」+ 小字「谁问：问题」，下面是整宽的回答正文。 */
+/**
+ * AI 的回答（按 New-Chat）：左边「✦AI」+ 小字「谁问：问题」，下面是整宽的回答正文。
+ * 问题超过两行时点一下展开全部（P14-01）；[onLongPress] 让长按问题也能打开这条的菜单。
+ */
 @Composable
-private fun AiBlock(prompt: String?, modifier: Modifier = Modifier, asker: String? = null, content: @Composable () -> Unit) {
+private fun AiBlock(
+    prompt: String?,
+    modifier: Modifier = Modifier,
+    asker: String? = null,
+    onLongPress: (() -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     Column(
@@ -752,11 +763,11 @@ private fun AiBlock(prompt: String?, modifier: Modifier = Modifier, asker: Strin
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AiMark()
             if (!prompt.isNullOrBlank()) {
-                Text(
+                FoldableText(
                     (asker?.let { "${it}问：" } ?: "问：") + prompt,
                     style = type.caption.copy(fontSize = 12.tsp, color = colors.muted),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                    onLongClick = onLongPress,
                 )
             }
         }
@@ -820,7 +831,8 @@ private fun AiAnswer(m: Message, onOpenSource: (SummarySource) -> Unit) {
                 ) {
                     Box(Modifier.widthIn(min = 32.dp)) { RefChip(src.number) }
                     Text(sourceKind(src.type), style = type.caption.copy(color = colors.faint))
-                    Text(sourceLabel(src), style = type.caption.copy(color = colors.ink), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    // 摘录整条显示（P14-01）；点这一行照旧打开原来那条
+                    Text(sourceLabel(src), style = type.caption.copy(color = colors.ink), modifier = Modifier.weight(1f))
                 }
             }
         }
