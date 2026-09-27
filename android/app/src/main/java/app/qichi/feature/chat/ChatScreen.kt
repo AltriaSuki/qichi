@@ -209,11 +209,13 @@ fun ChatScreen(
     var highlighted by remember { mutableStateOf<UUID?>(null) }
     var menuFor by remember { mutableStateOf<Local<Message>?>(null) }
     val aiActions by viewModel.aiActions.collectAsStateWithLifecycle()
+    val planTitles = viewModel.planTitles.collectAsStateWithLifecycle()
     val actionHandlers = remember(viewModel) {
         AiActionHandlers(
             onAccept = viewModel::acceptAiAction,
             onDismiss = viewModel::dismissAiAction,
             onOpen = { src -> if (src.type == "message") viewModel.jumpTo(src.id) else onOpenSource(src) },
+            planTitle = { id -> planTitles.value[id] },
         )
     }
 

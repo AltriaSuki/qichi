@@ -9,6 +9,7 @@ import app.qichi.server.db.PlanLogs
 import app.qichi.server.db.PlanStages
 import app.qichi.server.db.Plans
 import app.qichi.server.db.QichiDatabase
+import app.qichi.server.db.Tx
 import app.qichi.server.db.tx
 import app.qichi.server.db.Todos
 import app.qichi.server.plugins.ApiException
@@ -89,6 +90,11 @@ class PlanService(
 
     suspend fun create(userId: UUID, roomId: UUID, request: CreatePlanRequest): Pair<Plan, Boolean> = db.tx {
         rooms.requireMember(roomId, userId)
+        createIn(this, userId, roomId, request)
+    }
+
+    /** 在已有事务里建（接受 AI 提议时和提议的状态一起提交，P14-04）；成员身份由调用方检查。 */
+    fun createIn(tx: Tx, userId: UUID, roomId: UUID, request: CreatePlanRequest): Pair<Plan, Boolean> {
         val title = checkTitle(request.title)
         val step = checkStep(request.nextStep)
         val stepOwner = request.nextStepOwnerId
@@ -97,7 +103,7 @@ class PlanService(
             check(stepOwner == null || activeMember(roomId, stepOwner), "nextStepOwnerId", "负责人必须是房间成员")
             check(step != null || (stepOwner == null && request.nextStepDue == null), "nextStep", "先填写下一步")
         }
-        writes.create(this, roomId, userId, EntityType.Plan, request.id, Plans,
+        return writes.create(tx, roomId, userId, EntityType.Plan, request.id, Plans,
             { id -> Plans.selectAll().where { Plans.id eq id }.singleOrNull()?.toPlan() }) {
             it[Plans.title] = title
             it[Plans.ownerId] = request.ownerId
@@ -117,6 +123,11 @@ class PlanService(
      */
     suspend fun update(userId: UUID, roomId: UUID, id: UUID, request: UpdatePlanRequest): Plan = db.tx {
         rooms.requireMember(roomId, userId)
+        updateIn(this, userId, roomId, id, request)
+    }
+
+    /** 在已有事务里改（接受 AI 提议的「设下一步」时用，P14-04）；成员身份由调用方检查。 */
+    fun updateIn(tx: Tx, userId: UUID, roomId: UUID, id: UUID, request: UpdatePlanRequest): Plan {
         RoomRepository.lockRoom(roomId)
         val row = Plans.selectAll().where { (Plans.id eq id) and (Plans.roomId eq roomId) and Plans.deletedAt.isNull() }
             .singleOrNull() ?: notFound()
@@ -173,7 +184,7 @@ class PlanService(
             editsStep -> null
             else -> row[Plans.nextStepTodoId]
         }
-        writes.update(this, roomId, userId, EntityType.Plan, id, Plans) {
+        writes.update(tx, roomId, userId, EntityType.Plan, id, Plans) {
             if (title != null) it[Plans.title] = title
             request.ownerId.ifPresent { value -> it[Plans.ownerId] = value }
             request.status.ifPresent { value ->
@@ -189,7 +200,7 @@ class PlanService(
             it[Plans.nextStepTodoId] = todoLink
             request.coverFileId.ifPresent { value -> it[Plans.coverFileId] = value }
         }
-        Plans.selectAll().where { Plans.id eq id }.single().toPlan()
+        return Plans.selectAll().where { Plans.id eq id }.single().toPlan()
     }
 
     suspend fun complete(userId: UUID, roomId: UUID, id: UUID, request: CompletePlanRequest): Plan = db.tx {
@@ -224,16 +235,26 @@ class PlanService(
 
     suspend fun createStage(userId: UUID, roomId: UUID, planId: UUID, request: CreatePlanStageRequest): Pair<PlanStage, Boolean> = db.tx {
         rooms.requireMember(roomId, userId)
+        createStageIn(this, userId, roomId, planId, request)
+    }
+
+    /** 在已有事务里加阶段（P14-04）；成员身份由调用方检查。 */
+    fun createStageIn(tx: Tx, userId: UUID, roomId: UUID, planId: UUID, request: CreatePlanStageRequest): Pair<PlanStage, Boolean> {
         requirePlan(roomId, planId)
         val title = checkTitle(request.title)
         validate { check(request.sortOrder >= 0, "sortOrder", "不能小于 0") }
-        val result = writes.create(this, roomId, userId, EntityType.PlanStage, request.id, PlanStages,
+        val result = writes.create(tx, roomId, userId, EntityType.PlanStage, request.id, PlanStages,
             { id -> PlanStages.selectAll().where { PlanStages.id eq id }.singleOrNull()?.toPlanStage() }) {
             it[PlanStages.planId] = planId; it[PlanStages.title] = title; it[PlanStages.sortOrder] = request.sortOrder
         }
         if (result.first.planId != planId) throw ApiException(ProblemCode.ConflictId, "这个 id 已被别的计划使用")
-        result
+        return result
     }
+
+    /** 加在最后的阶段用的顺序号（现有的最大值 + 1）。 */
+    fun nextStageOrder(planId: UUID): Int =
+        (PlanStages.select(PlanStages.sortOrder).where { (PlanStages.planId eq planId) and PlanStages.deletedAt.isNull() }
+            .maxOfOrNull { it[PlanStages.sortOrder] } ?: -1) + 1
 
     suspend fun updateStage(userId: UUID, roomId: UUID, planId: UUID, id: UUID, request: UpdatePlanStageRequest): PlanStage = db.tx {
         rooms.requireMember(roomId, userId)
@@ -263,14 +284,19 @@ class PlanService(
 
     suspend fun createMilestone(userId: UUID, roomId: UUID, planId: UUID, request: CreateMilestoneRequest): Pair<Milestone, Boolean> = db.tx {
         rooms.requireMember(roomId, userId)
+        createMilestoneIn(this, userId, roomId, planId, request)
+    }
+
+    /** 在已有事务里加里程碑（P14-04）；成员身份由调用方检查。 */
+    fun createMilestoneIn(tx: Tx, userId: UUID, roomId: UUID, planId: UUID, request: CreateMilestoneRequest): Pair<Milestone, Boolean> {
         requirePlan(roomId, planId)
         val title = checkTitle(request.title)
-        val result = writes.create(this, roomId, userId, EntityType.Milestone, request.id, Milestones,
+        val result = writes.create(tx, roomId, userId, EntityType.Milestone, request.id, Milestones,
             { id -> Milestones.selectAll().where { Milestones.id eq id }.singleOrNull()?.toMilestone() }) {
             it[Milestones.planId] = planId; it[Milestones.title] = title; it[Milestones.targetDate] = request.targetDate
         }
         if (result.first.planId != planId) throw ApiException(ProblemCode.ConflictId, "这个 id 已被别的计划使用")
-        result
+        return result
     }
 
     suspend fun updateMilestone(userId: UUID, roomId: UUID, planId: UUID, id: UUID, request: UpdateMilestoneRequest): Milestone = db.tx {
@@ -298,15 +324,20 @@ class PlanService(
 
     suspend fun createLog(userId: UUID, roomId: UUID, planId: UUID, request: CreatePlanLogRequest): Pair<PlanLog, Boolean> = db.tx {
         rooms.requireMember(roomId, userId)
+        createLogIn(this, userId, roomId, planId, request)
+    }
+
+    /** 在已有事务里记一笔进展（P14-04，记的人是点「好」的人）；成员身份由调用方检查。 */
+    fun createLogIn(tx: Tx, userId: UUID, roomId: UUID, planId: UUID, request: CreatePlanLogRequest): Pair<PlanLog, Boolean> {
         requirePlan(roomId, planId)
         val body = request.body.trim()
         validate { check(body.length in Limits.PLAN_LOG_LENGTH, "body", "记录 1–10000 字") }
-        val result = writes.create(this, roomId, userId, EntityType.PlanLog, request.id, PlanLogs,
+        val result = writes.create(tx, roomId, userId, EntityType.PlanLog, request.id, PlanLogs,
             { id -> PlanLogs.selectAll().where { PlanLogs.id eq id }.singleOrNull()?.toPlanLog() }) {
             it[PlanLogs.planId] = planId; it[PlanLogs.authorId] = userId; it[PlanLogs.body] = body
         }
         if (result.first.planId != planId || result.first.authorId != userId) throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
-        result
+        return result
     }
 
     /** 改一条进展记录（P14-03）：只有记的人能改。 */

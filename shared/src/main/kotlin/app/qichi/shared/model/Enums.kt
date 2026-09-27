@@ -329,6 +329,12 @@ enum class AiActionKind {
     @SerialName("todo") Todo,
     @SerialName("archive_item") ArchiveItem,
     @SerialName("idea") Idea,
+    // 计划相关（P14-04）
+    @SerialName("plan") Plan,
+    @SerialName("plan_stage") PlanStage,
+    @SerialName("milestone") Milestone,
+    @SerialName("plan_log") PlanLog,
+    @SerialName("next_step") NextStep,
 }
 
 /** AI 提议的动作的状态：等人决定、建好了、不用了。 */

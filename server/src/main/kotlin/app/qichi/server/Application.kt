@@ -217,7 +217,7 @@ class AppContext(
     val docComments = DocCommentService(database, rooms, writes)
     val board = BoardService(database, rooms, writes)
     val archive = ArchiveService(database, rooms, writes)
-    val aiActions = AiActionService(database, rooms, writes, events, todos, archive, ideas)
+    val aiActions = AiActionService(database, rooms, writes, events, todos, archive, ideas, plans)
     val decisions = DecisionService(database, rooms, writes)
     val timeline = TimelineService(database, rooms, clock)
     val reading = ReadingService(database, rooms, writes)

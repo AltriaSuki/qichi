@@ -1909,7 +1909,10 @@ paths:
     post:
       tags: [ai]
       operationId: acceptAiAction
-      summary: 接受 AI 的提议（P8-02）：服务端按草稿建成日程 / 待办 / 档案 / 灵感（id = resultId）；已经接受过的原样返回
+      summary: 接受 AI 的提议（P8-02）：服务端按草稿建成日程 / 待办 / 档案 / 灵感 / 计划 / 阶段 / 里程碑 / 进展（id = resultId）；已经接受过的原样返回
+      description: |
+        `next_step`（P14-04）不新建实体，是把 `planId` 那个计划的下一步换成草稿里的（resultId 记成那个计划的 id）。
+        计划相关的提议（除 `plan` 外）要那个计划还在，否则 404。
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/AcceptAiActionRequest' } } }
@@ -4578,7 +4581,8 @@ components:
 
     AiActionKind:
       type: string
-      enum: [event, todo, archive_item, idea]
+      description: P14-04 起加上计划相关的：plan 新建计划、plan_stage 加阶段、milestone 加里程碑、plan_log 记一笔进展、next_step 设下一步
+      enum: [event, todo, archive_item, idea, plan, plan_stage, milestone, plan_log, next_step]
     AiActionStatus:
       type: string
       enum: [proposed, accepted, dismissed]
@@ -4587,6 +4591,8 @@ components:
       description: |
         AI 提议的草稿，按 kind 取用字段：event 用 title/note/location 和 allDay + startDate/endDate 或 startsAt/endsAt；
         todo 用 title/note/assigneeId/dueDate 或 dueAt/planId；archive_item 用 archiveKind/title/note（正文）；idea 用 title（正文）。
+        P14-04：plan 用 title/assigneeId（负责人）/dueDate（目标日）/nextStep；plan_stage 用 planId/title；milestone 用 planId/title/dueDate；
+        plan_log 用 planId/title（正文）；next_step 用 planId/title（下一步）/assigneeId（谁来做）/dueDate。
       required: [title]
       properties:
         title: { type: string, minLength: 1, maxLength: 2000 }
@@ -4605,6 +4611,7 @@ components:
           oneOf:
             - $ref: '#/components/schemas/ArchiveKind'
             - type: 'null'
+        nextStep: { type: [string, 'null'], maxLength: 1000, description: 新建计划时的第一步（P14-04） }
     AiAction:
       description: 同步实体类型 `ai_action`（P8-02）：问 AI 时 AI 提议的动作，人点「好」才由服务端建成真正的实体；没有回收站
       allOf:

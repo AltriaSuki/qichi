@@ -12,6 +12,9 @@ import app.qichi.shared.api.AiAction
 import app.qichi.shared.api.AiChatRequest
 import app.qichi.shared.api.Bootstrap
 import app.qichi.shared.api.CreatePlanRequest
+import app.qichi.shared.api.CreatePlanStageRequest
+import app.qichi.shared.api.Plan
+import app.qichi.shared.api.PlanDetail
 import app.qichi.shared.api.Me
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.MessagePage
@@ -189,6 +192,101 @@ class AiActionTest {
             // 撤回了的、别的房间的消息不能整理
             aqi.post("/api/v1/rooms/$roomId/ai/chat", AiChatRequest(UuidV7.generate(), "整理这条消息", sourceMessageId = UuidV7.generate()))
                 .assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
+        }
+    }
+
+    @Test
+    fun `解析计划相关的提议（P14-04）：认不出计划的丢掉，新计划和已有的同名时不提议`() {
+        val parsed = parser.parse(
+            """
+            好的。
+            <actions>
+            [{"kind":"plan","title":"学做饭","owner":"小迟","target_date":"2026-12-31","next_step":"买一口铸铁锅"},
+             {"kind":"plan","title":"搬家"},
+             {"kind":"plan_stage","plan":"搬家","title":"收尾"},
+             {"kind":"milestone","plan":"搬家","title":"签合同","date":"2026-10-03"},
+             {"kind":"plan_log","plan":"不存在的计划","body":"没有这个计划"},
+             {"kind":"next_step","plan":"搬家","title":"约周六看房","assignee":"阿栖","due_date":"2026-09-26"},
+             {"kind":"plan_log","plan":"搬家","body":"看了三处房子"}]
+            </actions>
+            """.trimIndent(),
+        )
+        assertEquals(
+            listOf(AiActionKind.Plan, AiActionKind.PlanStage, AiActionKind.Milestone, AiActionKind.NextStep, AiActionKind.PlanLog),
+            parsed.actions.map { it.kind },
+            "同名的新计划、认不出计划的进展都丢掉",
+        )
+        val (newPlan, stage, milestone, step, log) = parsed.actions.map { it.draft }
+        assertEquals("学做饭", newPlan.title)
+        assertEquals(chiId, newPlan.assigneeId)
+        assertEquals(LocalDate.parse("2026-12-31"), newPlan.dueDate)
+        assertEquals("买一口铸铁锅", newPlan.nextStep)
+        assertEquals(planId, stage.planId)
+        assertEquals(LocalDate.parse("2026-10-03"), milestone.dueDate)
+        assertEquals("约周六看房", step.title)
+        assertEquals(aqiId, step.assigneeId)
+        assertEquals(LocalDate.parse("2026-09-26"), step.dueDate)
+        assertEquals("看了三处房子", log.title)
+        assertEquals(planId, log.planId)
+    }
+
+    @Test
+    fun `计划相关的提议点「好」才建成（P14-04）：新计划、阶段加在最后、里程碑、进展记在点的人名下、换掉下一步；计划删了就 404`() {
+        val ctx = testContext(clock = clock, aiGateway = gateway)
+        serverTest(ctx) { client ->
+            val (aqi, xiaochi, roomId) = Api(client).pair()
+            val aqiUser = aqi.get("/api/v1/me").body<Me>().user
+            val chi = xiaochi.get("/api/v1/me").body<Me>().user
+            val plan = aqi.post("/api/v1/rooms/$roomId/plans", CreatePlanRequest(UuidV7.generate(), "搬家", aqiUser.id, nextStep = "打电话问房东")).body<Plan>()
+            aqi.post("/api/v1/rooms/$roomId/plans/${plan.id}/stages", CreatePlanStageRequest(UuidV7.generate(), "找房", 0))
+            gateway.answer = """
+                可以这样推进。
+                <actions>
+                [{"kind":"plan","title":"学做饭","owner":"${chi.displayName}","target_date":"2026-12-31","next_step":"买一口铸铁锅"},
+                 {"kind":"plan_stage","plan":"搬家","title":"打包"},
+                 {"kind":"milestone","plan":"搬家","title":"签合同","date":"2026-10-03"},
+                 {"kind":"plan_log","plan":"搬家","body":"看了三处房子，第二处最好"},
+                 {"kind":"next_step","plan":"搬家","title":"约周六看房","assignee":"${aqiUser.displayName}","due_date":"2026-09-26"}]
+                </actions>
+            """.trimIndent()
+            aqi.post("/api/v1/rooms/$roomId/ai/chat", AiChatRequest(UuidV7.generate(), "搬家接下来怎么弄？顺便我想学做饭"))
+            ctx.jobs.drain()
+            assertTrue(gateway.requests.single().system.contains("\"kind\":\"plan_stage\""), "提示词里说明了计划相关的提议")
+
+            val proposed = xiaochi.actions(roomId)
+            assertEquals(listOf(AiActionKind.Plan, AiActionKind.PlanStage, AiActionKind.Milestone, AiActionKind.PlanLog, AiActionKind.NextStep), proposed.map { it.kind })
+            val ids = proposed.associate { it.kind to UuidV7.generate() }
+            proposed.forEach { a -> xiaochi.post("/api/v1/rooms/$roomId/ai-actions/${a.id}/accept", AcceptAiActionRequest(ids.getValue(a.kind))) }
+
+            val newPlan = aqi.get("/api/v1/rooms/$roomId/plans/${ids.getValue(AiActionKind.Plan)}").body<PlanDetail>().plan
+            assertEquals("学做饭", newPlan.title)
+            assertEquals(chi.id, newPlan.ownerId)
+            assertEquals(LocalDate.parse("2026-12-31"), newPlan.targetDate)
+            assertEquals("买一口铸铁锅", newPlan.nextStep)
+
+            val moving = aqi.get("/api/v1/rooms/$roomId/plans/${plan.id}").body<PlanDetail>()
+            assertEquals(listOf("找房", "打包"), moving.stages.map { it.title }, "新阶段加在最后")
+            assertEquals(listOf(0, 1), moving.stages.map { it.sortOrder })
+            assertEquals(ids.getValue(AiActionKind.Milestone), moving.milestones.single().id)
+            assertEquals(LocalDate.parse("2026-10-03"), moving.milestones.single().targetDate)
+            val log = moving.logs.single()
+            assertEquals("看了三处房子，第二处最好", log.body)
+            assertEquals(chi.id, log.authorId, "记在点「好」的人名下")
+            assertEquals("约周六看房", moving.plan.nextStep)
+            assertEquals(aqiUser.id, moving.plan.nextStepOwnerId)
+            assertEquals(LocalDate.parse("2026-09-26"), moving.plan.nextStepDue)
+            assertEquals(plan.id, xiaochi.actions(roomId).single { it.kind == AiActionKind.NextStep }.resultId, "设下一步记的是那个计划")
+
+            // 计划删掉以后，关于它的提议接受不了
+            gateway.answer = "好。\n<actions>[{\"kind\":\"plan_log\",\"plan\":\"搬家\",\"body\":\"搬完了\"}]</actions>"
+            val job = UuidV7.generate()
+            aqi.post("/api/v1/rooms/$roomId/ai/chat", AiChatRequest(job, "记一下搬完了"))
+            ctx.jobs.drain()
+            val late = aqi.actions(roomId).single { it.messageId == job }
+            aqi.delete("/api/v1/rooms/$roomId/plans/${plan.id}")
+            aqi.post("/api/v1/rooms/$roomId/ai-actions/${late.id}/accept", AcceptAiActionRequest(UuidV7.generate()))
+                .assertProblem(HttpStatusCode.NotFound, ProblemCode.NotFound)
+            assertEquals(AiActionStatus.Proposed, aqi.actions(roomId).single { it.messageId == job }.status, "没建成就还是提议")
         }
     }
 }

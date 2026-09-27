@@ -7,6 +7,7 @@ import app.qichi.server.db.QichiDatabase
 import app.qichi.server.db.tx
 import app.qichi.server.events.EventService
 import app.qichi.server.ideas.IdeaService
+import app.qichi.server.plans.PlanService
 import app.qichi.server.plugins.notFound
 import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomService
@@ -16,7 +17,13 @@ import app.qichi.shared.api.AiAction
 import app.qichi.shared.api.CreateArchiveItemRequest
 import app.qichi.shared.api.CreateEventRequest
 import app.qichi.shared.api.CreateIdeaRequest
+import app.qichi.shared.api.CreateMilestoneRequest
+import app.qichi.shared.api.CreatePlanLogRequest
+import app.qichi.shared.api.CreatePlanRequest
+import app.qichi.shared.api.CreatePlanStageRequest
 import app.qichi.shared.api.CreateTodoRequest
+import app.qichi.shared.api.Patch
+import app.qichi.shared.api.UpdatePlanRequest
 import app.qichi.shared.model.AiActionKind
 import app.qichi.shared.model.AiActionStatus
 import app.qichi.shared.model.ArchiveKind
@@ -40,6 +47,8 @@ fun ResultRow.toAiAction() = AiAction(
 /**
  * AI 提议、人确认（P8-02）：接受时按草稿建成真正的实体，和提议的状态在同一个事务里提交
  * （锁房间行，两个人同时点「好」也只建一个）。建的人是点「好」的人。
+ * 计划相关的（P14-04）：新建计划、加阶段（加在最后）、加里程碑、记一笔进展、设下一步；「设下一步」不新建实体，
+ * 是换掉那个计划的下一步（resultId 记成计划 id）。
  */
 class AiActionService(
     private val db: QichiDatabase,
@@ -49,6 +58,7 @@ class AiActionService(
     private val todos: TodoService,
     private val archive: ArchiveService,
     private val ideas: IdeaService,
+    private val plans: PlanService,
 ) {
     private fun action(roomId: UUID, id: UUID): AiAction =
         AiActions.selectAll().where { AiActions.id eq id }.singleOrNull()?.toAiAction()
@@ -62,6 +72,9 @@ class AiActionService(
         if (a.status == AiActionStatus.Accepted) return@tx a
         val d = a.draft
         val rid = req.resultId
+        // 计划相关的要能找到那个计划（草稿里没有就是坏的提议）
+        fun planId(): UUID = d.planId ?: notFound()
+        fun member(id: UUID?): UUID? = id?.takeIf { RoomRepository.isMember(roomId, it) }
         when (a.kind) {
             AiActionKind.Event -> events.createIn(this, userId, roomId, CreateEventRequest(
                 rid, d.title, d.allDay, note = d.note, location = d.location,
@@ -73,10 +86,19 @@ class AiActionService(
             ))
             AiActionKind.ArchiveItem -> archive.createIn(this, userId, roomId, CreateArchiveItemRequest(rid, d.archiveKind ?: ArchiveKind.Consensus, d.title, d.note.orEmpty()))
             AiActionKind.Idea -> ideas.createIn(this, userId, roomId, CreateIdeaRequest(rid, d.title))
+            AiActionKind.Plan -> plans.createIn(this, userId, roomId, CreatePlanRequest(
+                rid, d.title, ownerId = member(d.assigneeId) ?: userId, targetDate = d.dueDate, nextStep = d.nextStep,
+            ))
+            AiActionKind.PlanStage -> plans.createStageIn(this, userId, roomId, planId(), CreatePlanStageRequest(rid, d.title, plans.nextStageOrder(planId())))
+            AiActionKind.Milestone -> plans.createMilestoneIn(this, userId, roomId, planId(), CreateMilestoneRequest(rid, d.title, d.dueDate))
+            AiActionKind.PlanLog -> plans.createLogIn(this, userId, roomId, planId(), CreatePlanLogRequest(rid, d.title))
+            AiActionKind.NextStep -> plans.updateIn(this, userId, roomId, planId(), UpdatePlanRequest(
+                nextStep = Patch.of(d.title), nextStepOwnerId = Patch.of(member(d.assigneeId)), nextStepDue = Patch.of(d.dueDate),
+            ))
         }
         writes.update(this, roomId, userId, EntityType.AiAction, id, AiActions) {
             it[AiActions.status] = AiActionStatus.Accepted.wireName
-            it[AiActions.resultId] = rid
+            it[AiActions.resultId] = if (a.kind == AiActionKind.NextStep) planId() else rid
             it[AiActions.decidedBy] = userId
         }
         action(roomId, id)

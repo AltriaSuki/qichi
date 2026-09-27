@@ -18,6 +18,7 @@ import app.qichi.core.data.MoodRepository
 import app.qichi.core.data.DraftStore
 import app.qichi.core.data.FileRepository
 import app.qichi.core.data.People
+import app.qichi.core.data.PlanRepository
 import app.qichi.core.data.PreparedAttachment
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.network.ApiException
@@ -147,6 +148,7 @@ class ChatViewModel @AssistedInject constructor(
     realtime: RealtimeClient,
     @ApplicationContext private val context: Context,
     session: SessionManager,
+    plans: PlanRepository,
 ) : ViewModel() {
 
     val messages: Flow<PagingData<Local<Message>>> = chat.messages(roomId).cachedIn(viewModelScope)
@@ -461,6 +463,11 @@ class ChatViewModel @AssistedInject constructor(
 
     /** AI 提议的动作，按所属的 AI 回答分组。 */
     val aiActions: StateFlow<Map<UUID, List<AiAction>>> = chat.observeAiActions(roomId)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** 计划的名字（P14-04：AI 提议给某个计划加阶段、记进展时，卡片上写着是哪个计划） */
+    val planTitles: StateFlow<Map<UUID, String>> = plans.observePlans(roomId)
+        .map { list -> list.associate { it.value.id to it.value.title } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     fun acceptAiAction(a: AiAction) = viewModelScope.launch { chat.acceptAiAction(a) }

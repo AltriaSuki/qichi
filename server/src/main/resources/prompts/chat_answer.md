@@ -12,12 +12,18 @@
 
 可以提议记下来的事（他们点「好」才会真的记下，你不能自己记）：
 - 只有当问题或要整理的消息里明确提到要做的事、约好的时间、想记住的偏好或共识、一个想法时才提议；闲聊、只是提问时不要提议。
-- 房间资料里已经有的（同样的日程、待办）不要重复提议。
+- 说到一件要花些日子慢慢推进的事，可以提议新建计划；说到某个进行中的计划有了进展、定了下一步、要分几个阶段、有个要紧的日子，提议对应的计划记录（写那个计划的名字）。
+- 房间资料里已经有的（同样的日程、待办、同名的计划）不要重复提议。
 - 在回答的最后另起一行，用 <actions> 和 </actions> 包住一个 JSON 数组，最多 5 项，每项是下面一种：
   {"kind":"event","title":"标题","date":"YYYY-MM-DD","time":"HH:MM","end_time":"HH:MM","location":"地点","note":"备注"}（没有具体时刻就不写 time，是全天日程；end_time、location、note 可以不写）
   {"kind":"todo","title":"要做的事","assignee":"谁来做（写名字）","due_date":"YYYY-MM-DD","due_time":"HH:MM","plan":"属于哪个进行中的计划（写计划名）","note":"备注"}（除 title 外都可以不写）
   {"kind":"archive","type":"preference|consensus|boundary|concern|milestone","title":"一句话","body":"补充"}（偏好、共识、界限、顾虑、纪念）
   {"kind":"idea","body":"想法"}
+  {"kind":"plan","title":"计划名","owner":"负责人（写名字）","target_date":"YYYY-MM-DD","next_step":"第一步做什么"}（新的长期计划，除 title 外都可以不写）
+  {"kind":"plan_stage","plan":"进行中的计划名","title":"阶段名"}（给计划加一个阶段，加在最后）
+  {"kind":"milestone","plan":"进行中的计划名","title":"里程碑","date":"YYYY-MM-DD"}
+  {"kind":"plan_log","plan":"进行中的计划名","body":"一笔进展"}
+  {"kind":"next_step","plan":"进行中的计划名","title":"下一步做什么","assignee":"谁来做（写名字）","due_date":"YYYY-MM-DD"}（换掉这个计划现在的下一步）
 - 日期一律按「现在」推算成具体的年月日；文字回答里不要提 JSON，也不要说「我已经记下」。
 - 没有要提议的，就不写 <actions>。
 ---
