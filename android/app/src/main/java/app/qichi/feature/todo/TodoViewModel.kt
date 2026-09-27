@@ -7,15 +7,14 @@ import app.qichi.core.data.People
 import app.qichi.core.data.PlanRepository
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.data.TodoRepository
-import app.qichi.core.sync.Local
+import app.qichi.core.ui.TodoForm
+import app.qichi.core.ui.TodoGroup
 import app.qichi.core.ui.todayIn
 import app.qichi.core.ui.zoneOf
-import app.qichi.shared.api.Patch
 import app.qichi.shared.api.Plan
 import app.qichi.shared.api.Todo
 import app.qichi.shared.api.UpdateTodoRequest
 import app.qichi.shared.model.PlanStatus
-import app.qichi.shared.rules.Recurrence
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
@@ -28,55 +27,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-
-enum class Assignee { Both, Me, Partner }
-enum class Repeat(val label: String) { None("不重复"), Daily("每天"), Weekly("每周"), Monthly("每月") }
-
-/** 编辑表单。重复需要截止日：选了重复却没选日期时，截止日取今天。 */
-data class TodoForm(
-    val title: String = "",
-    val note: String = "",
-    val assignee: Assignee = Assignee.Both,
-    val dueDate: LocalDate? = null,
-    val repeat: Repeat = Repeat.None,
-    /** 属于哪个计划；空 = 不属于 */
-    val planId: UUID? = null,
-) {
-    val canSave: Boolean get() = title.trim().isNotEmpty()
-
-    fun recurrence(): String? {
-        val due = dueDate ?: return null
-        return when (repeat) {
-            Repeat.None -> null
-            Repeat.Daily -> Recurrence(Recurrence.Freq.DAILY).format()
-            Repeat.Weekly -> Recurrence(Recurrence.Freq.WEEKLY, byDay = setOf(due.dayOfWeek)).format()
-            Repeat.Monthly -> Recurrence(Recurrence.Freq.MONTHLY).format()
-        }
-    }
-
-    companion object {
-        fun of(todo: Todo, people: People, zone: ZoneId): TodoForm = TodoForm(
-            title = todo.title,
-            note = todo.note.orEmpty(),
-            assignee = when (todo.assigneeId) {
-                null -> Assignee.Both
-                people.myUserId -> Assignee.Me
-                else -> Assignee.Partner
-            },
-            dueDate = todo.dueDate ?: todo.dueAt?.atZone(zone)?.toLocalDate(),
-            repeat = when (todo.recurrence?.let(Recurrence::parse)?.freq) {
-                Recurrence.Freq.DAILY -> Repeat.Daily
-                Recurrence.Freq.WEEKLY -> Repeat.Weekly
-                Recurrence.Freq.MONTHLY -> Repeat.Monthly
-                null -> Repeat.None
-            },
-            planId = todo.planId,
-        )
-    }
-}
-
-/** 一条顶层待办和它的子任务。 */
-data class TodoGroup(val todo: Local<Todo>, val children: List<Local<Todo>>)
 
 /** 待办页的三段：今天（含逾期）、这周（到周日）、以后（含没有截止日的）。 */
 data class TodoSections(val today: List<TodoGroup>, val week: List<TodoGroup>, val later: List<TodoGroup>)
@@ -97,11 +47,18 @@ data class TodoUiState(
     val done: List<TodoGroup> = emptyList(),
     /** 可以挂靠的计划（进行中的） */
     val plans: List<Plan> = emptyList(),
-    /** 所有计划的标题（待办下面那行小字「⚑ 秋天去一次海边」） */
-    val planTitles: Map<UUID, String> = emptyMap(),
+    /** 所有计划（待办下面那行小字「⚑ 秋天去一次海边」；编辑时补上已经挂着的那个） */
+    val allPlans: Map<UUID, Plan> = emptyMap(),
 ) {
     val sections: TodoSections get() = todoSections(open, today, zone)
+    val planTitles: Map<UUID, String> get() = allPlans.mapValues { it.value.title }
     fun find(id: UUID): TodoGroup? = (open + done).firstOrNull { it.todo.value.id == id }
+
+    /** 编辑 [todo] 时能选的计划：进行中的，加上它现在挂着的（先放一放或已完成的也列出来，免得看不出挂在哪）。 */
+    fun plansFor(todo: Todo?): List<Plan> {
+        val current = todo?.planId?.let(allPlans::get)
+        return if (current == null || plans.any { it.id == current.id }) plans else plans + current
+    }
 }
 
 @HiltViewModel(assistedFactory = TodoViewModel.Factory::class)
@@ -137,8 +94,8 @@ class TodoViewModel @AssistedInject constructor(
             done = groups.filter { it.todo.value.doneAt != null }
                 .sortedByDescending { it.todo.value.doneAt }
                 .take(30),
-            plans = allPlans.map { it.value }.filter { it.status != PlanStatus.Done }.sortedBy { it.createdAt },
-            planTitles = allPlans.associate { it.value.id to it.value.title },
+            plans = allPlans.map { it.value }.filter { it.status == PlanStatus.Active }.sortedBy { it.createdAt },
+            allPlans = allPlans.associate { it.value.id to it.value },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TodoUiState())
 
@@ -148,13 +105,12 @@ class TodoViewModel @AssistedInject constructor(
 
     fun create(form: TodoForm) = viewModelScope.launch {
         val s = state.value
-        val due = form.dueDate ?: if (form.repeat != Repeat.None) s.today else null
-        val fixed = form.copy(dueDate = due)
+        val fixed = form.fixed(s.today)
         todos.create(
             roomId = roomId,
             title = fixed.title,
-            assigneeId = assigneeId(fixed.assignee, s.people),
-            dueDate = due,
+            assigneeId = fixed.assigneeId(s.people),
+            dueDate = fixed.dueDate,
             recurrence = fixed.recurrence(),
             note = fixed.note,
             planId = fixed.planId,
@@ -164,18 +120,7 @@ class TodoViewModel @AssistedInject constructor(
     /** 保存修改：只发改动过的字段。 */
     fun update(todo: Todo, form: TodoForm) = viewModelScope.launch {
         val s = state.value
-        val due = form.dueDate ?: if (form.repeat != Repeat.None) s.today else null
-        val fixed = form.copy(dueDate = due)
-        val before = TodoForm.of(todo, s.people, s.zone)
-        val change = UpdateTodoRequest(
-            title = if (fixed.title.trim() != todo.title) Patch.of(fixed.title.trim()) else Patch.Absent,
-            note = if (fixed.note.trim() != todo.note.orEmpty()) Patch.of(fixed.note.trim().ifEmpty { null }) else Patch.Absent,
-            assigneeId = if (fixed.assignee != before.assignee) Patch.of(assigneeId(fixed.assignee, s.people)) else Patch.Absent,
-            dueDate = if (due != before.dueDate || todo.dueAt != null) Patch.of(due) else Patch.Absent,
-            dueAt = if (todo.dueAt != null && due != before.dueDate) Patch.of(null) else Patch.Absent,
-            recurrence = if (fixed.recurrence() != todo.recurrence) Patch.of(fixed.recurrence()) else Patch.Absent,
-            planId = if (fixed.planId != todo.planId) Patch.of(fixed.planId) else Patch.Absent,
-        )
+        val change = form.fixed(s.today).changesFrom(todo, s.people, s.zone)
         if (change != UpdateTodoRequest()) todos.update(todo, change)
     }
 
@@ -185,12 +130,6 @@ class TodoViewModel @AssistedInject constructor(
 
     fun addSubtask(parent: Todo, title: String) = viewModelScope.launch {
         if (title.isNotBlank()) todos.create(roomId = roomId, title = title, parentId = parent.id)
-    }
-
-    private fun assigneeId(a: Assignee, people: People): UUID? = when (a) {
-        Assignee.Both -> null
-        Assignee.Me -> people.myUserId
-        Assignee.Partner -> people.partner?.userId
     }
 
     @AssistedFactory

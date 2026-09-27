@@ -27,7 +27,7 @@ room/RoomSetupScreen.kt	1
 summary/SummaryScreens.kt	14
 timeline/TimelineScreen.kt	26
 today/TodayScreen.kt	43
-todo/TodoScreen.kt	7
+todo/TodoScreen.kt	2
 together/TogetherHubScreen.kt	18
 writing/AssistUi.kt	1
 writing/DocCommentsUi.kt	2
