@@ -14,6 +14,7 @@ import app.qichi.server.db.Tx
 import app.qichi.server.db.tx
 import app.qichi.server.files.FileService
 import app.qichi.server.files.ReviewFiles
+import app.qichi.server.jobs.JobLane
 import app.qichi.server.jobs.JobQueue
 import app.qichi.server.jobs.QueuedJob
 import app.qichi.server.plugins.ApiException
@@ -146,7 +147,7 @@ class ReviewService(
         jobs.register(JOB_PREVIEW, { job, _ ->
             val versionId = UUID.fromString(job.payload["versionId"]!!.jsonPrimitive.content)
             db.tx(readOnly = true) { version(versionId) }?.let { markFailed(it, "预览没能生成，可以稍后重新上传试试") }
-        }) { job -> buildPreview(job) }
+        }, JobLane.Files) { job -> buildPreview(job) }
     }
 
     private fun document(id: UUID) = ReviewDocuments.selectAll().where { ReviewDocuments.id eq id }.singleOrNull()?.toReviewDocument()

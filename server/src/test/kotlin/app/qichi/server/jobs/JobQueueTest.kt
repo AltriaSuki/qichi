@@ -14,6 +14,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -167,6 +168,28 @@ class JobQueueTest {
         started.await()
         worker.cancelAndJoin()
         assertEquals(JobQueue.STATUS_QUEUED, status(id)[Jobs.status])
+    }
+
+    @Test
+    fun `文件那一道在做慢任务时，问 AI 那一道照样做`() = runBlocking {
+        val converting = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val answered = CompletableDeferred<Unit>()
+        queue.register("convert", lane = JobLane.Files) {
+            converting.complete(Unit)
+            release.await()
+        }
+        queue.register("ask", lane = JobLane.Ai) { answered.complete(Unit) }
+        val workers = queue.start(this, pollInterval = Duration.ofMillis(100))
+        try {
+            enqueue("convert")
+            withTimeout(5_000) { converting.await() }
+            enqueue("ask")
+            withTimeout(5_000) { answered.await() }
+        } finally {
+            release.complete(Unit)
+            workers.cancelAndJoin()
+        }
     }
 
     @Test

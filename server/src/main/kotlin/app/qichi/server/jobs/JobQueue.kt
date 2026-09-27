@@ -16,11 +16,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
+import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.lessEq
+import org.jetbrains.exposed.v1.core.notInList
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -53,7 +56,18 @@ typealias JobHandler = suspend (QueuedJob) -> Unit
  */
 typealias GiveUpHandler = suspend (QueuedJob, String) -> Unit
 
-private class Registration(val handler: JobHandler, val onGiveUp: GiveUpHandler?)
+/**
+ * 任务分道（P13-14）：每一道有自己的工作协程，一道里再慢也不会挡住别的道。
+ * 文档转换、生成预览又慢又吃内存，放在自己那一道、一次只做一个；问 AI 那一道有两个工作协程，
+ * 两个人同时问、或者一边在生成总结，也不用排队等。
+ */
+enum class JobLane(val workers: Int) {
+    Ai(2),
+    Files(1),
+    Other(1),
+}
+
+private class Registration(val handler: JobHandler, val onGiveUp: GiveUpHandler?, val lane: JobLane)
 
 private val log = LoggerFactory.getLogger(JobQueue::class.java)
 
@@ -64,14 +78,25 @@ private val log = LoggerFactory.getLogger(JobQueue::class.java)
  * - 处理函数抛异常 = 这次失败：按次数退避重试，用完次数或 [PermanentJobFailure] 则标记失败并调用 [GiveUpHandler]
  * - 执行期间每 [HEARTBEAT] 刷新一次 locked_at；超过 [STALE_AFTER] 没有心跳的「执行中」任务（进程被杀、重启）
  *   由每分钟一次的回收放回队列，次数用完的标失败（P13-03）
+ * - 按 [JobLane] 分道，各道各有工作协程（P13-14）
  */
 class JobQueue(private val db: QichiDatabase, private val clock: Clock) {
     private val handlers = ConcurrentHashMap<String, Registration>()
-    private val wakeups = Channel<Unit>(Channel.CONFLATED)
+    private val wakeups: Map<JobLane, Channel<Unit>> = JobLane.entries.associateWith { Channel(Channel.CONFLATED) }
 
-    /** @param onGiveUp 彻底放弃时的收尾（见 [GiveUpHandler]） */
-    fun register(kind: String, onGiveUp: GiveUpHandler? = null, handler: JobHandler) {
-        handlers[kind] = Registration(handler, onGiveUp)
+    /**
+     * @param onGiveUp 彻底放弃时的收尾（见 [GiveUpHandler]）
+     * @param lane 在哪一道做（见 [JobLane]）
+     */
+    fun register(kind: String, onGiveUp: GiveUpHandler? = null, lane: JobLane = JobLane.Other, handler: JobHandler) {
+        handlers[kind] = Registration(handler, onGiveUp, lane)
+    }
+
+    /** 没有登记的种类算在「其他」那一道（由它领取、标成失败） */
+    private fun laneOf(kind: String): JobLane = handlers[kind]?.lane ?: JobLane.Other
+
+    private fun wake(lane: JobLane) {
+        wakeups.getValue(lane).trySend(Unit)
     }
 
     /** 在事务里入队。 */
@@ -95,13 +120,16 @@ class JobQueue(private val db: QichiDatabase, private val clock: Clock) {
             it[createdAt] = now
             it[updatedAt] = now
         }
-        tx.afterCommit { wakeups.trySend(Unit) }
+        val lane = laneOf(kind)
+        tx.afterCommit { wake(lane) }
         return id
     }
 
-    /** 领取并执行一个到期的任务；没有到期的任务返回 false。 */
-    suspend fun runNext(): Boolean {
-        val job = claim() ?: return false
+    /** 领取并执行一个到期的任务（[lane] 为空时哪一道的都行）；没有到期的任务返回 false。 */
+    suspend fun runNext(lane: JobLane? = null): Boolean {
+        val job = claim(lane) ?: return false
+        // 这一道可能还有别的到期任务：叫醒这一道别的工作协程（多个入队的唤醒会被合成一个）
+        wake(laneOf(job.kind))
         val registration = handlers[job.kind]
         try {
             if (registration == null) throw PermanentJobFailure("没有处理 ${job.kind} 的程序")
@@ -159,10 +187,13 @@ class JobQueue(private val db: QichiDatabase, private val clock: Clock) {
     }
 
     /**
-     * 后台工作协程：有任务就做，没有就等（被入队唤醒，或每 [pollInterval] 看一次到期的定时任务）。
+     * 后台工作协程：每一道按 [JobLane.workers] 起几个，有任务就做，没有就等（被入队唤醒，或每 [pollInterval] 看一次到期的定时任务）。
      * 另有一个协程每 [REAP_EVERY] 回收一次没有心跳的「执行中」任务。
      */
     fun start(scope: CoroutineScope, pollInterval: Duration = Duration.ofSeconds(5)) = scope.launch {
+        for (lane in JobLane.entries) {
+            repeat(lane.workers) { launch { work(lane, pollInterval) } }
+        }
         launch {
             while (isActive) {
                 try {
@@ -175,22 +206,37 @@ class JobQueue(private val db: QichiDatabase, private val clock: Clock) {
                 delay(REAP_EVERY.toMillis())
             }
         }
+    }
+
+    private suspend fun CoroutineScope.work(lane: JobLane, pollInterval: Duration) {
         while (isActive) {
             try {
-                if (!runNext()) withTimeoutOrNull(pollInterval.toMillis()) { wakeups.receive() }
+                if (!runNext(lane)) withTimeoutOrNull(pollInterval.toMillis()) { wakeups.getValue(lane).receive() }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                log.error("任务队列出错", e)
+                log.error("任务队列（{}）出错", lane, e)
                 delay(pollInterval.toMillis())
             }
         }
     }
 
-    private suspend fun claim(): QueuedJob? = db.tx {
+    /** 这一道领哪些种类：登记在这一道的；「其他」那一道另外领没有登记的 */
+    private fun kindsOf(lane: JobLane): Op<Boolean> {
+        val byLane = handlers.entries.groupBy({ it.value.lane }, { it.key })
+        return if (lane == JobLane.Other) {
+            val elsewhere = byLane.filterKeys { it != JobLane.Other }.values.flatten()
+            if (elsewhere.isEmpty()) Op.TRUE else (Jobs.kind notInList elsewhere)
+        } else {
+            val mine = byLane[lane].orEmpty()
+            if (mine.isEmpty()) Op.FALSE else (Jobs.kind inList mine)
+        }
+    }
+
+    private suspend fun claim(lane: JobLane?): QueuedJob? = db.tx {
         val now = clock.instant()
         val row = Jobs.selectAll()
-            .where { (Jobs.status eq STATUS_QUEUED) and (Jobs.runAt lessEq now) }
+            .where { (Jobs.status eq STATUS_QUEUED) and (Jobs.runAt lessEq now) and (if (lane == null) Op.TRUE else kindsOf(lane)) }
             .orderBy(Jobs.runAt, SortOrder.ASC)
             .limit(1)
             .forUpdate(ForUpdateOption.PostgreSQL.ForUpdate(ForUpdateOption.PostgreSQL.MODE.SKIP_LOCKED))
@@ -273,7 +319,7 @@ class JobQueue(private val db: QichiDatabase, private val clock: Clock) {
             log.warn("任务 {}（{}）执行中断 {} 次，不再重试", job.id, job.kind, job.attempts)
             giveUp(handlers[job.kind], job, INTERRUPTED)
         }
-        if (requeued.isNotEmpty()) wakeups.trySend(Unit)
+        requeued.map { laneOf(it.kind) }.toSet().forEach(::wake)
         return requeued.size + dead.size
     }
 

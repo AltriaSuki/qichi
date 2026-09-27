@@ -184,6 +184,20 @@ class AiTest {
     }
 
     @Test
+    fun `给 AI 的聊天记录每条最多 300 字，不再被截成 60 字`() {
+        val ctx = testContext(clock = clock, aiGateway = gateway)
+        serverTest(ctx) { client ->
+            val (aqi, _, roomId) = Api(client).pair()
+            val long = "我们周六早上八点出发，先去码头坐船，".repeat(10) // 180 字
+            aqi.send(roomId, long)
+            aqi.ask(roomId, "周六几点出发？")
+            ctx.jobs.drain()
+            val user = gateway.requests.single().messages.single().content
+            assertTrue(long in user, user)
+        }
+    }
+
+    @Test
     fun `聊天记录和问题里有模板占位符时，问 AI 照常回答`() {
         val ctx = testContext(clock = clock, aiGateway = gateway)
         serverTest(ctx) { client ->

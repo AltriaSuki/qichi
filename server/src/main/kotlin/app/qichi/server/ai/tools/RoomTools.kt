@@ -316,8 +316,9 @@ class RoomTools(
         else -> kind
     }
 
+    /** 消息写成一行：和 [messageLine] 一样最多 300 字（不借用回复摘要的 60 字，Q18） */
     private fun messageText(m: Message): String? =
-        (if (m.kind == MessageKind.Ai) m.body else MessageRules.replyExcerpt(m.kind, m.body, m.file?.fileName, false))?.takeIf { it.isNotBlank() }
+        (if (m.kind == MessageKind.Ai) m.body else MessageRules.asLine(m.kind, m.body, m.file?.fileName, 300))?.takeIf { it.isNotBlank() }
 
     private fun messageLine(m: Message, text: String) = "聊天（${time(m.createdAt)}，${m.authorId?.let(::who) ?: "AI"}）：${cut(text, 300)}"
 
