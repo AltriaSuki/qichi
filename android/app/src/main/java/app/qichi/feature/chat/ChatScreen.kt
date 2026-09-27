@@ -124,6 +124,7 @@ import app.qichi.shared.api.SummarySource
 import app.qichi.shared.model.MessageKind
 import app.qichi.shared.rules.MessageRules
 import java.time.Duration
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -416,6 +417,11 @@ fun ChatScreen(
             onDelete = { viewModel.delete(target.value) },
             onArchive = { onArchive(target.value) },
             onOrganize = if (state.aiEnabled) ({ viewModel.organize(target.value) }) else null,
+            // AI 的回答存成灵感、文稿（P14-04）；文稿建好后打开它，看一眼、保存了才是 v1
+            onSaveIdea = { viewModel.saveAnswerAsIdea(target.value) },
+            onSaveDocument = {
+                viewModel.saveAnswerAsDocument(target.value) { doc -> onOpenSource(SummarySource(0, "document", doc.id, doc.title, Instant.now())) }
+            },
         )
     }
     retracting?.let { message ->
@@ -1002,6 +1008,9 @@ private fun MessageActions(
     onArchive: () -> Unit,
     /** 「让 AI 整理」；AI 没开时为空 */
     onOrganize: (() -> Unit)?,
+    /** AI 的回答存成灵感、文稿（P14-04，只对 AI 的回答显示） */
+    onSaveIdea: () -> Unit,
+    onSaveDocument: () -> Unit,
 ) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
@@ -1019,6 +1028,10 @@ private fun MessageActions(
             if (synced) ActionRow("回复") { onReply(); onDismiss() }
             if (m.body.isNotEmpty()) ActionRow("复制") { onCopy(); onDismiss() }
             if (synced && m.body.isNotEmpty() && m.retractedAt == null) ActionRow("存进档案") { onArchive(); onDismiss() }
+            if (synced && m.kind == MessageKind.Ai && m.body.isNotBlank()) {
+                ActionRow("存成灵感") { onSaveIdea(); onDismiss() }
+                ActionRow("存成文稿") { onSaveDocument(); onDismiss() }
+            }
             if (onOrganize != null && synced && m.kind == MessageKind.Text && m.body.isNotBlank() && m.retractedAt == null) {
                 ActionRow("让 AI 整理") { onOrganize(); onDismiss() }
             }

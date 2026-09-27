@@ -12,11 +12,15 @@ import app.qichi.core.data.AttachmentPreparer
 import app.qichi.core.data.ChatRepository
 import app.qichi.shared.api.Mood
 import java.time.Instant
+import app.qichi.core.ui.aiAnswerTitle
+import app.qichi.core.ui.plainAiAnswer
 import app.qichi.core.ui.zoneOf
 import app.qichi.core.ui.todayIn
 import app.qichi.core.data.MoodRepository
+import app.qichi.core.data.DocumentRepository
 import app.qichi.core.data.DraftStore
 import app.qichi.core.data.FileRepository
+import app.qichi.core.data.IdeaRepository
 import app.qichi.core.data.People
 import app.qichi.core.data.PlanRepository
 import app.qichi.core.data.PreparedAttachment
@@ -30,6 +34,7 @@ import app.qichi.core.sync.SyncEngine
 import app.qichi.di.ApplicationScope
 import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.AiAction
+import app.qichi.shared.api.Document
 import app.qichi.shared.api.Message
 import app.qichi.shared.model.AiJobStatus
 import app.qichi.shared.model.ProblemCode
@@ -149,6 +154,8 @@ class ChatViewModel @AssistedInject constructor(
     @ApplicationContext private val context: Context,
     session: SessionManager,
     plans: PlanRepository,
+    private val ideas: IdeaRepository,
+    private val documents: DocumentRepository,
 ) : ViewModel() {
 
     val messages: Flow<PagingData<Local<Message>>> = chat.messages(roomId).cachedIn(viewModelScope)
@@ -471,6 +478,18 @@ class ChatViewModel @AssistedInject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     fun acceptAiAction(a: AiAction) = viewModelScope.launch { chat.acceptAiAction(a) }
+
+    /** AI 的回答存成灵感（P14-04）：去掉来源编号，超长截到上限。 */
+    fun saveAnswerAsIdea(m: Message) = viewModelScope.launch {
+        val idea = ideas.add(roomId, plainAiAnswer(m.body))
+        _events.tryEmit(ChatEvent.Toast(if (idea != null) "存成灵感了" else "这条没有能存的内容"))
+    }
+
+    /** AI 的回答存成文稿（P14-04）：标题用问的那句话，正文先放进草稿；建好后打开它，保存了才是 v1。 */
+    fun saveAnswerAsDocument(m: Message, onCreated: (Document) -> Unit) = viewModelScope.launch {
+        val title = aiAnswerTitle(m.aiPrompt, Limits.DOCUMENT_TITLE_LENGTH.last)
+        documents.createWithDraft(roomId, title, plainAiAnswer(m.body))?.let(onCreated)
+    }
 
     fun dismissAiAction(a: AiAction) = viewModelScope.launch { chat.dismissAiAction(a) }
 

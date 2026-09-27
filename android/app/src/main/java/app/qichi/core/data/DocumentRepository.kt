@@ -85,6 +85,16 @@ class DocumentRepository(
         return doc
     }
 
+    /**
+     * 新建一篇文稿，[body] 先放进它的草稿（P14-04：AI 的回答存成文稿）：打开后看一眼、改一改，保存了才是 v1，
+     * 和写作助手起的草稿一样。标题空白时不建。
+     */
+    suspend fun createWithDraft(roomId: UUID, rawTitle: String, body: String): Document? {
+        val doc = create(roomId, rawTitle) ?: return null
+        drafts.saveVersioned(roomId, DraftStore.documentKey(doc.id), body, doc.latestVersion)
+        return doc
+    }
+
     suspend fun rename(doc: Document, rawTitle: String) {
         val title = rawTitle.trim().take(Limits.DOCUMENT_TITLE_LENGTH.last)
         if (title.isEmpty() || title == doc.title) return

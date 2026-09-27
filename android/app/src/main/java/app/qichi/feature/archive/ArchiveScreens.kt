@@ -76,11 +76,14 @@ import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.DiffView
+import app.qichi.core.ui.aiAnswerTitle
+import app.qichi.core.ui.plainAiAnswer
 import app.qichi.core.ui.relativeDay
 import app.qichi.shared.api.ArchiveItem
 import app.qichi.shared.api.ArchiveRevision
 import app.qichi.shared.api.Message
 import app.qichi.shared.model.ArchiveKind
+import app.qichi.shared.model.MessageKind
 import app.qichi.shared.rules.Limits
 import app.qichi.shared.rules.Tags
 import app.qichi.shared.util.Diff
@@ -168,9 +171,16 @@ fun ArchiveListScreen(
             heading = "新条目",
             initialKind = state.filter ?: ArchiveKind.Preference,
             chooseKind = true,
-            // 短消息直接当作那一句话；长消息取开头做标题，全文放进补充
-            initialTitle = source?.body?.trim()?.let { if (it.length <= Limits.ARCHIVE_TITLE_LENGTH.last && '\n' !in it) it else excerpt(it, 30) }.orEmpty(),
-            initialBody = source?.body?.trim()?.takeIf { it.length > Limits.ARCHIVE_TITLE_LENGTH.last || '\n' in it }.orEmpty(),
+            // 短消息直接当作那一句话；长消息取开头做标题，全文放进补充。
+            // AI 的回答（P14-04）：问的那句话做标题，回答放进补充，去掉点不开的来源编号
+            initialTitle = source?.let { m ->
+                if (m.kind == MessageKind.Ai) aiAnswerTitle(m.aiPrompt, Limits.ARCHIVE_TITLE_LENGTH.last, excerpt(plainAiAnswer(m.body), 30))
+                else m.body.trim().let { if (it.length <= Limits.ARCHIVE_TITLE_LENGTH.last && '\n' !in it) it else excerpt(it, 30) }
+            }.orEmpty(),
+            initialBody = source?.let { m ->
+                if (m.kind == MessageKind.Ai) plainAiAnswer(m.body)
+                else m.body.trim().takeIf { it.length > Limits.ARCHIVE_TITLE_LENGTH.last || '\n' in it }
+            }.orEmpty(),
             source = source,
             people = state.people,
             onDismiss = { creating = false },
