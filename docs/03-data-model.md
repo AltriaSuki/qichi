@@ -1,7 +1,7 @@
 # 03 · 数据模型
 
-> 第 1–3 阶段的表已经写成 `server/src/main/resources/db/migration/V1__init.sql`（已在 PostgreSQL 16 上验证可执行）。
-> 后续阶段的表在本文件中先定义字段，到对应阶段再写成 `V2`、`V3`… 迁移。
+> 所有表都已写成 Flyway 迁移：`server/src/main/resources/db/migration/`（`V1__init.sql` 是第 1–3 阶段，之后每个阶段加新版本，目前到 `V24`）。
+> 本文件讲每张表是做什么的、关键字段；列的准确定义以迁移文件为准。已经部署的迁移不能再改，只能加新版本。
 
 ## 1. 通用约定
 
@@ -47,7 +47,7 @@
 
 心情标签 `label` 的取值：`calm` 平静、`happy` 开心、`hopeful` 期待、`tired` 疲惫、`anxious` 焦虑、`down` 低落、`angry` 生气、`hurt` 委屈。
 
-## 3. 后续阶段（待写迁移）
+## 3. 第 4 阶段起的表（迁移 V2 起）
 
 ### 第 4 阶段：问答、计划、日历扩展、灵感、AI、任务队列
 

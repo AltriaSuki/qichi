@@ -8,7 +8,8 @@
 
 ## 当前进度
 
-第 0 阶段（地基）。完整路线图与勾选状态见 [`docs/08-roadmap.md`](docs/08-roadmap.md)。
+第 0–13 阶段的开发全部完成（路线图全部打勾）；服务端部署在 VPS 上，App 有内置更新，两个人在试用。完整路线图与勾选状态见 [`docs/08-roadmap.md`](docs/08-roadmap.md)，
+最近一次整体审查（问题、修复和还需要你决定的事）见 [`docs/11-review.md`](docs/11-review.md)。
 
 ## 目录
 
@@ -17,10 +18,11 @@
 | `docs/` | 产品、架构、数据模型、接口、同步、设计系统、部署、路线图 |
 | `api/openapi.yaml` | 接口契约 |
 | `design/screens/` | 设计稿源码；在线查看：[栖迟 · 界面总览](https://claude.ai/artifact/M871aFHDnXdZ3fUPvrUW7X) |
-| `shared/` | 手机端和服务端共用的 Kotlin 代码（P0-01 建立） |
-| `server/` | 服务端（P0-02 建立；数据库迁移已在 `server/src/main/resources/db/migration/`） |
-| `android/` | Android App（P0-03 建立） |
-| `deploy/` | Docker Compose、Caddy、备份脚本 |
+| `shared/` | 手机端和服务端共用的 Kotlin 代码：接口数据类、枚举、校验规则 |
+| `server/` | 服务端（数据库迁移在 `server/src/main/resources/db/migration/`） |
+| `android/` | Android App |
+| `deploy/` | Docker Compose、Caddy、备份与告警脚本 |
+| `tools/` | 本机开发、测试用的小工具（见 [`tools/README.md`](tools/README.md)） |
 
 ## 文档
 
@@ -32,6 +34,9 @@
 6. [设计系统「晨雾」](docs/06-design-system.md)
 7. [部署到 VPS](docs/07-deploy.md)
 8. [开发路线图](docs/08-roadmap.md)
+9. [改进清单](docs/09-improvements.md)
+10. [AI 生活助手](docs/10-ai-assistant.md)
+11. [项目审查（2026-09-26）](docs/11-review.md)
 
 ## 在本机开发
 
