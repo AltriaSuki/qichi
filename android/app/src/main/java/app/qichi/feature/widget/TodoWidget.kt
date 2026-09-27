@@ -130,7 +130,7 @@ private fun WidgetBody(content: WidgetContent) {
                 } else {
                     val now = Instant.now()
                     LazyColumn(GlanceModifier.fillMaxWidth().defaultWeight()) {
-                        items(content.rows, itemId = { it.todo.id.mostSignificantBits xor it.todo.id.leastSignificantBits }) { row ->
+                        items(content.rows, itemId = { widgetItemId(it.todo.id) }) { row ->
                             TodoLine(row, content, colors, small, now, openLink(context, DeepLink.of(room, Page.Todo, row.todo.id.toString())))
                         }
                     }

@@ -39,6 +39,13 @@ fun widgetRows(todos: List<Todo>, me: UUID, today: LocalDate, zone: ZoneId, now:
         .toList()
 }
 
+/**
+ * 组件列表里这一行的编号：由待办 id 算出，每条不同，而且不是负数。
+ * Glance 把很大的负数留给自己用，传进去就整个组件报错、只显示「无法显示内容」；
+ * UUIDv7 两半直接异或恰好总落在那一段（前半首位是 0、后半首位是 1），所以去掉符号位。
+ */
+fun widgetItemId(id: UUID): Long = (id.mostSignificantBits xor id.leastSignificantBits) and Long.MAX_VALUE
+
 /** 还有几件没做（刚勾掉的不算）。 */
 fun List<WidgetRow>.remaining(): Int = count { !it.justDone }
 

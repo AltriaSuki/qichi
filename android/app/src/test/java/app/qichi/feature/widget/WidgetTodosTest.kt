@@ -1,6 +1,7 @@
 package app.qichi.feature.widget
 
 import app.qichi.shared.api.Todo
+import app.qichi.shared.util.UuidV7
 import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
@@ -117,5 +118,14 @@ class WidgetTodosTest {
         assertFalse(widgetIsLate(rows.getValue("晚上六点"), now))
         assertFalse(widgetIsLate(rows.getValue("今天的"), now))
         assertFalse(widgetIsLate(rows.getValue("刚勾掉的"), now))
+    }
+
+    /** 有待办时组件显示「无法显示内容」：列表编号不能是负数（Glance 留给自己用）。 */
+    @Test
+    fun `列表编号不是负数且各不相同`() {
+        val ids = List(1_000) { UuidV7.generate() }
+        val itemIds = ids.map(::widgetItemId)
+        assertTrue(itemIds.all { it >= 0 })
+        assertEquals(ids.size, itemIds.toSet().size)
     }
 }
