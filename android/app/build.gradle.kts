@@ -181,6 +181,8 @@ dependencies {
     ksp(libs.androidx.hilt.compiler)
     implementation(libs.androidx.hilt.navigation.compose)
     implementation(libs.androidx.lifecycle.process)
+    // 桌面待办组件（P15-02）
+    implementation(libs.androidx.glance.appwidget)
 
     testImplementation(kotlin("test-junit"))
     testImplementation(libs.junit4)
