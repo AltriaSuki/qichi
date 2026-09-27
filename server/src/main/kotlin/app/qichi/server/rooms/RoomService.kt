@@ -32,7 +32,6 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
-import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertIgnore
 import org.jetbrains.exposed.v1.jdbc.select
@@ -121,14 +120,11 @@ class RoomService(
                 row[Rooms.seq] = seq
                 row[updatedAt] = now
             }
-            // 换下来的主视觉照片（专门为主视觉上传的那种）不再有用，连文件一起删掉
+            // 换下来的主视觉照片（专门为主视觉上传的那种）别处也没在用，就连文件一起删掉
             req.heroFileId.ifPresent { newHero ->
                 if (previousHero != null && previousHero != newHero) {
-                    Files.select(Files.storagePath)
-                        .where { (Files.id eq previousHero) and (Files.kind eq FileKind.Hero.wireName) }
-                        .singleOrNull()
-                        ?.let { released += it[Files.storagePath] }
-                        ?.also { Files.deleteWhere { Files.id eq previousHero } }
+                    val heroKind = Files.select(Files.id).where { (Files.id eq previousHero) and (Files.kind eq FileKind.Hero.wireName) }.any()
+                    if (heroKind) files.releaseIfUnused(previousHero)?.let(released::add)
                 }
             }
             RoomRepository.room(roomId)!!

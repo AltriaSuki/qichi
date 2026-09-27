@@ -55,6 +55,7 @@ import app.qichi.server.ideas.IdeaService
 import app.qichi.server.ideas.ideaRoutes
 import app.qichi.server.tags.TagService
 import app.qichi.server.tags.tagRoutes
+import app.qichi.server.jobs.Housekeeping
 import app.qichi.server.jobs.JobQueue
 import app.qichi.server.life.lifeRoutes
 import app.qichi.server.messages.MessageService
@@ -125,6 +126,7 @@ fun main() {
         // 后台任务（AI 等）随服务一起启动和停止
         ctx.jobs.start(this)
         launch { runCatching { ctx.ai.ensureYearlyCheck() }.onFailure { log.warn("没能排上年度检查", it) } }
+        launch { runCatching { ctx.housekeeping.ensureScheduled() }.onFailure { log.warn("没能排上每日清理", it) } }
         monitor.subscribe(ApplicationStopped) { database.close() }
     }.start(wait = true)
 }
@@ -224,6 +226,7 @@ class AppContext(
     val reviews = ReviewService(database, rooms, writes, writer, files, jobs, converter, clock)
     val trash = TrashService(database, rooms, writes, todos, files, clock, reviews)
     val calendar = CalendarService(database, rooms, writes, writer, clock, config.publicBaseUrl)
+    val housekeeping = Housekeeping(database, files, fileStorage, jobs, clock)
 }
 
 class MicrosClock(private val base: Clock) : Clock() {

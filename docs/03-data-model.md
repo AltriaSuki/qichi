@@ -28,19 +28,19 @@
 | 表 | 用途 | 关键字段 |
 |---|---|---|
 | `users` | 账号 | `username` 唯一、`password_hash`（Argon2id）、`display_name`、`avatar_file_id`、`notification_prefs`、`ai_prefs`（AI 能看到哪些资料，缺的键按 true） |
-| `refresh_tokens` | 刷新令牌 | 只存哈希；`family_id`（同一次登录 = 一台设备，重复使用检测时整组作废）、`device_name`、`expires_at`、`revoked_at`、`replaced_by`（轮换链） |
+| `refresh_tokens` | 刷新令牌 | 只存哈希；`family_id`（同一次登录 = 一台设备，重复使用检测时整组作废）、`device_name`、`expires_at`、`revoked_at`、`replaced_by`（轮换链）。过期超过 30 天的每天清掉（P13-18） |
 | `rooms` | 房间 | `name`、`avatar_file_id`、`hero_file_id`（今天页主视觉）、`anniversary`、`timezone`、`last_seq` |
 | `room_members` | 成员 | `role`：owner / member；每房间最多 2 人（服务端校验） |
 | `invites` | 邀请码 | `code` 唯一、`expires_at`、`used_by` |
 | `change_log` | 同步日志 | 主键 `(room_id, seq)`；`entity_type`、`entity_id`、`op` |
-| `files` | 文件元数据 | `kind`：image / file / avatar / hero / epub / review；`sha256`；`storage_path` |
+| `files` | 文件元数据 | `kind`：image / file / avatar / hero / epub / review；`sha256`；`storage_path`。上传 30 天后仍没有任何地方在用的（消息、书、封面、头像、主视觉、审稿、任何一版文稿正文里的照片都不算没用）每天清掉，连同磁盘上的文件（P13-18） |
 | `messages` | 聊天消息 | `kind`：text / image / file / ai / system；`created_seq`（创建时的 seq，决定消息位置，永不改变）；`reply_to_id` + `reply_author_id` + `reply_excerpt`；`retracted_at/by`（撤回时清空 `body`、`file_id`，以及回复它的消息的 `reply_excerpt`）；`body` 上有三元组索引用于搜索；AI 回答的 `ai_prompt`（问题）、`ai_sources`（正文里 [n] 引用到的房间资料，jsonb 数组）、`ai_asked_by`（谁问的）和 `ai_stopped`（提问的人中途停下，正文是停下时已写出的部分）；图片消息的 `body` 是照片说明（≤ 30 字） |
 | `read_markers` | 未读位置 | 每人每房间一行；`last_read_seq`（对应 `messages.created_seq`）只增不减；只同步给本人 |
 | `moods` | 心情 | `label`、`intensity` 1–10、`note`、`needs_comfort` |
 | `mood_responses` | 对心情的回应（接口与代码里叫 `MoodReply`，避免和 HTTP response 混淆） | `kind`：here（我在这里）/ hug（给你一个拥抱）/ ready（等你准备好） |
 | `todos` | 待办 | `assignee_id`（空 = 两人）、`parent_id`（子任务，只有一层）、`due_date` 或 `due_at`、`recurrence`（RRULE）、`recurrence_prev_id`（由哪一次完成生成，唯一，防止重复生成）、`done_at/by` |
 | `events` | 日程 | 定时：`starts_at`、`ends_at`；全天（`all_day`）：`start_date`、`end_date`（含首尾，按房间时区）；`participant_ids`（空 = 两人）、`ics_uid`（导入去重） |
-| `devices` | 推送设备 | `provider`：fcm / unifiedpush（目前只用 unifiedpush）；`token` = 推送地址 |
+| `devices` | 推送设备 | `provider`：fcm / unifiedpush（目前只用 unifiedpush）；`token` = 推送地址。所属登录作废或整次过期后删掉 |
 
 `entity_type` 取值（与 `shared/model/EntityType` 一致）：
 `room` `member` `message` `read_marker` `mood` `mood_response` `todo` `event`，后续阶段追加。
@@ -63,7 +63,7 @@
 | `todos` 增加列 | `plan_id` 引用 `plans` |
 | `rooms` 增加列 | `ics_token`（只读订阅链接用的随机令牌，可重置） |
 | `ideas` | 灵感：`author_id`、`body` |
-| `jobs` | 任务队列：`kind`、`payload` jsonb、`status`（queued / running / done / failed）、`run_at`、`attempts`、`last_error`、`locked_at` |
+| `jobs` | 任务队列：`kind`、`payload` jsonb、`status`（queued / running / done / failed）、`run_at`、`attempts`、`last_error`、`locked_at`。做完 7 天、失败 30 天后每天清掉（P13-18） |
 | `ai_jobs` | AI 调用记录：`room_id`、`requested_by`、`kind`（chat_answer / question_suggest / read_explain / review_findings / summary / yearly_review）、`status`、`model`、`input_tokens`、`output_tokens`、`result_ref`（结果写到了哪个实体）、`error`、时间戳 |
 
 ### 第 5 阶段：共同写作、留言

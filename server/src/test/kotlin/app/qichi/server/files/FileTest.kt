@@ -5,9 +5,17 @@ import app.qichi.server.TestDatabase
 import app.qichi.server.assertProblem
 import app.qichi.server.serverTest
 
+import app.qichi.shared.api.CreateDocumentRequest
+import app.qichi.shared.api.Document
 import app.qichi.shared.api.FileMeta
+import app.qichi.shared.api.Patch
+import app.qichi.shared.api.RoomDetail
+import app.qichi.shared.api.SaveDocumentVersionRequest
+import app.qichi.shared.api.SendMessageRequest
+import app.qichi.shared.api.UpdateRoomRequest
 import app.qichi.shared.model.FileKind
 import app.qichi.shared.model.ProblemCode
+import app.qichi.shared.rules.DocumentImages
 import app.qichi.shared.rules.Limits
 import app.qichi.shared.util.UuidV7
 import io.ktor.client.call.body
@@ -195,6 +203,36 @@ class FileTest {
         assertEquals("行程草稿.pdf", meta.fileName)
         val disposition = aqi.get("/api/v1/files/${meta.id}").headers[HttpHeaders.ContentDisposition]!!
         assertTrue(disposition.contains("filename*=utf-8''%E8%A1%8C", ignoreCase = true), disposition)
+    }
+
+    @Test
+    fun `撤回消息：照片还被主视觉、文稿用着就留着，主视觉不会被悄悄清掉`() = serverTest { client ->
+        val (aqi, _, roomId) = Api(client).pair()
+        val base = "/api/v1/rooms/$roomId"
+        /** 发一张照片，返回 (文件, 消息 id) */
+        suspend fun photoMessage(): Pair<FileMeta, java.util.UUID> {
+            val file = aqi.upload(roomId, png(40, 30)).body<FileMeta>()
+            val messageId = UuidV7.generate()
+            assertEquals(HttpStatusCode.Created, aqi.post("$base/messages", SendMessageRequest(messageId, "image", fileId = file.id)).status)
+            return file to messageId
+        }
+        // 聊天里的一张照片设成了主视觉
+        val (hero, heroMessage) = photoMessage()
+        assertEquals(hero.id, aqi.patch(base, UpdateRoomRequest(heroFileId = Patch.of(hero.id))).body<app.qichi.shared.api.Room>().heroFileId)
+        // 另一张插进了文稿
+        val (inDoc, docMessage) = photoMessage()
+        val doc = aqi.post("$base/documents", CreateDocumentRequest(UuidV7.generate(), "海边")).body<Document>()
+        aqi.post("$base/documents/${doc.id}/versions", SaveDocumentVersionRequest(UuidV7.generate(), 0, "那天的海\n\n" + DocumentImages.markdown(inDoc.id)))
+        // 这张只在聊天里
+        val (only, onlyMessage) = photoMessage()
+
+        for (id in listOf(heroMessage, docMessage, onlyMessage)) {
+            assertEquals(HttpStatusCode.OK, aqi.post("$base/messages/$id/retract").status)
+        }
+        assertEquals(hero.id, aqi.get(base).body<RoomDetail>().room.heroFileId)
+        assertEquals(HttpStatusCode.OK, aqi.get("/api/v1/files/${hero.id}").status)
+        assertEquals(HttpStatusCode.OK, aqi.get("/api/v1/files/${inDoc.id}").status)
+        aqi.get("/api/v1/files/${only.id}").assertProblem(HttpStatusCode.NotFound, ProblemCode.NotFound)
     }
 
     /** 只有文件头与 ispe 盒子的「HEIC」：够服务端识别和读尺寸（一个小块 512×512，整图更大）。 */

@@ -140,7 +140,7 @@ restic 在容器里运行（`docker-compose.yml` 里的 `restic` 服务，平时
 
 没填 `ALERT_NTFY_URL` 时，告警只写进 `/var/log/qichi-backup.log`。
 
-磁盘快满时先看是谁占的：`docker system df`（镜像、容器日志）、`du -sh /var/backups/qichi/*`（备份）；`docker image prune -f` 删掉不用的旧镜像。各服务的日志已经限制为每个最多 3×10MB（`docker-compose.yml` 里的 `x-logging`）。
+磁盘快满时先看是谁占的：`docker system df`（镜像、容器日志）、`du -sh /var/backups/qichi/*`（备份）；`docker image prune -f` 删掉不用的旧镜像。各服务的日志已经限制为每个最多 3×10MB（`docker-compose.yml` 里的 `x-logging`）。服务端每天自己清理一次：上传 30 天后仍没有任何地方在用的文件、磁盘上没有记录的文件、过期很久的登录令牌和旧的任务记录（服务端日志里「每日清理」一行记着清了多少）。
 
 ### 恢复（建议每季度演练一次）
 
