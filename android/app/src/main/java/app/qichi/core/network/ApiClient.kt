@@ -34,6 +34,8 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.URLProtocol
+import io.ktor.http.Url
 import io.ktor.http.content.TextContent
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
@@ -99,9 +101,22 @@ class ApiClient(
         }
     }
 
+    /** 自己的服务器（协议、主机、端口）。令牌只发给它（Q6）：图片加载也走 [http]，别处的图片地址不能收到令牌。 */
+    private val home = Url(baseUrl)
+
+    private fun isHome(url: Url): Boolean =
+        url.protocol.withoutSocket() == home.protocol.withoutSocket() && url.host.equals(home.host, ignoreCase = true) && url.port == home.port
+
+    /** 实时通道的 ws / wss 和 http / https 算同一个地方 */
+    private fun URLProtocol.withoutSocket(): String = when (name) {
+        "wss" -> "https"
+        "ws" -> "http"
+        else -> name
+    }
+
     init {
         http.plugin(HttpSend).intercept { request ->
-            if (request.attributes.contains(NoAuth)) return@intercept execute(request)
+            if (request.attributes.contains(NoAuth) || !isHome(request.url.build())) return@intercept execute(request)
             val token = tokenStore.read()?.accessToken
             if (token != null) request.headers[HttpHeaders.Authorization] = "Bearer $token"
             val first = execute(request)

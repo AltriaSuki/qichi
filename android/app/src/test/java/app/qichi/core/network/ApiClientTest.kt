@@ -18,6 +18,7 @@ import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
+import io.ktor.client.request.get
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.OutgoingContent
@@ -120,6 +121,30 @@ class ApiClientTest {
 
     private fun client(server: FakeServer, store: InMemoryTokenStore) =
         ApiClient(server.engine, "http://test", store, "test")
+
+    @Test
+    fun `令牌只发给自己的服务器：别处的图片地址、换了协议或端口的都不带（Q6）`() = runTest {
+        val seen = mutableMapOf<String, String?>()
+        val engine = MockEngine { request ->
+            seen[request.url.toString().lowercase()] = request.headers[HttpHeaders.Authorization]
+            respond("x", HttpStatusCode.OK)
+        }
+        val api = ApiClient(engine, "https://qichi.example.org", InMemoryTokenStore(tokens(1)), "test")
+        val mine = "Bearer ${tokens(1).accessToken}"
+
+        api.http.get("files/abc/thumb?w=400")
+        api.http.get("https://QICHI.example.org/api/v1/me")
+        api.http.get("https://images.example.com/cat.jpg")
+        api.http.get("http://qichi.example.org/api/v1/me")
+        api.http.get("https://qichi.example.org:8443/api/v1/me")
+
+        assertEquals(mine, seen["https://qichi.example.org/api/v1/files/abc/thumb?w=400"], "相对地址就是自己的服务器")
+        assertEquals(mine, seen["https://qichi.example.org/api/v1/me"], "主机名不分大小写")
+        assertEquals(5, seen.size)
+        assertNull(seen["https://images.example.com/cat.jpg"])
+        assertNull(seen["http://qichi.example.org/api/v1/me"])
+        assertNull(seen["https://qichi.example.org:8443/api/v1/me"])
+    }
 
     @Test
     fun `访问令牌过期时自动刷新一次再重试`() = runTest {
