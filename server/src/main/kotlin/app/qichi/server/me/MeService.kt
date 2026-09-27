@@ -37,11 +37,20 @@ class MeService(
 ) {
     suspend fun get(userId: UUID): Me = db.tx { load(userId) }
 
-    /** 改显示名、头像、通知偏好、AI 能看什么。显示名或头像变化时，所在的每个房间都产生一条 member 变化。 */
+    /**
+     * 改显示名、头像、通知偏好、AI 能看什么、阅读的常用提示词（整套替换）。
+     * 显示名或头像变化时，所在的每个房间都产生一条 member 变化；其余只是自己的设置，不进房间的同步。
+     */
     suspend fun update(userId: UUID, req: UpdateMeRequest): Me {
         validate {
             req.displayName.ifPresent {
                 check(it.trim().length in Limits.DISPLAY_NAME_LENGTH, "displayName", "显示名 1–32 个字")
+            }
+            req.readingPrompts.ifPresent { prompts ->
+                check(prompts.size <= Limits.READING_PROMPTS_MAX, "readingPrompts", "常用提示词最多 ${Limits.READING_PROMPTS_MAX} 条")
+                check(prompts.map { it.id }.toSet().size == prompts.size, "readingPrompts", "提示词的 id 重复了")
+                check(prompts.all { it.title.trim().length in Limits.READING_PROMPT_TITLE_LENGTH }, "readingPrompts", "名字 1–20 个字")
+                check(prompts.all { it.instruction.trim().length in Limits.READING_PROMPT_INSTRUCTION_LENGTH }, "readingPrompts", "要求 1–300 个字")
             }
         }
         return db.tx {
@@ -62,6 +71,7 @@ class MeService(
                 req.avatarFileId.ifPresent { row[avatarFileId] = it }
                 req.notificationPrefs.ifPresent { row[notificationPrefs] = it }
                 req.aiPrefs.ifPresent { row[aiPrefs] = it }
+                req.readingPrompts.ifPresent { list -> row[readingPrompts] = list.map { it.copy(title = it.title.trim(), instruction = it.instruction.trim()) } }
                 row[updatedAt] = now
             }
             if (req.displayName.isPresent || req.avatarFileId.isPresent) {
@@ -87,6 +97,7 @@ class MeService(
             notificationPrefs = row[Users.notificationPrefs],
             createdAt = row[Users.createdAt],
             aiPrefs = row[Users.aiPrefs],
+            readingPrompts = row[Users.readingPrompts],
         )
         val rooms = RoomMembers.join(Rooms, JoinType.INNER, RoomMembers.roomId, Rooms.id)
             .selectAll()

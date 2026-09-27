@@ -5,6 +5,7 @@ import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.AnnotationAnchor
 import app.qichi.shared.api.FindingEvidence
 import app.qichi.shared.api.NormRect
+import app.qichi.shared.api.ReadingPrompt
 import app.qichi.shared.api.AiActionDraft
 import app.qichi.shared.api.SummarySource
 import app.qichi.shared.api.TextBlock
@@ -50,6 +51,7 @@ object Users : Table("users") {
     val avatarFileId = javaUUID("avatar_file_id").nullable()
     val notificationPrefs = jsonb("notification_prefs", QichiJson, JsonObject.serializer())
     val aiPrefs = jsonb("ai_prefs", QichiJson, JsonObject.serializer()).default(JsonObject(emptyMap()))
+    val readingPrompts = jsonb("reading_prompts", QichiJson, ListSerializer(ReadingPrompt.serializer())).default(emptyList())
     val passwordChangedAt = timestamp("password_changed_at").nullable()
     val createdAt = timestamp("created_at")
     val updatedAt = timestamp("updated_at")

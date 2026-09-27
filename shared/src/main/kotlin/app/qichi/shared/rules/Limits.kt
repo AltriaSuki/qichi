@@ -82,6 +82,11 @@ object Limits {
     const val HIGHLIGHT_TEXT_MAX: Int = 5_000
     const val HIGHLIGHT_NOTE_MAX: Int = 2_000
 
+    /** 阅读里的常用提示词（P14-05）：每人最多几条、名字和要求的长度 */
+    const val READING_PROMPTS_MAX: Int = 20
+    val READING_PROMPT_TITLE_LENGTH: IntRange = 1..20
+    val READING_PROMPT_INSTRUCTION_LENGTH: IntRange = 1..300
+
     /** 书籍离线缓存默认上限（docs/05-sync-offline.md） */
     const val BOOK_CACHE_DEFAULT_BYTES: Long = 500L * 1024 * 1024
 

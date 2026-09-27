@@ -62,6 +62,18 @@ data class User(
     val createdAt: Timestamp,
     /** AI 能看到哪些资料（[AiPrefs]）；旧服务端没有这个字段 */
     val aiPrefs: JsonObject = JsonObject(emptyMap()),
+    /** 阅读里的常用提示词（P14-05），顺序即显示顺序；旧服务端没有这个字段 */
+    val readingPrompts: List<ReadingPrompt> = emptyList(),
+)
+
+/** 阅读里的一条常用提示词（P14-05）：每人一套，存在账号上，对方看不到。 */
+@Serializable
+data class ReadingPrompt(
+    val id: Id,
+    /** 显示在按钮上的名字，1–20 字 */
+    val title: String,
+    /** 给 AI 的要求，1–300 字 */
+    val instruction: String,
 )
 
 @Serializable
@@ -86,4 +98,6 @@ data class UpdateMeRequest(
     @EncodeDefault(EncodeDefault.Mode.NEVER) val avatarFileId: Patch<Id?> = Patch.Absent,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val notificationPrefs: Patch<JsonObject> = Patch.Absent,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val aiPrefs: Patch<JsonObject> = Patch.Absent,
+    /** 整套替换常用提示词（P14-05） */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val readingPrompts: Patch<List<ReadingPrompt>> = Patch.Absent,
 )

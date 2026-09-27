@@ -89,11 +89,13 @@ enum class HighlightKind {
     @SerialName("ai") Ai,
 }
 
-/** 阅读里请 AI 做什么：解释这段，或和两个人在这本书里的标注、摘录对照着看。 */
+/** 阅读里请 AI 做什么：解释这段，和两个人在这本书里的标注、摘录对照着看，或者按自己写的要求。 */
 @Serializable
 enum class ReadExplainMode {
     @SerialName("explain") Explain,
     @SerialName("compare") Compare,
+    /** 按自己写的要求（常用提示词或当场写的一句，P14-05） */
+    @SerialName("custom") Custom,
 }
 
 /** 时间线上的事：决定、灵感、计划完成、照片；心情、揭晓的问答、计划进展、文稿存档（P10-09）。 */

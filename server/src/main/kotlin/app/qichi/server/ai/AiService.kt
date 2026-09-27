@@ -202,13 +202,19 @@ class AiService(
         }
     }
 
-    /** 阅读里选中一段请 AI 解释或对比（P6-05）。同一 jobId 再次请求：失败的重新排队，其余返回当前状态。 */
+    /**
+     * 阅读里选中一段请 AI 解释、对比（P6-05），或按自己写的要求（P14-05）。同一 jobId 再次请求：失败的重新排队，其余返回当前状态。
+     */
     suspend fun readExplain(userId: UUID, roomId: UUID, req: AiReadExplainRequest): AiJobAccepted {
         val text = req.text.trim()
+        val instruction = req.instruction?.trim().orEmpty()
         validate {
             check(text.length in 1..READ_TEXT_MAX, "text", "选中的文字 1–$READ_TEXT_MAX 字")
             check(req.locator.length in 1..Limits.LOCATOR_MAX, "locator", "定位信息不对")
             check(req.before.length <= READ_CONTEXT_MAX && req.after.length <= READ_CONTEXT_MAX, "before", "上下文太长")
+            if (req.mode == ReadExplainMode.Custom) {
+                check(instruction.length in Limits.READING_PROMPT_INSTRUCTION_LENGTH, "instruction", "要求 1–300 个字")
+            }
         }
         return db.tx {
             rooms.requireMember(roomId, userId)
@@ -224,6 +230,7 @@ class AiService(
                     put("locator", req.locator)
                     put("before", req.before)
                     put("after", req.after)
+                    if (req.mode == ReadExplainMode.Custom) put("instruction", instruction)
                 }
             }
         }
@@ -245,7 +252,7 @@ class AiService(
         val (book, notes) = db.tx(readOnly = true) {
             val b = Books.select(Books.title, Books.author).where { Books.id eq bookId }.singleOrNull()
             val names = RoomRepository.activeMembers(roomId).associate { it.userId to it.displayName }
-            // 对比时只用提问的人看得到的：自己的全部，加上对方共享的
+            // 对比、按要求问时参考的标注：只用提问的人看得到的（自己的全部，加上对方共享的），结果也只有他看得到
             val list = Highlights.selectAll().where { (Highlights.bookId eq bookId) and Highlights.deletedAt.isNull() }
                 .map { it.toHighlight() }
                 .filter { Visibility.highlight(it, askerId) && (it.kind == HighlightKind.Highlight || it.kind == HighlightKind.Excerpt) }
@@ -254,8 +261,14 @@ class AiService(
             b to list
         }
         if (book == null) return fail(jobId, roomId, "书已经不在书架上了")
+        val template = when (mode) {
+            ReadExplainMode.Explain -> "read_explain"
+            ReadExplainMode.Compare -> "read_compare"
+            ReadExplainMode.Custom -> "read_custom"
+        }
+        val instruction = field("instruction")
         val rendered = prompts.render(
-            if (mode == ReadExplainMode.Compare) "read_compare" else "read_explain",
+            template,
             mapOf(
                 "title" to book[Books.title],
                 "author" to (book[Books.author]?.let { "（$it）" } ?: ""),
@@ -263,6 +276,7 @@ class AiService(
                 "before" to field("before").ifEmpty { "（无）" },
                 "after" to field("after").ifEmpty { "（无）" },
                 "notes" to notes.ifEmpty { "（还没有标注和摘录）" },
+                "instruction" to instruction,
             ),
         )
         val result = try {
@@ -286,7 +300,9 @@ class AiService(
                 it[kind] = HighlightKind.Ai.wireName
                 it[locator] = field("locator")
                 it[text] = field("text").take(Limits.HIGHLIGHT_TEXT_MAX)
-                it[note] = result.text.trim().take(Limits.HIGHLIGHT_NOTE_MAX)
+                // 按自己的要求问的：开头写上问了什么，回头看时知道这段解释是怎么来的
+                val answer = result.text.trim()
+                it[note] = (if (mode == ReadExplainMode.Custom) "问：$instruction\n\n$answer" else answer).take(Limits.HIGHLIGHT_NOTE_MAX)
                 it[shared] = false
             }
             AiJobs.update({ AiJobs.id eq jobId }) {

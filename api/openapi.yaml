@@ -1510,8 +1510,10 @@ paths:
     post:
       tags: [ai, reading]
       operationId: aiReadExplain
-      summary: 选中一段请 AI 解释或对比 → 202
-      description: 结果写成一条 kind = ai 的标记（id = jobId，只有自己看得到），完成后发 ai.done。
+      summary: 选中一段请 AI 解释、对比或按自己的要求来 → 202
+      description: |
+        结果写成一条 kind = ai 的标记（id = jobId，只有自己看得到），完成后发 ai.done。
+        `mode = custom`（P14-05）时按 `instruction` 来，结果的开头写着「问：要求」。
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/AiReadExplainRequest' } } }
@@ -2977,6 +2979,11 @@ components:
         notificationPrefs: { $ref: '#/components/schemas/NotificationPrefs' }
         createdAt: { $ref: '#/components/schemas/Instant' }
         aiPrefs: { $ref: '#/components/schemas/AiPrefs' }
+        readingPrompts:
+          type: array
+          description: 阅读里的常用提示词（P14-05），最多 20 条；旧服务端没有这个字段
+          maxItems: 20
+          items: { $ref: '#/components/schemas/ReadingPrompt' }
     NotificationPrefs:
       type: object
       description: 通知偏好。具体字段在 P3-10（推送）确定；在那之前是空对象。
@@ -3031,6 +3038,11 @@ components:
         avatarFileId: { $ref: '#/components/schemas/NullableUuid' }
         notificationPrefs: { $ref: '#/components/schemas/NotificationPrefs' }
         aiPrefs: { $ref: '#/components/schemas/AiPrefs' }
+        readingPrompts:
+          type: array
+          description: 整套替换（顺序即显示顺序）；最多 20 条，每条 id 不重复
+          maxItems: 20
+          items: { $ref: '#/components/schemas/ReadingPrompt' }
 
     # ── 同步实体的公共字段 ──
     SyncFields:
@@ -3602,7 +3614,8 @@ components:
       enum: [highlight, bookmark, excerpt, ai]
     ReadExplainMode:
       type: string
-      enum: [explain, compare]
+      description: explain 解释 · compare 和两个人的标注、摘录对照 · custom 按自己写的要求（P14-05）
+      enum: [explain, compare, custom]
     AiReadExplainRequest:
       type: object
       required: [jobId, bookId, mode, text, locator]
@@ -3614,6 +3627,18 @@ components:
         locator: { type: string, maxLength: 8000 }
         before: { type: string, maxLength: 500 }
         after: { type: string, maxLength: 500 }
+        instruction:
+          type: [string, 'null']
+          maxLength: 300
+          description: 自己写的要求（`mode = custom` 时必填，1–300 字）
+    ReadingPrompt:
+      type: object
+      description: 阅读里的一条常用提示词（P14-05）。每人一套，存在账号上，对方看不到。
+      required: [id, title, instruction]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        title: { type: string, minLength: 1, maxLength: 20 }
+        instruction: { type: string, minLength: 1, maxLength: 300 }
     Book:
       description: 同步实体类型 `book`（P6）；正文不进同步，按需下载
       allOf:
