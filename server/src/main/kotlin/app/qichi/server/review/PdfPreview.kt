@@ -35,6 +35,7 @@ import javax.imageio.ImageWriteParam
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
 
 /** 给人看的失败原因（预览标成失败，不再重试）。 */
 class PreviewFailure(message: String) : Exception(message)
@@ -45,6 +46,12 @@ class PreviewFailure(message: String) : Exception(message)
  */
 object PdfPreview {
     const val DPI = 144f
+
+    /**
+     * 一页最多渲染这么多像素（约 24MB）。海报、图纸那样特别大的页面按 [DPI] 会有几千万像素，
+     * 256MB 的堆一页就用光；超过时按比例降低清晰度。A4 按 144 DPI 约 200 万像素，不受影响。
+     */
+    const val MAX_PAGE_PIXELS = 6_000_000L
 
     class Page(
         val width: Double,
@@ -69,17 +76,26 @@ object PdfPreview {
             val count = doc.numberOfPages
             if (count == 0) throw PreviewFailure("文件里没有内容")
             if (count > maxPages) throw PreviewFailure("超过 $maxPages 页，太长了，请拆开再传")
-            val renderer = PDFRenderer(doc)
+            // 页面里的图片比要画出来的大很多时先降采样再画：一张几亿像素的扫描图不整张解码
+            val renderer = PDFRenderer(doc).apply { isSubsamplingAllowed = true }
             for (i in 0 until count) {
                 val page = doc.getPage(i)
                 val (w, h) = pageSize(page)
-                val image = renderer.renderImageWithDPI(i, DPI, ImageType.RGB)
+                val image = renderer.renderImage(i, scale(w, h), ImageType.RGB)
                 val blocks = extractBlocks(doc, i + 1, w, h, format)
                 val images = if (page.rotation % 360 == 0) ImageLocator(page).locate() else emptyList()
                 onPage(i + 1, Page(w, h, jpeg(image), image.width, image.height, blocks, images))
             }
             return count
         }
+    }
+
+    /** 渲染倍数（1 = 72 DPI）：按 [DPI]；页面大到超过 [MAX_PAGE_PIXELS] 时缩到上限以内，宽高比不变。 */
+    internal fun scale(width: Double, height: Double): Float {
+        val byDpi = DPI / 72.0
+        if (width * height * byDpi * byDpi <= MAX_PAGE_PIXELS) return byDpi.toFloat()
+        // 往小取一点：换成 float 时不会反而超出上限
+        return Math.nextDown(sqrt(MAX_PAGE_PIXELS / (width * height)).toFloat())
     }
 
     /** 转过的页（90° / 270°）宽高互换，与渲染出的图片方向一致。 */

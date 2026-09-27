@@ -4,12 +4,16 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.request.forms.ChannelProvider
 import io.ktor.client.request.forms.formData
-import io.ktor.client.request.forms.submitFormWithBinaryData
+import io.ktor.client.request.forms.prepareFormWithBinaryData
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
+import io.ktor.util.cio.readChannel
 import io.ktor.utils.io.jvm.javaio.copyTo
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -32,18 +36,22 @@ class GotenbergConverter(private val baseUrl: String, engine: HttpClientEngine =
         }
     }
 
+    /** 文件边读边传、结果边收边写（文件最大 100MB，堆只有 256MB，不整份放进内存）。 */
     override suspend fun toPdf(input: Path, extension: String, output: Path) {
-        val bytes = Files.readAllBytes(input)
-        val response = http.submitFormWithBinaryData(
-            url = "$baseUrl/forms/libreoffice/convert",
-            formData = formData {
-                append("files", bytes, Headers.build { append(HttpHeaders.ContentDisposition, "filename=\"input.$extension\"") })
-            },
-        )
-        when (response.status.value) {
-            in 200..299 -> Files.newOutputStream(output).use { response.bodyAsChannel().copyTo(it) }
-            400, 415, 422 -> throw PreviewFailure("这个文件转换不了，可以另存为 PDF 再传")
-            else -> error("文档转换服务出错：HTTP ${response.status.value}")
+        val size = withContext(Dispatchers.IO) { Files.size(input) }
+        val form = formData {
+            append(
+                "files",
+                ChannelProvider(size) { input.readChannel() },
+                Headers.build { append(HttpHeaders.ContentDisposition, "filename=\"input.$extension\"") },
+            )
+        }
+        http.prepareFormWithBinaryData("$baseUrl/forms/libreoffice/convert", form).execute { response ->
+            when (response.status.value) {
+                in 200..299 -> withContext(Dispatchers.IO) { Files.newOutputStream(output).use { response.bodyAsChannel().copyTo(it) } }
+                400, 415, 422 -> throw PreviewFailure("这个文件转换不了，可以另存为 PDF 再传")
+                else -> error("文档转换服务出错：HTTP ${response.status.value}")
+            }
         }
     }
 }

@@ -7,6 +7,10 @@ import app.qichi.shared.api.ReviewPage
 import app.qichi.shared.api.TextBlock
 import app.qichi.shared.model.AnchorKind
 import app.qichi.shared.model.ReviewFormat
+import org.apache.pdfbox.pdmodel.PDDocument
+import org.apache.pdfbox.pdmodel.PDPage
+import org.apache.pdfbox.pdmodel.common.PDRectangle
+import java.nio.file.Files
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -51,5 +55,22 @@ class PdfPreviewTest {
         assertTrue(lost2)
         assertEquals(1, gone.page)
         assertTrue(Relocate.similarity("首付百分之三十", "首付百分之四十") > 0.6)
+    }
+
+    @Test fun `特别大的页面按像素上限降低清晰度；A4 仍按 144 DPI`() {
+        val file = Files.createTempFile("qichi-big-", ".pdf")
+        PDDocument().use { doc ->
+            doc.addPage(PDPage(PDRectangle.A0))
+            doc.addPage(PDPage(PDRectangle.A4))
+            doc.save(file.toFile())
+        }
+        val sizes = mutableListOf<Pair<Int, Int>>()
+        PdfPreview.render(file, ReviewFormat.Pdf, maxPages = 10) { _, page -> sizes += page.pixelWidth to page.pixelHeight }
+
+        // A0 按 144 DPI 是 4768 × 6740（3200 万像素，一张图就 128MB）
+        val (w, h) = sizes[0]
+        assertTrue(w.toLong() * h <= PdfPreview.MAX_PAGE_PIXELS, "A0 渲染成了 $w×$h")
+        assertEquals(PDRectangle.A0.width.toDouble() / PDRectangle.A0.height, w.toDouble() / h, 0.01)
+        assertEquals(1190 to 1683, sizes[1])
     }
 }
