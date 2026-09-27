@@ -34,7 +34,7 @@ object TodoWidgetCallbacks {
     val TODO_ID = ActionParameters.Key<String>("todoId")
 
     /** 取出待办 id、做 [action]；做了就马上刷新桌面上所有这个组件（大小两个都放了的话两个都变）。 */
-    internal suspend fun run(
+    internal suspend fun handle(
         context: Context,
         parameters: ActionParameters,
         action: suspend TodoWidgetActions.(UUID) -> Boolean,
@@ -50,14 +50,14 @@ object TodoWidgetCallbacks {
 /** 点圆圈：勾掉。划线留 [JUST_DONE_FOR]，到时候组件自己刷新一次，这一条就消失了。 */
 class CompleteTodoCallback : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        if (TodoWidgetCallbacks.run(context, parameters) { complete(it) }) TodoWidgetRefreshWorker.schedule(context, JUST_DONE_FOR)
+        if (TodoWidgetCallbacks.handle(context, parameters) { complete(it) }) TodoWidgetRefreshWorker.schedule(context, JUST_DONE_FOR)
     }
 }
 
 /** 点「撤回」（或刚勾掉的那个实心圆圈）：回到没做完。 */
 class ReopenTodoCallback : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        TodoWidgetCallbacks.run(context, parameters) { reopen(it) }
+        TodoWidgetCallbacks.handle(context, parameters) { reopen(it) }
     }
 }
 
