@@ -53,18 +53,22 @@ import app.qichi.shared.rules.Recurrence
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
-/** 待办页：进行中（按截止日）与已完成；点一条打开编辑，右下角新建。 */
+/**
+ * 待办页：进行中（按截止日）与已完成；点一条打开编辑，右下角新建。
+ * [open]：一进来就打开的编辑面板——一条待办的 id，或 [TodoEditTarget.NEW] 新建（桌面组件点进来的深链 `todo/{id}`、`todo/new`，P15-02）。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodoScreen(
     roomId: UUID,
     onBack: () -> Unit,
+    open: String? = null,
     viewModel: TodoViewModel = hiltViewModel<TodoViewModel, TodoViewModel.Factory>(key = roomId.toString()) { it.create(roomId) },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val colors = QichiTheme.colors
     // null = 不显示；"new" = 新建；其它 = 编辑这条
-    var editing by rememberSaveable { mutableStateOf<String?>(null) }
+    var editing by rememberSaveable { mutableStateOf(open) }
 
     Box(
         Modifier
@@ -116,14 +120,18 @@ fun TodoScreen(
                 item { Spacer(Modifier.height(FabClearance)) }
             }
         }
-        Fab("新待办", { editing = "new" })
+        Fab("新待办", { editing = TodoEditTarget.NEW })
     }
 
     editing?.let { key ->
-        val group = if (key == "new") null else state.find(UUID.fromString(key))
-        if (key != "new" && group == null) {
-            editing = null
-            return@let
+        val group = when (val target = TodoEditTarget.of(key, state.loaded, state::find)) {
+            TodoEditTarget.New -> null
+            is TodoEditTarget.Existing -> target.group
+            TodoEditTarget.Waiting -> return@let
+            TodoEditTarget.Gone -> {
+                editing = null
+                return@let
+            }
         }
         TodoEditor(
             group = group,

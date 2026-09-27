@@ -20,6 +20,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 
 /**
  * 返回一律回到进来的地方（人类 2026-09-26）：用真的 NavController 和 App 一样形状的导航图，
@@ -192,6 +193,16 @@ class QichiNavigatorTest {
         navigator.handle(DeepLink.ToPage(roomId.toString(), Page.Mood, "m9"))
         assertEquals(TopTab.Chat, navigator.currentTab)
         assertEquals(listOf(TogetherPage(Page.Mood, "m9"), ChatHome(), TodayHome), backUntilExit())
+    }
+
+    @Test
+    fun `深链指的就是眼前这一页（桌面组件上同一条待办点了两次）：重新打开一次，不叠两层`() {
+        val link = DeepLink.ToPage(roomId.toString(), Page.Todo, "t1")
+        navigator.handle(link)
+        val first = checkNotNull(nav.currentBackStackEntry).id
+        navigator.handle(link)
+        assertNotEquals(first, checkNotNull(nav.currentBackStackEntry).id, "页面按链接重新来：关掉的编辑面板再打开")
+        assertEquals(listOf(TogetherPage(Page.Todo, "t1"), TodayHome), backUntilExit())
     }
 
     @Test

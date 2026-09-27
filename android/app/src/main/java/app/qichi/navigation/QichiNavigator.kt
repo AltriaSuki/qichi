@@ -75,7 +75,8 @@ class QichiNavigator(
 
     /**
      * 深链（通知、链接）：
-     * - 某个页面：和 App 里打开一样压在当前页面上，返回回到点开之前的地方
+     * - 某个页面：和 App 里打开一样压在当前页面上，返回回到点开之前的地方。眼前就是链接指的那一页（带 id，比如桌面组件上
+     *   同一条待办点了两次）：重新打开一次，页面按链接重新来（关掉的编辑面板再打开），不叠两层（P15-02）
      * - 某个标签：切到那个标签的根页面（聊天带消息 id 时跳到那条消息）；在那里按返回回到之前的标签和页面。
      *   本来就在这个标签里时，压在它上面的页面会退掉（每个标签只有一个根页面）
      */
@@ -95,7 +96,11 @@ class QichiNavigator(
                     }
                 }
             }
-            is DeepLink.ToPage -> open(link.page, link.id)
+            is DeepLink.ToPage -> {
+                val route = link.page.route(link.id)
+                if (link.id != null && isOnTop(route)) navController.popBackStack()
+                push(route)
+            }
         }
     }
 

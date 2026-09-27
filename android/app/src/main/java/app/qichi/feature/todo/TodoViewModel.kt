@@ -49,6 +49,8 @@ data class TodoUiState(
     val plans: List<Plan> = emptyList(),
     /** 所有计划（待办下面那行小字「⚑ 秋天去一次海边」；编辑时补上已经挂着的那个） */
     val allPlans: Map<UUID, Plan> = emptyMap(),
+    /** 已经从本机读出来了（桌面组件点进来要打开某一条时，读出来之前先等着，P15-02） */
+    val loaded: Boolean = false,
 ) {
     val sections: TodoSections get() = todoSections(open, today, zone)
     val planTitles: Map<UUID, String> get() = allPlans.mapValues { it.value.title }
@@ -96,6 +98,7 @@ class TodoViewModel @AssistedInject constructor(
                 .take(30),
             plans = allPlans.map { it.value }.filter { it.status == PlanStatus.Active }.sortedBy { it.createdAt },
             allPlans = allPlans.associate { it.value.id to it.value },
+            loaded = true,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TodoUiState())
 

@@ -178,7 +178,8 @@ fun QichiApp(
                         when (route.page) {
                             Page.Mood -> MoodScreen(roomId = roomId, onBack = navigator::back)
                             Page.Qna -> QnaScreen(roomId = roomId, onBack = navigator::back)
-                            Page.Todo -> TodoScreen(roomId = roomId, onBack = navigator::back)
+                            // id：桌面组件点进来时要打开的那条待办，或 new 新建（P15-02）
+                            Page.Todo -> TodoScreen(roomId = roomId, open = route.id, onBack = navigator::back)
                             Page.Calendar -> CalendarMonthScreen(
                                 roomId = roomId,
                                 onBack = navigator::back,
