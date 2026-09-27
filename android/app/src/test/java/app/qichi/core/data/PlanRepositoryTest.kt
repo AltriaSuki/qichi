@@ -18,8 +18,10 @@ import app.qichi.shared.api.CreatePlanRequest
 import app.qichi.shared.api.CreateTodoRequest
 import app.qichi.shared.api.Patch
 import app.qichi.shared.api.QichiJson
+import app.qichi.shared.api.UpdatePlanLogRequest
 import app.qichi.shared.api.UpdatePlanRequest
 import app.qichi.shared.api.UpdatePlanStageRequest
+import app.qichi.shared.api.UpdateTodoRequest
 import app.qichi.shared.model.PlanStatus
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -31,6 +33,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.time.LocalDate
+import java.time.ZoneId
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -141,5 +144,97 @@ class PlanRepositoryTest {
         plans.delete(plan)
         assertTrue(plans.observePlans(roomId).first().isEmpty())
         assertEquals(listOf("买纸箱"), todos.observeTodos(roomId).first().map { it.value.title })
+    }
+
+    private suspend fun planNow() = plans.observePlans(roomId).first().single().value
+
+    @Test
+    fun `先放一放、重新打开（P14-03）：只发状态；重新打开清掉完成时间、留着完成记录`() = runTest {
+        val plan = plans.create(roomId, "学吉他", me, null)
+        plans.setStatus(plan, PlanStatus.Archived)
+        assertEquals(PlanStatus.Archived, planNow().status)
+        val body = QichiJson.decodeFromString(UpdatePlanRequest.serializer(), db.outbox().all().last().bodyJson!!)
+        assertEquals(UpdatePlanRequest(status = Patch.of(PlanStatus.Archived)), body)
+
+        plans.setStatus(planNow(), PlanStatus.Active)
+        plans.complete(planNow(), "会弹三首歌了")
+        plans.setStatus(planNow(), PlanStatus.Active)
+        val reopened = planNow()
+        assertEquals(PlanStatus.Active, reopened.status)
+        assertNull(reopened.completedAt)
+        assertEquals("会弹三首歌了", reopened.completionNote)
+    }
+
+    @Test
+    fun `下一步连着待办（P14-03）：照待办填、只发 nextStepTodoId；待办改名跟着变、做完就结束；直接改下一步就断开`() = runTest {
+        val plan = plans.create(roomId, "搬家", me, null)
+        val todo = todos.create(roomId, "订搬家公司", assigneeId = partner, dueDate = LocalDate.of(2026, 10, 1), planId = plan.id)
+        plans.linkNextStep(plan, todo, ZoneId.of("Asia/Shanghai"))
+        planNow().let {
+            assertEquals(todo.id, it.nextStepTodoId)
+            assertEquals("订搬家公司", it.nextStep)
+            assertEquals(partner, it.nextStepOwnerId)
+            assertEquals(LocalDate.of(2026, 10, 1), it.nextStepDue)
+        }
+        assertEquals(UpdatePlanRequest(nextStepTodoId = Patch.of(todo.id)), QichiJson.decodeFromString(UpdatePlanRequest.serializer(), db.outbox().all().last().bodyJson!!))
+
+        // 待办改名：本机的下一步马上跟着变（服务端也会这样改，不另外发）
+        val outboxBefore = db.outbox().all().size
+        todos.update(todo, UpdateTodoRequest(title = Patch.of("订周六的搬家公司")))
+        assertEquals("订周六的搬家公司", planNow().nextStep)
+        assertEquals(outboxBefore + 1, db.outbox().all().size, "只多了改待办那一条")
+
+        // 做完：下一步结束
+        val current = todos.observeTodos(roomId).first().single { it.value.id == todo.id }.value
+        todos.complete(current)
+        planNow().let {
+            assertNull(it.nextStep)
+            assertNull(it.nextStepTodoId)
+            assertNull(it.nextStepOwnerId)
+            assertNull(it.nextStepDue)
+        }
+
+        // 直接改下一步：不再跟着待办
+        val other = todos.create(roomId, "退押金", planId = plan.id)
+        plans.linkNextStep(planNow(), other, ZoneId.of("Asia/Shanghai"))
+        plans.update(planNow(), UpdatePlanRequest(nextStep = Patch.of("退押金并拍照")))
+        assertEquals("退押金并拍照", planNow().nextStep)
+        assertNull(planNow().nextStepTodoId)
+    }
+
+    @Test
+    fun `阶段换顺序（P14-03）：重新编号，只发变了的`() = runTest {
+        val plan = plans.create(roomId, "搬家", me, null)
+        listOf("打包", "搬运", "收拾").forEachIndexed { i, t -> plans.addStage(plan, t, i) }
+        val stages = plans.observeStages(roomId).first().map { it.value }.sortedBy { it.sortOrder }
+        val before = db.outbox().all().size
+        plans.reorderStages(listOf(stages[1], stages[0], stages[2]))
+        assertEquals(listOf("搬运", "打包", "收拾"), plans.observeStages(roomId).first().map { it.value }.sortedBy { it.sortOrder }.map { it.title })
+        val sent = db.outbox().all().drop(before)
+        assertEquals(2, sent.size, "收拾没动，不发")
+        assertTrue(sent.all { it.method == "PATCH" })
+    }
+
+    @Test
+    fun `进展记录（P14-03）：改只发正文，删掉走 DELETE；里程碑改名改日期只发改动的`() = runTest {
+        val plan = plans.create(roomId, "搬家", me, null)
+        plans.addLog(plan, "看了三处房子")
+        val log = plans.observeLogs(roomId).first().single().value
+        plans.updateLog(log, "  看了三处房子，第二处最好 ")
+        assertEquals("看了三处房子，第二处最好", plans.observeLogs(roomId).first().single().value.body)
+        val patch = db.outbox().all().last()
+        assertEquals("rooms/$roomId/plans/${plan.id}/logs/${log.id}", patch.path)
+        assertEquals(UpdatePlanLogRequest("看了三处房子，第二处最好"), QichiJson.decodeFromString(UpdatePlanLogRequest.serializer(), patch.bodyJson!!))
+        plans.deleteLog(plans.observeLogs(roomId).first().single().value)
+        assertTrue(plans.observeLogs(roomId).first().isEmpty())
+        assertEquals("DELETE", db.outbox().all().last().method)
+
+        plans.addMilestone(plan, "签合同", null)
+        val m = plans.observeMilestones(roomId).first().single().value
+        plans.updateMilestone(m, "签租房合同", LocalDate.of(2026, 10, 3))
+        val body = QichiJson.decodeFromString(app.qichi.shared.api.UpdateMilestoneRequest.serializer(), db.outbox().all().last().bodyJson!!)
+        assertEquals(Patch.of("签租房合同"), body.title)
+        assertEquals(Patch.of(LocalDate.of(2026, 10, 3)), body.targetDate)
+        assertEquals(Patch.Absent, body.doneAt)
     }
 }

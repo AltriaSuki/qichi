@@ -55,6 +55,7 @@ import app.qichi.server.ideas.IdeaService
 import app.qichi.server.ideas.ideaRoutes
 import app.qichi.server.tags.TagService
 import app.qichi.server.tags.tagRoutes
+import app.qichi.server.jobs.Housekeeping
 import app.qichi.server.jobs.JobQueue
 import app.qichi.server.life.lifeRoutes
 import app.qichi.server.messages.MessageService
@@ -63,6 +64,7 @@ import app.qichi.server.moods.MoodService
 import app.qichi.server.todos.TodoService
 import app.qichi.server.me.MeService
 import app.qichi.server.plugins.installCallLogging
+import app.qichi.server.plugins.installClientVersionCheck
 import app.qichi.server.plugins.installDefaultHeaders
 import app.qichi.server.plugins.installErrorHandling
 import app.qichi.server.plugins.installSecurity
@@ -124,6 +126,7 @@ fun main() {
         // 后台任务（AI 等）随服务一起启动和停止
         ctx.jobs.start(this)
         launch { runCatching { ctx.ai.ensureYearlyCheck() }.onFailure { log.warn("没能排上年度检查", it) } }
+        launch { runCatching { ctx.housekeeping.ensureScheduled() }.onFailure { log.warn("没能排上每日清理", it) } }
         monitor.subscribe(ApplicationStopped) { database.close() }
     }.start(wait = true)
 }
@@ -135,6 +138,7 @@ fun Application.module(ctx: AppContext) {
     installCallLogging()
     installDefaultHeaders()
     installSecurity(ctx.tokens, ctx.auth)
+    installClientVersionCheck(ctx.config.minAndroidVersionCode)
     installWebSockets()
     // 文件下载支持 Range（断点续传、视频拖动）
     install(PartialContent)
@@ -180,7 +184,7 @@ class AppContext(
     /** 默认按配置创建；测试里换成假的网关 */
     aiGateway: AiGateway? = AiGateway.fromConfig(config.ai),
     /** 默认按 PUSH_PROVIDERS 创建；测试里换成假的 */
-    pushSender: PushSender? = if (PushProvider.UnifiedPush in config.pushProviders) UnifiedPushSender(config.unifiedPushAllowedHosts) else null,
+    pushSender: PushSender? = if (PushProvider.UnifiedPush in config.pushProviders) UnifiedPushSender(config.unifiedPushAllowedHosts, config.unifiedPushToken) else null,
     /** 默认按 CONVERTER_URL 创建；测试里换成假的 */
     converter: DocumentConverter? = config.converterUrl?.let(::GotenbergConverter),
 ) {
@@ -195,7 +199,7 @@ class AppContext(
     val appReleases = AppReleases(config.filesDir)
     val files = FileService(database, fileStorage, clock)
     val rooms = RoomService(database, writer, clock, files)
-    val auth = AuthService(database, hasher, tokens, rooms, clock)
+    val auth = AuthService(database, hasher, tokens, rooms, clock, onRevoked = realtime::sessionsRevoked)
     val me = MeService(database, writer, clock, aiEnabled = aiGateway != null)
     val sync = SyncService(database)
     val writes = EntityWrites(writer, clock)
@@ -213,15 +217,16 @@ class AppContext(
     val docComments = DocCommentService(database, rooms, writes)
     val board = BoardService(database, rooms, writes)
     val archive = ArchiveService(database, rooms, writes)
-    val aiActions = AiActionService(database, rooms, writes, events, todos, archive, ideas)
+    val aiActions = AiActionService(database, rooms, writes, events, todos, archive, ideas, plans)
     val decisions = DecisionService(database, rooms, writes)
     val timeline = TimelineService(database, rooms, clock)
     val reading = ReadingService(database, rooms, writes)
     val summaries = SummaryService(database, rooms, writes)
     val export = ExportService(database, rooms, fileStorage, clock)
     val reviews = ReviewService(database, rooms, writes, writer, files, jobs, converter, clock)
-    val trash = TrashService(database, rooms, writer, writes, todos, files, clock, reviews)
+    val trash = TrashService(database, rooms, writes, todos, files, clock, reviews)
     val calendar = CalendarService(database, rooms, writes, writer, clock, config.publicBaseUrl)
+    val housekeeping = Housekeeping(database, files, fileStorage, jobs, clock)
 }
 
 class MicrosClock(private val base: Clock) : Clock() {

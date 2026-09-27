@@ -24,6 +24,9 @@ import java.util.TimeZone
 /**
  * 所有测试共用一个 PostgreSQL 16 容器（Testcontainers），第一次用到时启动并执行迁移。
  * 每个测试开始前调用 [reset] 清空业务数据。
+ *
+ * 没有 Docker 的机器：设 `QICHI_TEST_DATABASE_URL`（可选 `QICHI_TEST_DATABASE_USER` / `_PASSWORD`，默认都是 qichi）
+ * 就改用这个现成的库，不起容器。这个库会被清空，只能专门给测试用（见 tools/README.md）。
  */
 object TestDatabase {
     init {
@@ -39,13 +42,39 @@ object TestDatabase {
     }
 
     val config: DatabaseConfig by lazy {
-        DatabaseConfig(container.jdbcUrl, container.username, container.password, maxPoolSize = 10)
+        System.getenv("QICHI_TEST_DATABASE_URL")?.takeIf { it.isNotBlank() }?.let { url ->
+            DatabaseConfig(
+                url,
+                System.getenv("QICHI_TEST_DATABASE_USER") ?: "qichi",
+                System.getenv("QICHI_TEST_DATABASE_PASSWORD") ?: "qichi",
+                maxPoolSize = 10,
+            )
+        } ?: DatabaseConfig(container.jdbcUrl, container.username, container.password, maxPoolSize = 10)
     }
 
     val database: QichiDatabase by lazy { QichiDatabase.start(config) }
 
-    /** 清空除迁移记录外的所有表。 */
+    /**
+     * 清空除迁移记录外的所有表。
+     * 上一个测试里的推送是在后台算的（PushService 自己的协程，不随测试结束），可能还在读 users、rooms，
+     * 和这里的 TRUNCATE 互相等锁，被数据库判成死锁：遇到死锁稍等一下再清。
+     */
     fun reset() {
+        repeat(RESET_ATTEMPTS) { attempt ->
+            try {
+                truncateAll()
+                return
+            } catch (e: java.sql.SQLException) {
+                if (e.sqlState != DEADLOCK || attempt == RESET_ATTEMPTS - 1) throw e
+                Thread.sleep(100L * (attempt + 1))
+            }
+        }
+    }
+
+    private const val RESET_ATTEMPTS = 5
+    private const val DEADLOCK = "40P01"
+
+    private fun truncateAll() {
         database.dataSource.connection.use { conn ->
             val tables = conn.createStatement().use { st ->
                 st.executeQuery(
@@ -74,7 +103,8 @@ fun testContext(
     aiGateway: AiGateway? = null,
     pushSender: app.qichi.server.push.PushSender? = null,
     converter: app.qichi.server.review.DocumentConverter? = null,
-): AppContext = AppContext(config, TestDatabase.database, clock, BuildInfo.load(), fastHasher, aiGateway, pushSender, converter)
+    hasher: PasswordHasher = fastHasher,
+): AppContext = AppContext(config, TestDatabase.database, clock, BuildInfo.load(), hasher, aiGateway, pushSender, converter)
 
 /** 可以拨动的时钟：测试过期、限流窗口。 */
 class MutableClock(private var now: Instant = Instant.now()) : Clock() {

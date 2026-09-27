@@ -11,6 +11,7 @@ import app.qichi.shared.api.CreatePlanLogRequest
 import app.qichi.shared.api.CreatePlanRequest
 import app.qichi.shared.api.CreatePlanStageRequest
 import app.qichi.shared.api.UpdateMilestoneRequest
+import app.qichi.shared.api.UpdatePlanLogRequest
 import app.qichi.shared.api.UpdatePlanRequest
 import app.qichi.shared.api.UpdatePlanStageRequest
 import io.ktor.server.auth.authenticate
@@ -54,6 +55,12 @@ fun Route.planRoutes(ctx: AppContext) {
             }
             post("/{planId}/logs") {
                 call.respondCreated(ctx.plans.createLog(call.user.userId, call.uuidParam("roomId"), call.uuidParam("planId"), call.receive<CreatePlanLogRequest>()))
+            }
+            patch("/{planId}/logs/{id}") {
+                call.respond(ctx.plans.updateLog(call.user.userId, call.uuidParam("roomId"), call.uuidParam("planId"), call.uuidParam("id"), call.receive<UpdatePlanLogRequest>()))
+            }
+            delete("/{planId}/logs/{id}") {
+                call.respond(ctx.plans.deleteLog(call.user.userId, call.uuidParam("roomId"), call.uuidParam("planId"), call.uuidParam("id")))
             }
         }
     }

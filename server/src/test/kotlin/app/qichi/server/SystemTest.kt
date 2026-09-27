@@ -1,6 +1,8 @@
 package app.qichi.server
 
+import app.qichi.server.db.QichiDatabase
 import app.qichi.shared.api.Health
+import app.qichi.shared.model.ProblemCode
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -25,6 +27,15 @@ class SystemTest {
         val health = response.body<Health>()
         assertEquals("ok", health.status)
         assertEquals("0.1.0", health.version)
+    }
+
+    @Test
+    fun `数据库连不上时健康检查报错，部署脚本和监控能发现（Q12）`() {
+        val db = QichiDatabase.start(TestDatabase.config)
+        db.close()
+        serverTest(AppContext(testConfig(), db, MutableClock(), BuildInfo.load(), fastHasher)) { client ->
+            client.get("/api/v1/health").assertProblem(HttpStatusCode.InternalServerError, ProblemCode.InternalError)
+        }
     }
 
     @Test

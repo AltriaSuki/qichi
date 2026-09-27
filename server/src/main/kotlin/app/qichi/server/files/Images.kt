@@ -10,6 +10,7 @@ import javax.imageio.IIOImage
 import javax.imageio.ImageIO
 import javax.imageio.ImageWriteParam
 import kotlin.math.max
+import kotlin.math.sqrt
 
 /** 允许上传的图片格式。按文件头识别，不信任客户端声明的类型。 */
 enum class ImageFormat(val mimeType: String) {
@@ -22,6 +23,12 @@ enum class ImageFormat(val mimeType: String) {
 
 object Images {
     private const val THUMB_QUALITY = 0.82f
+
+    /**
+     * 做缩略图时最多解出这么多像素（约 24MB）。降采样步长按宽度算，长截图那样又窄又长的图会整张解出来，
+     * 256MB 的堆同时做两张就可能用光；超过时加大步长。
+     */
+    const val MAX_DECODE_PIXELS = 6_000_000L
     private val HEIC_BRANDS = setOf("heic", "heix", "hevc", "hevx", "heim", "heis", "mif1", "msf1")
 
     fun sniff(head: ByteArray): ImageFormat? {
@@ -86,7 +93,7 @@ object Images {
 
     /**
      * 生成宽 [width] 的 JPEG 缩略图写到 [target]（原图更窄时不放大）。
-     * 解码时按比例降采样，大图也不会占用太多内存。解不开（如 HEIC）返回 false。
+     * 解码时按比例降采样（见 [subsampling]），大图也不会占用太多内存。解不开（如 HEIC）返回 false。
      */
     fun writeThumbnail(source: Path, width: Int, target: Path): Boolean {
         val image = ImageIO.createImageInputStream(source.toFile()).use { input ->
@@ -94,7 +101,7 @@ object Images {
             try {
                 reader.input = input
                 val param = reader.defaultReadParam
-                val step = max(1, reader.getWidth(0) / (width * 2))
+                val step = subsampling(reader.getWidth(0), reader.getHeight(0), width)
                 param.setSourceSubsampling(step, step, 0, 0)
                 reader.read(0, param)
             } finally {
@@ -124,14 +131,30 @@ object Images {
         return true
     }
 
-    /** 先逐次减半再一次缩到目标宽，比一步缩放清晰；透明处填白色。 */
+    /**
+     * 解码时的降采样步长：解出来约为缩略图宽的两倍（再缩小时更清晰），
+     * 同时总像素不超过 [MAX_DECODE_PIXELS]（按宽度算步长时，又窄又长的图会整张解出来）。
+     */
+    internal fun subsampling(sourceWidth: Int, sourceHeight: Int, width: Int): Int {
+        fun decoded(step: Int) = ((sourceWidth + step - 1) / step).toLong() * ((sourceHeight + step - 1) / step)
+        var step = max(1, sourceWidth / (width * 2))
+        step = max(step, sqrt(sourceWidth.toDouble() * sourceHeight / MAX_DECODE_PIXELS).toInt())
+        while (decoded(step) > MAX_DECODE_PIXELS) step++
+        return step
+    }
+
+    /**
+     * 先逐次减半再一次缩到目标宽，比一步缩放清晰；透明处填白色。
+     * 直接从解出来的图开始减半，不先整张复制一份（大图时那一份就要几十 MB）。
+     */
     private fun scaleToWidth(source: BufferedImage, width: Int): BufferedImage {
         val targetHeight = max(1, (source.height.toLong() * width / source.width).toInt())
-        var image = redraw(source, source.width, source.height)
+        var image = source
         while (image.width / 2 >= width) {
             image = redraw(image, image.width / 2, max(1, image.height / 2))
         }
-        if (image.width != width) image = redraw(image, width, targetHeight)
+        // 至少重画一次：换成不透明的 RGB（JPEG 没有透明）
+        if (image.width != width || image === source) image = redraw(image, width, targetHeight)
         return image
     }
 

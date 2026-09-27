@@ -44,6 +44,10 @@ class AppUpdater(
     private val prefs = context.getSharedPreferences("qichi-update", Context.MODE_PRIVATE)
     private val _state = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val state: StateFlow<UpdateState> = _state.asStateFlow()
+    private val _requiredReason = MutableStateFlow<String?>(null)
+
+    /** 为什么必须更新（服务端要求、或者有这个版本显示不了的内容）；为空表示不是必须的（P13-07）。 */
+    val requiredReason: StateFlow<String?> = _requiredReason.asStateFlow()
     private val dir: File get() = File(context.cacheDir, "updates").apply { mkdirs() }
 
     /** 用户点了「以后」的那一版：自动检查时不再弹，手动检查时照样显示。 */
@@ -57,6 +61,12 @@ class AppUpdater(
         if (now() - last < minIntervalMs) return
         val release = check(manual = false) ?: return
         if (release.versionCode == dismissed) _state.value = UpdateState.Idle
+    }
+
+    /** 必须更新：马上检查一次（不管多久前检查过、之前有没有点过「以后」），有新版就弹出来，并说明 [reason]。 */
+    suspend fun requireUpdate(reason: String) {
+        _requiredReason.value = reason
+        check(manual = false)
     }
 
     /** 检查一次，有新版本返回它（并把状态设成 [UpdateState.Available]）。 */

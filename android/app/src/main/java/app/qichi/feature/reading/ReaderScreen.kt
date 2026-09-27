@@ -111,7 +111,8 @@ private val HighlightKind.label: String
 
 /**
  * 阅读器：书页铺满整屏（P12-01 沉浸阅读），点中间叫出返回条（书名、目录、搜索、书签）和底部两个人的进度，点左右边缘翻页。
- * 选中文字可以「标注」「摘录」；点标注看感想（自己的可以写、可以设为共同可见）。
+ * 选中文字可以「标注」「摘录」、请 AI「解释」「对比」，或者「问 AI…」按自己的要求问（常用提示词，P14-05）；
+ * 点标注看感想（自己的可以写、可以设为共同可见）。
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -131,9 +132,14 @@ fun ReaderScreen(
     var locator by remember { mutableStateOf<Locator?>(null) }
     var sheet by rememberSaveable { mutableStateOf<ReaderSheet?>(null) }
     var openHighlight by remember { mutableStateOf<UUID?>(null) }
+    // 「问 AI…」：选中的那段（面板开着时不为空）；常用提示词的管理面板
+    var askingAbout by remember { mutableStateOf<Locator?>(null) }
+    var managingPrompts by rememberSaveable { mutableStateOf(false) }
+    val prompts by vm.prompts.collectAsStateWithLifecycle()
 
     LaunchedEffect(state.loaded, state.book) { if (state.loaded && state.book == null) onBack() }
     LaunchedEffect(vm) { vm.openHighlight.collect { openHighlight = it } }
+    LaunchedEffect(vm) { vm.message.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() } }
 
     // ── 沉浸阅读（P12-01）：书页铺满整屏；顶栏、进度、状态栏默认收起，点页面中间叫出 / 收起 ──
     var chromeWanted by rememberSaveable { mutableStateOf(false) }
@@ -174,6 +180,13 @@ fun ReaderScreen(
                             }; nav.clearSelection() } },
                             SelectionAction(4, "对比") { nav -> scope.launch { nav.currentSelection()?.let { sel ->
                                 vm.askAi(ReadExplainMode.Compare, sel.locator)?.let { reason -> Toast.makeText(context, reason, Toast.LENGTH_SHORT).show() }
+                            }; nav.clearSelection() } },
+                            // 按自己的要求问（P14-05）：先打开面板选常用的或写一句
+                            SelectionAction(5, "问 AI…") { nav -> scope.launch { nav.currentSelection()?.let { sel ->
+                                when (val reason = vm.aiBlockedReason()) {
+                                    null -> askingAbout = sel.locator
+                                    else -> Toast.makeText(context, reason, Toast.LENGTH_SHORT).show()
+                                }
                             }; nav.clearSelection() } },
                         ) + extraSelectionActions(vm)
                     }
@@ -288,6 +301,22 @@ fun ReaderScreen(
             SearchSheet(vm, onGo = go)
         }
         null -> Unit
+    }
+    askingAbout?.let { l ->
+        AskAiSheet(
+            selected = l.text.highlight.orEmpty(),
+            prompts = prompts,
+            onAsk = { wish ->
+                askingAbout = null
+                vm.askAi(ReadExplainMode.Custom, l, wish)?.let { reason -> Toast.makeText(context, reason, Toast.LENGTH_SHORT).show() }
+            },
+            onSavePrompt = { p -> vm.savePrompts(prompts + p) },
+            onManage = { managingPrompts = true },
+            onDismiss = { askingAbout = null },
+        )
+    }
+    if (managingPrompts) {
+        PromptManagerSheet(prompts, onChange = { vm.savePrompts(it) }, onDismiss = { managingPrompts = false })
     }
     openHighlight?.let { id ->
         state.highlights.firstOrNull { it.value.id == id }?.let { h ->

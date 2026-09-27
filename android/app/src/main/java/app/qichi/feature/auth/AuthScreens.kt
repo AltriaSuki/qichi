@@ -16,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -47,7 +48,8 @@ private enum class AuthPage { Welcome, Login, Register }
 /** 未登录时的整个流程：欢迎 → 登录 / 注册。 */
 @Composable
 fun AuthFlow(viewModel: AuthViewModel = hiltViewModel()) {
-    var page by rememberSaveable { mutableStateOf(AuthPage.Welcome) }
+    // 登录失效回到这里时直接到登录页（P13-08）
+    var page by rememberSaveable { mutableStateOf(if (viewModel.state.value.expiredNotice != null) AuthPage.Login else AuthPage.Welcome) }
     val state by viewModel.state.collectAsStateWithLifecycle()
     BackHandler(enabled = page != AuthPage.Welcome) { page = AuthPage.Welcome }
     when (page) {
@@ -55,6 +57,28 @@ fun AuthFlow(viewModel: AuthViewModel = hiltViewModel()) {
         AuthPage.Login -> LoginScreen(state, viewModel, onBack = { page = AuthPage.Welcome }, onRegister = { page = AuthPage.Register })
         AuthPage.Register -> RegisterScreen(state, viewModel, onBack = { page = AuthPage.Welcome }, onLogin = { page = AuthPage.Login })
     }
+    state.confirmSwitch?.let { unsent -> SwitchAccountDialog(unsent, onConfirm = viewModel::confirmSwitch, onCancel = viewModel::cancelSwitch) }
+}
+
+/** 换账号前的确认：上一个账号还有没发出去的内容，登录新账号会清掉（P13-08）。 */
+@Composable
+private fun SwitchAccountDialog(unsent: Int, onConfirm: () -> Unit, onCancel: () -> Unit) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    AlertDialog(
+        onDismissRequest = onCancel,
+        containerColor = colors.background,
+        title = { Text("换一个账号登录？", style = type.pageTitle.copy(color = colors.ink)) },
+        text = {
+            Text(
+                "这台手机上还有上一个账号 $unsent 条没发出去的内容。登录这个账号会把它们清掉，清掉后找不回来。" +
+                    "想先发出去，就用上一个账号登录。",
+                style = type.body.copy(color = colors.ink),
+            )
+        },
+        confirmButton = { TextAction("清掉并登录", onConfirm, color = colors.accent) },
+        dismissButton = { TextAction("先不换", onCancel, color = colors.muted) },
+    )
 }
 
 @Composable
@@ -133,6 +157,7 @@ private fun GeneralError(message: String?) {
 @Composable
 private fun LoginScreen(state: AuthUiState, vm: AuthViewModel, onBack: () -> Unit, onRegister: () -> Unit) {
     FormPage(title = "登录", onBack = onBack) {
+        state.expiredNotice?.let { Text(it, style = QichiTheme.typography.body.copy(color = QichiTheme.colors.ink)) }
         QichiTextField(
             value = state.username, onValueChange = vm::onUsername, label = "用户名", error = state.error["username"],
             keyboardOptions = QichiKeyboard.username.copy(imeAction = ImeAction.Next),

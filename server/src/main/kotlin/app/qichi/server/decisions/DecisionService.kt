@@ -6,6 +6,7 @@ import app.qichi.server.db.QichiDatabase
 import app.qichi.server.db.tx
 import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
+import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomService
 import app.qichi.shared.api.CreateDecisionRequest
 import app.qichi.shared.api.Decision
@@ -89,6 +90,7 @@ class DecisionService(
         }
         return db.tx {
             rooms.requireMember(roomId, userId)
+            RoomRepository.lockRoom(roomId)
             val current = decision(id)?.takeIf { it.roomId == roomId && it.deletedAt == null } ?: notFound()
             val newConcerns = concern?.let { text ->
                 val others = current.concerns.filter { it.userId != userId }

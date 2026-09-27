@@ -19,6 +19,7 @@ import app.qichi.core.sync.Local
 import app.qichi.core.sync.LocalStore
 import app.qichi.core.sync.OutboxOp
 import app.qichi.core.sync.SyncScheduler
+import app.qichi.core.sync.UnknownContent
 import app.qichi.shared.api.AcceptAiActionRequest
 import app.qichi.shared.api.AiAction
 import app.qichi.shared.api.AiChatRequest
@@ -27,6 +28,7 @@ import app.qichi.shared.api.AiJob
 import app.qichi.shared.api.AiJobAccepted
 import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
+import app.qichi.shared.api.Lenient
 import app.qichi.shared.api.MessagePage
 import app.qichi.shared.api.MessageSearchPage
 import app.qichi.shared.api.ReadMarker
@@ -48,6 +50,7 @@ import kotlinx.coroutines.flow.map
 import java.net.URLEncoder
 import java.time.Clock
 import java.util.UUID
+import kotlinx.serialization.json.JsonElement
 
 /**
  * 聊天消息。列表从本机数据库分页读（Paging 3），往上翻到本机没有的部分时向服务端要更早的历史。
@@ -60,6 +63,8 @@ class ChatRepository(
     private val scheduler: SyncScheduler,
     private val session: SessionManager,
     private val clock: Clock = Clock.systemUTC(),
+    /** 翻历史时遇到认不出来的消息也记下（P13-07） */
+    private val unknown: UnknownContent = UnknownContent(UnknownContent.MemoryStore(), currentVersion = 0),
 ) {
     private val me: UUID get() = session.currentUserId ?: error("未登录")
 
@@ -301,10 +306,14 @@ class ChatRepository(
         val floor = db.chatHistory().floor(key) ?: db.entities().oldestMessageSeq(key)
         if (floor == 0L) return false
         val query = if (floor == null) "" else "&beforeSeq=$floor"
-        val page = api.get<MessagePage>("rooms/$roomId/messages?limit=$PAGE_SIZE$query")
+        // 逐条解码：新版才有的消息种类跳过并记下，下一页的位置按原始数据算（P13-07）
+        val json = api.get<JsonElement>("rooms/$roomId/messages?limit=$PAGE_SIZE$query")
+        val decoded = Lenient.container(MessagePage.serializer(), json)
+        val page = decoded.value
+        if (decoded.incomplete) unknown.mark(roomId)
         db.transaction {
             page.messages.forEach { store.applyServer(it) }
-            val newFloor = if (page.hasMore) page.messages.minOfOrNull { it.createdSeq } ?: 0 else 0
+            val newFloor = if (page.hasMore) Lenient.rawMin(json, "messages", "createdSeq") ?: 0 else 0
             db.chatHistory().upsert(ChatHistoryRow(key, newFloor))
         }
         return page.hasMore

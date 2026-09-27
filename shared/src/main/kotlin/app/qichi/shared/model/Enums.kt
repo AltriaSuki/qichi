@@ -89,11 +89,13 @@ enum class HighlightKind {
     @SerialName("ai") Ai,
 }
 
-/** 阅读里请 AI 做什么：解释这段，或和两个人在这本书里的标注、摘录对照着看。 */
+/** 阅读里请 AI 做什么：解释这段，和两个人在这本书里的标注、摘录对照着看，或者按自己写的要求。 */
 @Serializable
 enum class ReadExplainMode {
     @SerialName("explain") Explain,
     @SerialName("compare") Compare,
+    /** 按自己写的要求（常用提示词或当场写的一句，P14-05） */
+    @SerialName("custom") Custom,
 }
 
 /** 时间线上的事：决定、灵感、计划完成、照片；心情、揭晓的问答、计划进展、文稿存档（P10-09）。 */
@@ -177,6 +179,7 @@ enum class TrashType {
     @SerialName("review_document") ReviewDocument,
     @SerialName("annotation") Annotation,
     @SerialName("doc_comment") DocComment,
+    @SerialName("plan_log") PlanLog,
 }
 
 @Serializable
@@ -210,6 +213,8 @@ enum class ProblemCode {
     @SerialName("rate_limited") RateLimited,
     @SerialName("ai_unavailable") AiUnavailable,
     @SerialName("ai_quota_exceeded") AiQuotaExceeded,
+    /** App 版本低于服务端要求（426，P13-07） */
+    @SerialName("upgrade_required") UpgradeRequired,
     @SerialName("internal_error") InternalError,
 }
 
@@ -324,6 +329,12 @@ enum class AiActionKind {
     @SerialName("todo") Todo,
     @SerialName("archive_item") ArchiveItem,
     @SerialName("idea") Idea,
+    // 计划相关（P14-04）
+    @SerialName("plan") Plan,
+    @SerialName("plan_stage") PlanStage,
+    @SerialName("milestone") Milestone,
+    @SerialName("plan_log") PlanLog,
+    @SerialName("next_step") NextStep,
 }
 
 /** AI 提议的动作的状态：等人决定、建好了、不用了。 */

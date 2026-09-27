@@ -7,9 +7,17 @@
 # 数据卷名固定为 qichi_*（备份与恢复脚本依赖这些名字）。
 name: qichi
 
+# 每个服务的日志最多留 3 个 10MB 的文件（Docker 默认不限大小，时间长了会占满硬盘）。改了要 docker compose up -d 才生效
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   caddy:
     image: caddy:2
+    logging: *logging
     profiles: ["caddy"]
     restart: unless-stopped
     ports:
@@ -30,6 +38,7 @@ services:
   # 自建推送服务器（UnifiedPush 分发器的服务端）。两台手机装 ntfy App，服务器地址填 https://PUSH_DOMAIN。
   ntfy:
     image: binwiederhier/ntfy
+    logging: *logging
     restart: unless-stopped
     command: serve
     # 只在本机监听：由 Caddy（容器里的或服务器上已有的）对外
@@ -40,12 +49,16 @@ services:
       NTFY_BEHIND_PROXY: "true"
       NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
       NTFY_CACHE_DURATION: 24h
+      # 访问控制（Q4）：账号和令牌存在这里；NTFY_DEFAULT_ACCESS 改成 read-only 后只有带令牌的才能发（docs/07-deploy.md 第 9 节）
+      NTFY_AUTH_FILE: /var/cache/ntfy/user.db
+      NTFY_AUTH_DEFAULT_ACCESS: ${NTFY_DEFAULT_ACCESS:-read-write}
     volumes:
       - ntfy:/var/cache/ntfy
 
   # 审稿用的文档转换（Gotenberg，内含 LibreOffice 无界面模式）。只在内部网络，不对外；只开 LibreOffice，关掉浏览器转换。
   converter:
     image: gotenberg/gotenberg:8
+    logging: *logging
     profiles: ["converter"]
     restart: unless-stopped
     command:
@@ -59,6 +72,7 @@ services:
   server:
     # 小内存的服务器上别在服务器上编译：本机 docker build 后 docker save | ssh … docker load（见 docs/07-deploy.md）
     image: qichi-server:${QICHI_IMAGE_TAG:-latest}
+    logging: *logging
     build:
       context: ..
       dockerfile: deploy/server.Dockerfile
@@ -85,9 +99,13 @@ services:
       PUSH_PROVIDERS: ${PUSH_PROVIDERS:-unifiedpush}
       # 只往自建的 ntfy 发推送
       UNIFIEDPUSH_ALLOWED_HOSTS: ${PUSH_DOMAIN:?请在 .env 里填写 PUSH_DOMAIN}
+      # ntfy 开了访问控制时发推送用的令牌（只带给 PUSH_DOMAIN）
+      UNIFIEDPUSH_TOKEN: ${UNIFIEDPUSH_TOKEN:-}
       # 审稿：Word、Excel、PowerPoint 先转成 PDF 再生成预览（开了 converter 才填 http://converter:3000）
       CONVERTER_URL: ${CONVERTER_URL:-}
       DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-5}
+      # App 最低版本（versionCode）：更旧的 App 提示更新、不再同步。0 = 不限制
+      MIN_ANDROID_VERSION_CODE: ${MIN_ANDROID_VERSION_CODE:-0}
       # 内存：堆上限 256MB（1GB 的服务器也能跑）；内存充足时可以在 .env 里调大
       JAVA_OPTS: ${JAVA_OPTS:--Xmx256m -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -Xss512k}
     volumes:
@@ -98,6 +116,7 @@ services:
 
   db:
     image: postgres:16-alpine
+    logging: *logging
     restart: unless-stopped
     # 两个人用，按小内存设置
     command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=30", "-c", "work_mem=4MB", "-c", "maintenance_work_mem=32MB"]
@@ -113,9 +132,33 @@ services:
       timeout: 5s
       retries: 20
 
+  # 备份用，平时不运行：.env 里配了 RESTIC_REPOSITORY 时 backup.sh 用它做去重增量备份（docs/07-deploy.md 第 7 节）。
+  # 手动查看：docker compose run --rm restic snapshots
+  restic:
+    image: restic/restic:0.19.1
+    profiles: ["backup"]
+    logging: *logging
+    environment:
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:-}
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD:-}
+      # 仓库在对象存储上时按服务商填（S3 兼容的填 AWS_*，Backblaze B2 填 B2_*）
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-}
+      B2_ACCOUNT_ID: ${B2_ACCOUNT_ID:-}
+      B2_ACCOUNT_KEY: ${B2_ACCOUNT_KEY:-}
+    volumes:
+      - files:/data/files:ro
+      # 备份目录在容器里也是同一个路径：仓库放在本机时写成 RESTIC_REPOSITORY=/var/backups/qichi/restic
+      - ${BACKUP_DIR:-/var/backups/qichi}:${BACKUP_DIR:-/var/backups/qichi}
+      # 仓库在另一台机器上（sftp:）时用这台服务器 root 的 SSH 密钥
+      - ${RESTIC_SSH_DIR:-/root/.ssh}:/root/.ssh:ro
+      - restic_cache:/root/.cache/restic
+
 volumes:
   caddy_data:
   caddy_config:
   db:
   files:
   ntfy:
+  restic_cache:

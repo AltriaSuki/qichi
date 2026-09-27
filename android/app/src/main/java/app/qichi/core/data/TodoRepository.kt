@@ -9,6 +9,8 @@ import app.qichi.core.sync.SyncScheduler
 import app.qichi.shared.api.CompleteTodoRequest
 import app.qichi.shared.api.CreateTodoRequest
 import app.qichi.shared.api.Patch
+import app.qichi.shared.api.Plan
+import app.qichi.shared.api.Room
 import app.qichi.shared.api.Todo
 import app.qichi.shared.api.UpdateTodoRequest
 import app.qichi.shared.model.EntityType
@@ -23,7 +25,10 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
 
-/** 待办的本机读写：先写本机（界面立即变化）再经发件箱发出，离线也能新建和完成。 */
+/**
+ * 待办的本机读写：先写本机（界面立即变化）再经发件箱发出，离线也能新建和完成。
+ * 是某个计划的下一步时（P14-03），那个计划的下一步也在本机跟着变（[followLinkedPlans]）。
+ */
 class TodoRepository(
     private val db: QichiDatabase,
     private val store: LocalStore,
@@ -37,6 +42,9 @@ class TodoRepository(
     fun observeTodos(roomId: UUID): Flow<List<Local<Todo>>> =
         db.entities().observeByType(roomId.toString(), EntityType.Todo.wireName)
             .map { rows -> rows.map { LocalStore.toLocal<Todo>(it) } }
+
+    /** 按 id 取一条（桌面组件上勾掉、撤回时用，P15-02）；本机没有时为 null。 */
+    suspend fun find(id: UUID): Todo? = store.get<Todo>(EntityType.Todo, id)?.value
 
     /** 某天截止的待办；定时截止按房间时区折算，计划下的待办也显示。 */
     fun observeTodosForDate(roomId: UUID, date: LocalDate, zone: ZoneId): Flow<List<Local<Todo>>> =
@@ -87,7 +95,10 @@ class TodoRepository(
         (change.dueAt as? Patch.Value)?.let { updated = updated.copy(dueAt = it.value) }
         (change.recurrence as? Patch.Value)?.let { updated = updated.copy(recurrence = it.value) }
         (change.planId as? Patch.Value)?.let { updated = updated.copy(planId = it.value) }
-        store.writeLocal(todo.roomId, updated, OutboxOp.patch("rooms/${todo.roomId}/todos/${todo.id}", change))
+        db.transaction {
+            store.writeLocal(todo.roomId, updated, OutboxOp.patch("rooms/${todo.roomId}/todos/${todo.id}", change))
+            followLinkedPlans(updated, ended = false)
+        }
         scheduler.kickOutbox()
     }
 
@@ -95,10 +106,13 @@ class TodoRepository(
     suspend fun complete(todo: Todo) {
         val now = clock.instant()
         val body = CompleteTodoRequest(nextId = if (todo.recurrence != null) UuidV7.generate() else null)
-        store.writeLocal(
-            todo.roomId, todo.copy(doneAt = now, doneBy = me, updatedAt = now),
-            OutboxOp.post("rooms/${todo.roomId}/todos/${todo.id}/complete", body, kind = OutboxOp.KIND_TODO_COMPLETE),
-        )
+        db.transaction {
+            store.writeLocal(
+                todo.roomId, todo.copy(doneAt = now, doneBy = me, updatedAt = now),
+                OutboxOp.post("rooms/${todo.roomId}/todos/${todo.id}/complete", body, kind = OutboxOp.KIND_TODO_COMPLETE),
+            )
+            followLinkedPlans(todo, ended = true)
+        }
         scheduler.kickOutbox()
     }
 
@@ -113,7 +127,10 @@ class TodoRepository(
                 db.entities().observeByType(todo.roomId.toString(), EntityType.Todo.wireName).first()
                     .map { LocalStore.toLocal<Todo>(it) }
                     .firstOrNull { it.value.recurrencePrevId == todo.id && it.value.doneAt == null && it.value.deletedAt == null && !it.isPending }
-                    ?.let { store.deleteLocal(EntityType.Todo, it.value.id) }
+                    ?.let {
+                        followLinkedPlans(it.value, ended = true)
+                        store.deleteLocal(EntityType.Todo, it.value.id)
+                    }
             }
         }
         scheduler.kickOutbox()
@@ -124,8 +141,36 @@ class TodoRepository(
         val now = clock.instant()
         db.transaction {
             store.writeLocal(todo.roomId, todo.copy(deletedAt = now, deletedBy = me), OutboxOp.delete("rooms/${todo.roomId}/todos/${todo.id}"))
-            children.filter { it.deletedAt == null }.forEach { store.applyOptimistic(it.copy(deletedAt = now, deletedBy = me)) }
+            followLinkedPlans(todo, ended = true)
+            children.filter { it.deletedAt == null }.forEach {
+                store.applyOptimistic(it.copy(deletedAt = now, deletedBy = me))
+                followLinkedPlans(it, ended = true)
+            }
         }
         scheduler.kickOutbox()
+    }
+
+    /**
+     * 这件待办是计划的下一步时（P14-03），服务端会连带改那个计划：做完、删掉（[ended]）→ 下一步结束；
+     * 改了名字、交给谁、截止 → 下一步跟着变；移出那个计划 → 断开。本机先照样改（不入发件箱），之后的拉取以服务端为准。
+     */
+    private suspend fun followLinkedPlans(todo: Todo, ended: Boolean) {
+        val linked = db.entities().observeByType(todo.roomId.toString(), EntityType.Plan.wireName).first()
+            .map { LocalStore.toLocal<Plan>(it).value }
+            .filter { it.nextStepTodoId == todo.id }
+        if (linked.isEmpty()) return
+        val zone = store.get<Room>(EntityType.Room, todo.roomId)?.value?.timezone
+            ?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: ZoneId.systemDefault()
+        linked.forEach { plan ->
+            val next = when {
+                ended -> plan.copy(nextStep = null, nextStepOwnerId = null, nextStepDue = null, nextStepTodoId = null)
+                todo.planId != plan.id -> plan.copy(nextStepTodoId = null)
+                else -> plan.copy(
+                    nextStep = todo.title, nextStepOwnerId = todo.assigneeId,
+                    nextStepDue = todo.dueDate ?: todo.dueAt?.atZone(zone)?.toLocalDate(),
+                )
+            }
+            if (next != plan) store.applyOptimistic(next)
+        }
     }
 }

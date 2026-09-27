@@ -137,8 +137,14 @@ class ReadingRepository(
     // ── 阅读里的 AI（P6-05，需要联网，不进发件箱） ──
 
     /** 请 AI 解释或对比选中的段落；结果是一条 id = [jobId] 的 AI 标记，同步回来后显示。 */
-    suspend fun askAi(book: Book, jobId: UUID, mode: ReadExplainMode, locatorJson: String, text: String, before: String, after: String): AiJobAccepted =
-        api.post("rooms/${book.roomId}/ai/read-explain", AiReadExplainRequest(jobId, book.id, mode, text.trim().take(2000), locatorJson, before.takeLast(500), after.take(500)))
+    /** [instruction]：按自己写的要求问（[ReadExplainMode.Custom]，P14-05）。 */
+    suspend fun askAi(
+        book: Book, jobId: UUID, mode: ReadExplainMode, locatorJson: String, text: String, before: String, after: String, instruction: String? = null,
+    ): AiJobAccepted =
+        api.post(
+            "rooms/${book.roomId}/ai/read-explain",
+            AiReadExplainRequest(jobId, book.id, mode, text.trim().take(2000), locatorJson, before.takeLast(500), after.take(500), instruction?.trim()),
+        )
 
     // ── 书签、标注、摘录 ──
 

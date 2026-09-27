@@ -93,6 +93,7 @@ class EventService(
 
     suspend fun update(userId: UUID, roomId: UUID, id: UUID, req: UpdateEventRequest): Event = db.tx {
         rooms.requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId) // 先锁再读：读到的是最新的，两人同时改不会互相覆盖（Q9）
         val current = event(id)?.takeIf { it.roomId == roomId } ?: notFound()
         fun <T> Patch<T>.or(value: T): T = if (this is Patch.Value) this.value else value
         val shape = Shape(

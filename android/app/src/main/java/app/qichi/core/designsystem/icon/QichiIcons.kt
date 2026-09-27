@@ -74,6 +74,8 @@ object QichiIcons {
 
     val Forward: ImageVector get() = ChevronRight
     val Down: ImageVector by lazy { stroke("down", "M12 5v14M6 13l6 6 6-6", width = 1.5f) }
+    /** 往上挪（阶段调顺序，P14-03） */
+    val Up: ImageVector by lazy { stroke("up", "M12 19V5M6 11l6-6 6 6", width = 1.5f) }
     val File: ImageVector by lazy { stroke("file", "M7 3h7l5 5v13H7zM14 3v5h5") }
     val Close: ImageVector by lazy { stroke("close", "M6 6l12 12M18 6L6 18") }
     /** 字号与行距 */

@@ -1,8 +1,18 @@
 package app.qichi.server.files
 
+import app.qichi.server.db.Books
+import app.qichi.server.db.DocumentVersions
+import app.qichi.server.db.Documents
 import app.qichi.server.db.Files
 import app.qichi.server.db.Messages
+import app.qichi.server.db.Plans
 import app.qichi.server.db.QichiDatabase
+import app.qichi.server.db.ReviewPages
+import app.qichi.server.db.ReviewVersions
+import app.qichi.server.db.Rooms
+import app.qichi.server.db.Users
+import app.qichi.server.db.containsPattern
+import app.qichi.server.db.ilike
 import app.qichi.server.db.tx
 import app.qichi.server.plugins.ApiException
 import app.qichi.server.plugins.notFound
@@ -14,6 +24,7 @@ import app.qichi.shared.model.FileKind
 import app.qichi.shared.model.ProblemCode
 import app.qichi.shared.model.fromWireOrNull
 import app.qichi.shared.model.wireName
+import app.qichi.shared.rules.DocumentImages
 import app.qichi.shared.rules.Limits
 import app.qichi.shared.util.UuidV7
 import io.ktor.utils.io.ByteReadChannel
@@ -21,8 +32,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import org.jetbrains.exposed.v1.core.AbstractQuery
+import org.jetbrains.exposed.v1.core.JoinType
+import org.jetbrains.exposed.v1.core.Op
+import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.exists
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.core.notExists
+import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.select
@@ -30,6 +49,7 @@ import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.slf4j.LoggerFactory
 import java.nio.file.Path
 import java.time.Clock
+import java.time.Instant
 import java.time.ZoneOffset
 import java.util.UUID
 import kotlin.io.path.exists
@@ -227,20 +247,53 @@ class FileService(
         return thumb
     }
 
-    /** 去掉路径部分和控制字符；过长时保留扩展名截断。 */
     /**
-     * 事务内调用：文件不再被任何消息、书、计划封面引用时删掉它的记录，返回提交后要从磁盘删除的路径。
-     * 用于撤回、彻底删除消息。
+     * 引用文件的外键：消息、书、计划封面、房间头像与主视觉、个人头像、审稿的原文件与预览页。
+     * 每一项是和 [Files] 关联的子查询；单个文件的判断（[inUse]）和每天清理时的批量筛选（[unreferencedBefore]）共用这一份。
+     * 文稿正文里的照片不是外键，另外看（[inDocuments]）。时间线上的「精选」不算在用：文件删了它跟着删。
+     */
+    private fun referencing(): List<AbstractQuery<*>> = listOf(
+        Messages.select(Messages.id).where { Messages.fileId eq Files.id },
+        Books.select(Books.id).where { Books.fileId eq Files.id },
+        Plans.select(Plans.id).where { Plans.coverFileId eq Files.id },
+        Rooms.select(Rooms.id).where { (Rooms.avatarFileId eq Files.id) or (Rooms.heroFileId eq Files.id) },
+        Users.select(Users.id).where { Users.avatarFileId eq Files.id },
+        ReviewVersions.select(ReviewVersions.id).where { ReviewVersions.fileId eq Files.id },
+        ReviewPages.select(ReviewPages.versionId).where { ReviewPages.imageFileId eq Files.id },
+    )
+
+    /** 房间里任何一版文稿正文用到了这张照片（`qichi-file:` 标记，见 DocumentImages；旧版本也算，恢复旧版时要用）。 */
+    private fun inDocuments(fileId: UUID, roomId: UUID): Boolean =
+        DocumentVersions.join(Documents, JoinType.INNER, DocumentVersions.documentId, Documents.id)
+            .select(DocumentVersions.id)
+            .where { (Documents.roomId eq roomId) and (DocumentVersions.body ilike containsPattern("${DocumentImages.SCHEME}$fileId")) }
+            .limit(1).any()
+
+    /**
+     * 事务内调用：文件还有没有地方在用。删文件之前都要问这里——引用它的外键大多是「删了就置空」，
+     * 删了还在用的文件会悄悄改掉那些记录（不写 change_log，手机上收不到）。
+     */
+    fun inUse(fileId: UUID, roomId: UUID): Boolean =
+        Files.select(Files.id)
+            .where { (Files.id eq fileId) and referencing().map<AbstractQuery<*>, Op<Boolean>> { exists(it) }.reduce { a, b -> a or b } }
+            .limit(1).any() ||
+            inDocuments(fileId, roomId)
+
+    /** 事务内调用：上传早于 [before]、没有外键引用的文件（id、房间）。文稿正文里的照片还没看，删之前用 [releaseIfUnused]。 */
+    fun unreferencedBefore(before: Instant): List<Pair<UUID, UUID>> =
+        Files.select(Files.id, Files.roomId)
+            .where { referencing().fold<AbstractQuery<*>, Op<Boolean>>(Files.createdAt less before) { acc, q -> acc and notExists(q) } }
+            .map { it[Files.id] to it[Files.roomId] }
+
+    /**
+     * 事务内调用：文件已经没有地方在用（[inUse]）时删掉它的记录，返回提交后要从磁盘删除的路径。
+     * 用于撤回、彻底删除消息和书；每天的清理也用它。
      */
     fun releaseIfUnused(fileId: UUID): String? {
-        val stillUsed = Messages.select(Messages.id).where { Messages.fileId eq fileId }.limit(1).any() ||
-            app.qichi.server.db.Books.select(app.qichi.server.db.Books.id).where { app.qichi.server.db.Books.fileId eq fileId }.limit(1).any() ||
-            // 计划封面（P10-06）用着的照片也留着
-            app.qichi.server.db.Plans.select(app.qichi.server.db.Plans.id).where { app.qichi.server.db.Plans.coverFileId eq fileId }.limit(1).any()
-        if (stillUsed) return null
-        val path = Files.select(Files.storagePath).where { Files.id eq fileId }.singleOrNull()?.get(Files.storagePath) ?: return null
+        val row = Files.select(Files.roomId, Files.storagePath).where { Files.id eq fileId }.singleOrNull() ?: return null
+        if (inUse(fileId, row[Files.roomId])) return null
         Files.deleteWhere { Files.id eq fileId }
-        return path
+        return row[Files.storagePath]
     }
 
     /** 事务提交后调用：删除磁盘上的文件和它的缩略图。失败只记日志，不影响请求。 */
@@ -257,6 +310,7 @@ class FileService(
         }
     }
 
+    /** 去掉路径部分和控制字符；过长时保留扩展名截断。 */
     private fun cleanFileName(raw: String): String {
         val base = raw.substringAfterLast('/').substringAfterLast('\\').filterNot { it.isISOControl() }.trim()
         if (base.length <= 255) return base

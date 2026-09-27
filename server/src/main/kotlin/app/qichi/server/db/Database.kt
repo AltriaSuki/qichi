@@ -16,6 +16,15 @@ class QichiDatabase private constructor(
 
     override fun close() = dataSource.close()
 
+    /** 健康检查：能拿到连接、执行一次最简单的查询（最多等 2 秒）。库停了、连接池关了都返回 false。阻塞调用。 */
+    fun ping(): Boolean = runCatching {
+        dataSource.connection.use { conn ->
+            conn.createStatement().use { it.queryTimeout = 2; it.execute("SELECT 1") }
+            conn.rollback()
+        }
+        true
+    }.getOrDefault(false)
+
     companion object {
         private val log = LoggerFactory.getLogger(QichiDatabase::class.java)
 

@@ -38,8 +38,3 @@ fun tagTree(ideaTexts: List<String>, archiveTexts: List<String>): List<TagNode> 
     add(null, 0)
     return out
 }
-
-/** 顶部筛选用的顶层标签：按用得多少排。 */
-fun topTags(texts: List<String>): List<String> =
-    texts.flatMap { t -> Tags.parse(t).map { it.substringBefore('/') }.distinct() }
-        .groupingBy { it }.eachCount().entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key }).map { it.key }

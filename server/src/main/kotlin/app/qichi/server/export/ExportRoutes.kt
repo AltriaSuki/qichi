@@ -12,21 +12,21 @@ import io.ktor.server.response.header
 import io.ktor.server.response.respondOutputStream
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
 fun Route.exportRoutes(ctx: AppContext) {
     authenticate(AUTH_JWT) {
         get("/rooms/{roomId}/export") {
             val includeFiles = call.request.queryParameters["files"] == "true"
-            val bundle = ctx.export.bundle(call.user.userId, call.uuidParam("roomId"), includeFiles)
+            val roomId = call.uuidParam("roomId")
+            // 先确认能导出（不是成员就 404），再开始边读边写
+            ctx.export.checkAccess(call.user.userId, roomId)
             call.response.header(
                 HttpHeaders.ContentDisposition,
                 ContentDisposition.Attachment.withParameter(ContentDisposition.Parameters.FileName, "qichi-export-${LocalDate.now()}.zip").toString(),
             )
             call.respondOutputStream(ContentType.parse("application/zip")) {
-                withContext(Dispatchers.IO) { ctx.export.write(bundle, this@respondOutputStream) }
+                ctx.export.export(call.user.userId, roomId, includeFiles, this)
             }
         }
     }

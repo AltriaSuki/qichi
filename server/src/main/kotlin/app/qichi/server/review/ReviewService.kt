@@ -14,6 +14,7 @@ import app.qichi.server.db.Tx
 import app.qichi.server.db.tx
 import app.qichi.server.files.FileService
 import app.qichi.server.files.ReviewFiles
+import app.qichi.server.jobs.JobLane
 import app.qichi.server.jobs.JobQueue
 import app.qichi.server.jobs.QueuedJob
 import app.qichi.server.plugins.ApiException
@@ -142,7 +143,11 @@ class ReviewService(
     private val clock: Clock,
 ) {
     init {
-        jobs.register(JOB_PREVIEW) { job -> buildPreview(job) }
+        // 队列彻底放弃（例如生成时进程一再中断）时，把版本标成预览失败，而不是一直「生成中」（P13-03）
+        jobs.register(JOB_PREVIEW, { job, _ ->
+            val versionId = UUID.fromString(job.payload["versionId"]!!.jsonPrimitive.content)
+            db.tx(readOnly = true) { version(versionId) }?.let { markFailed(it, "预览没能生成，可以稍后重新上传试试") }
+        }, JobLane.Files) { job -> buildPreview(job) }
     }
 
     private fun document(id: UUID) = ReviewDocuments.selectAll().where { ReviewDocuments.id eq id }.singleOrNull()?.toReviewDocument()
@@ -182,7 +187,8 @@ class ReviewService(
             RoomRepository.lockRoom(roomId)
             val existing = document(req.id)
             if (existing != null) {
-                if (existing.roomId != roomId) throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
+                // 重试原样返回；别的房间、别人建的说明 id 撞了（05 §2.3）
+                if (existing.roomId != roomId || existing.createdBy != userId) throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
                 return@tx existing to false
             }
             val format = reviewFileFormat(roomId, req.firstVersion.fileId)
@@ -201,6 +207,7 @@ class ReviewService(
         val title = (req.title as? Patch.Value)?.value?.let(::cleanTitle)
         return db.tx {
             rooms.requireMember(roomId, userId)
+            RoomRepository.lockRoom(roomId)
             val current = liveDocument(roomId, id)
             if (title != null && title != current.title) {
                 writes.update(this, roomId, userId, EntityType.ReviewDocument, id, ReviewDocuments) { it[ReviewDocuments.title] = title }
@@ -222,7 +229,9 @@ class ReviewService(
         val doc = liveDocument(roomId, documentId)
         val existing = version(req.id)
         if (existing != null) {
-            if (existing.roomId != roomId || existing.documentId != documentId) throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
+            if (existing.roomId != roomId || existing.documentId != documentId || existing.uploadedBy != userId) {
+                throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
+            }
             return@tx existing to false
         }
         val format = reviewFileFormat(roomId, req.fileId)
@@ -498,6 +507,7 @@ class ReviewService(
 
     suspend fun dismissFinding(userId: UUID, roomId: UUID, id: UUID): AiFinding = db.tx {
         rooms.requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId)
         val f = liveFinding(roomId, id)
         if (f.status == FindingStatus.New) {
             writes.update(this, roomId, userId, EntityType.AiFinding, id, AiFindings) {
@@ -593,6 +603,7 @@ class ReviewService(
         val status = (req.status as? Patch.Value)?.value
         return db.tx {
             rooms.requireMember(roomId, userId)
+            RoomRepository.lockRoom(roomId)
             val current = liveAnnotation(roomId, documentId, id)
             if (body != null && body != current.body && current.authorId != userId) forbidden("只能改自己写的批注")
             val bodyChanged = body != null && body != current.body

@@ -4,6 +4,7 @@ import app.qichi.server.ai.AiTool
 import app.qichi.server.ai.AiToolCall
 import app.qichi.server.ai.MoodWords
 import app.qichi.server.ai.RoomContext
+import app.qichi.server.ai.planStatusLabel
 import app.qichi.server.db.AiFindings
 import app.qichi.server.db.AnnotationReplies
 import app.qichi.server.db.Annotations
@@ -34,9 +35,11 @@ import app.qichi.server.db.Summaries
 import app.qichi.server.db.Todos
 import app.qichi.server.messages.messageQuery
 import app.qichi.server.messages.toMessage
+import app.qichi.server.sync.Visibility
 import app.qichi.shared.api.AiPrefs
 import app.qichi.shared.api.Message
 import app.qichi.shared.model.EntityType
+import app.qichi.shared.model.HighlightKind
 import app.qichi.shared.model.MessageKind
 import app.qichi.shared.model.PlanStatus
 import app.qichi.shared.model.wireName
@@ -70,7 +73,8 @@ import org.jetbrains.exposed.v1.jdbc.selectAll
  * 问 AI 时给模型用的只读查询工具（P11-02，docs/10-ai-assistant.md 第七节）。
  *
  * - 只查本房间 [roomId]；删除的、撤回的一律不给。
- * - 没揭晓的问答回答不给（否则提问的人能借 AI 先看到对方的答案）；没公开的摘录不给（AI 的回答在两人共享的聊天里）。
+ * - 没揭晓的问答回答不给（否则提问的人能借 AI 先看到对方的答案）；没公开的读书记录不给（AI 的回答在两人共享的聊天里），
+ *   除非是 [openReaders] 里的人自己的——他们打开了「我没公开的阅读记录」（P14-02，见 Visibility.aiReading）。
  * - 「AI 能看什么」：[prefs] 是两个人都允许的类别（调用方算好交集），关掉的类别不提供工具，搜索也跳过。
  * - 结果里每条记录带 [n] 编号，和事先备料共用 [book]：AI 用编号引用，也用编号看详情。
  *
@@ -83,6 +87,8 @@ class RoomTools(
     private val names: Map<UUID, String>,
     private val prefs: AiPrefs,
     val book: SourceBook,
+    /** 打开了「我没公开的阅读记录」的人（各管各的，不取交集） */
+    private val openReaders: Set<UUID> = emptySet(),
 ) {
     private val today: LocalDate = now.atZone(zone).toLocalDate()
 
@@ -135,7 +141,7 @@ class RoomTools(
         Spec(
             AiTool(
                 "plans", "不给 ref：列出计划；给 ref：看这个计划的阶段、里程碑、进展记录和挂在下面的待办。",
-                schema("status" to strParam("active 进行中（默认）、done 已结束、all 全部", listOf("active", "done", "all")), "ref" to refParam("计划")),
+                schema("status" to strParam("active 进行中（默认）、archived 先放一放、done 已完成、all 全部", listOf("active", "archived", "done", "all")), "ref" to refParam("计划")),
             ),
             prefs.plans, { a -> if (a.int("ref") != null) "计划详情" else "计划" }, ::plans,
         ),
@@ -177,7 +183,7 @@ class RoomTools(
             prefs.board, { a -> if (a.int("ref") != null) "留言" else "留言板" }, ::board,
         ),
         Spec(
-            AiTool("reading", "不给 ref：列出书架上的书和两个人的进度；给 ref：看这本书的进度和两个人公开的摘录、划线、感想。", schema("ref" to refParam("书"))),
+            AiTool("reading", "不给 ref：列出书架上的书和两个人的进度；给 ref：看这本书的进度和能给你看的划线、摘录、感想、AI 解释。", schema("ref" to refParam("书"))),
             prefs.reading, { a -> if (a.int("ref") != null) "书里的摘录" else "书架" }, ::reading,
         ),
         Spec(
@@ -279,12 +285,13 @@ class RoomTools(
     }
 
     private fun planLine(r: ResultRow): String {
-        val active = r[Plans.status] == PlanStatus.Active.wireName
-        return "计划 · ${r[Plans.title]}（${who(r[Plans.ownerId])}负责，" + (if (active) "进行中" else "已结束") + "）" +
+        val done = r[Plans.status] == PlanStatus.Done.wireName
+        return "计划 · ${r[Plans.title]}（${who(r[Plans.ownerId])}负责，${planStatusLabel(r[Plans.status])}）" +
             (r[Plans.targetDate]?.let { " · 目标 ${day(it)}" } ?: "") +
             (r[Plans.nextStep]?.let { ns -> " · 下一步：$ns" + (r[Plans.nextStepOwnerId]?.let { "（${who(it)}" + (r[Plans.nextStepDue]?.let { d -> "，${day(d)}前" } ?: "") + "）" } ?: "") } ?: "") +
             (r[Plans.completedAt]?.let { " · ${day(dateOf(it))}完成" } ?: "") +
-            (r[Plans.completionNote]?.let { " · 完成记录：${cut(it, 150)}" } ?: "")
+            // 重新打开的计划留着上次的完成记录（P14-03），那不算结果，不给
+            (r[Plans.completionNote]?.takeIf { done }?.let { " · 完成记录：${cut(it, 150)}" } ?: "")
     }
 
     private fun archiveKind(kind: String) = when (kind) {
@@ -315,8 +322,9 @@ class RoomTools(
         else -> kind
     }
 
+    /** 消息写成一行：和 [messageLine] 一样最多 300 字（不借用回复摘要的 60 字，Q18） */
     private fun messageText(m: Message): String? =
-        (if (m.kind == MessageKind.Ai) m.body else MessageRules.replyExcerpt(m.kind, m.body, m.file?.fileName, false))?.takeIf { it.isNotBlank() }
+        (if (m.kind == MessageKind.Ai) m.body else MessageRules.asLine(m.kind, m.body, m.file?.fileName, 300))?.takeIf { it.isNotBlank() }
 
     private fun messageLine(m: Message, text: String) = "聊天（${time(m.createdAt)}，${m.authorId?.let(::who) ?: "AI"}）：${cut(text, 300)}"
 
@@ -338,7 +346,7 @@ class RoomTools(
         if ("chat" in want) {
             val grams = terms.sortedByDescending { it.length }.take(8)
             val anyTerm = grams.map<String, Op<Boolean>> { g -> Messages.body like "%${g.replace("%", "").replace("_", "")}%" }.reduce { x, y -> x or y }
-            messageQuery().where { (Messages.roomId eq roomId) and live(Messages.deletedAt) and Messages.retractedAt.isNull() and (Messages.body neq "") and anyTerm }
+            messageQuery().where { (Messages.roomId eq roomId) and Visibility.quotableMessage() and (Messages.body neq "") and anyTerm }
                 .orderBy(Messages.createdSeq, SortOrder.DESC).limit(SEARCH_SCAN).map { it.toMessage() }
                 .forEach { m -> val t = messageText(m) ?: return@forEach; hit(t, m.createdAt) { out, sn -> out.item(EntityType.Message, m.id, cut(t, 80), m.createdAt, messageLine(m, sn)) } }
         }
@@ -411,7 +419,7 @@ class RoomTools(
         if ("reading" in want) {
             val books = Books.selectAll().where { (Books.roomId eq roomId) and live(Books.deletedAt) }.associateBy { it[Books.id] }
             books.values.forEach { b -> hit(b[Books.title] + " " + (b[Books.author] ?: ""), b[Books.createdAt]) { out, _ -> out.item(EntityType.Book, b[Books.id], cut(b[Books.title], 80), b[Books.createdAt], "书《${b[Books.title]}》" + (b[Books.author]?.let { "（$it）" } ?: "")) } }
-            sharedHighlights(null).forEach { h ->
+            aiHighlights(null).forEach { h ->
                 val b = books[h[Highlights.bookId]] ?: return@forEach
                 hit(h[Highlights.text] + " " + (h[Highlights.note] ?: ""), h[Highlights.createdAt]) { out, _ ->
                     out.item(EntityType.Book, b[Books.id], cut(b[Books.title], 80), b[Books.createdAt], "《${b[Books.title]}》里${highlightLine(h)}")
@@ -448,7 +456,7 @@ class RoomTools(
         val limit = (a.int("limit") ?: 40).coerceIn(1, CHAT_MAX)
         val author = person(a)
         fun base() = messageQuery().where {
-            (Messages.roomId eq roomId) and Messages.deletedAt.isNull() and Messages.retractedAt.isNull() and
+            (Messages.roomId eq roomId) and Visibility.quotableMessage() and
                 (if (author != null) Messages.authorId eq author else Op.TRUE)
         }
         val around = ref(a, EntityType.Message, "around")
@@ -518,9 +526,9 @@ class RoomTools(
         val id = ref(a, EntityType.Plan)
         val out = Out(book)
         if (id == null) {
-            val status = a.choice("status", listOf("active", "done", "all"), "active")
+            val status = a.choice("status", listOf("active", "archived", "done", "all"), "active")
             Plans.selectAll().where { (Plans.roomId eq roomId) and Plans.deletedAt.isNull() }.orderBy(Plans.updatedAt, SortOrder.DESC)
-                .filter { status == "all" || (it[Plans.status] == PlanStatus.Active.wireName) == (status == "active") }
+                .filter { status == "all" || it[Plans.status] == status }
                 .forEach { r -> out.item(EntityType.Plan, r[Plans.id], cut(r[Plans.title], 80), r[Plans.updatedAt], planLine(r)) }
             return out.result("没有符合条件的计划")
         }
@@ -611,7 +619,7 @@ class RoomTools(
         }.orderBy(QnaRounds.roundDate, SortOrder.DESC).toList()
         if (rounds.isEmpty()) return emptyList()
         val questions = Questions.selectAll().where { (Questions.roomId eq roomId) and (Questions.id inList rounds.map { it[QnaRounds.questionId] }) }.associate { it[Questions.id] to it[Questions.text] }
-        val revealed = rounds.filter { it[QnaRounds.revealedAt] != null }.map { it[QnaRounds.id] }
+        val revealed = rounds.filter { Visibility.answersPublic(it[QnaRounds.revealedAt]) }.map { it[QnaRounds.id] }
         val answers = if (revealed.isEmpty()) {
             emptyMap()
         } else {
@@ -620,8 +628,9 @@ class RoomTools(
         }
         return rounds.map { r ->
             val q = questions[r[QnaRounds.questionId]] ?: "（题目已删除）"
-            val a = if (r[QnaRounds.revealedAt] != null) answers[r[QnaRounds.id]].orEmpty() else emptyList()
-            val tail = if (r[QnaRounds.revealedAt] != null) (if (a.isEmpty()) "（没有回答）" else "；" + a.joinToString("；")) else "（还没揭晓，回答看不到）"
+            val public = Visibility.answersPublic(r[QnaRounds.revealedAt])
+            val a = if (public) answers[r[QnaRounds.id]].orEmpty() else emptyList()
+            val tail = if (public) (if (a.isEmpty()) "（没有回答）" else "；" + a.joinToString("；")) else "（还没揭晓，回答看不到）"
             QnaRow(r[QnaRounds.id], startOf(r[QnaRounds.roundDate]), q, a, "问答（${day(r[QnaRounds.roundDate])}）· $q$tail")
         }
     }
@@ -705,15 +714,23 @@ class RoomTools(
 
     // ── 阅读、审稿、总结 ──
 
-    /** 公开的划线、摘录（书签和 AI 解释不算；没公开的是个人笔记，永远不给）。 */
-    private fun sharedHighlights(bookId: UUID?): List<ResultRow> =
+    /** 能给 AI 的划线、摘录、AI 解释（规则见 Visibility.aiReading；书签不算）。 */
+    private fun aiHighlights(bookId: UUID?): List<ResultRow> =
         Highlights.selectAll().where {
-            (Highlights.roomId eq roomId) and Highlights.deletedAt.isNull() and (Highlights.shared eq true) and
-                (Highlights.kind inList listOf("highlight", "excerpt")) and (if (bookId != null) Highlights.bookId eq bookId else Op.TRUE)
+            (Highlights.roomId eq roomId) and Highlights.deletedAt.isNull() and Visibility.aiReading(openReaders) and
+                (if (bookId != null) Highlights.bookId eq bookId else Op.TRUE)
         }.orderBy(Highlights.createdAt).toList()
 
-    private fun highlightLine(h: ResultRow) =
-        "${who(h[Highlights.userId])}的${if (h[Highlights.kind] == "excerpt") "摘录" else "划线"}：「${cut(h[Highlights.text], 200)}」" + (h[Highlights.note]?.let { " 感想：${cut(it, 200)}" } ?: "")
+    private fun highlightLine(h: ResultRow): String {
+        val quote = "「${cut(h[Highlights.text], 200)}」"
+        val note = h[Highlights.note]
+        return when (h[Highlights.kind]) {
+            // AI 解释：感想那一栏是 AI 写的解释
+            HighlightKind.Ai.wireName -> "${who(h[Highlights.userId])}请 AI 解释过$quote" + (note?.let { "，AI 说：${cut(it, 300)}" } ?: "")
+            HighlightKind.Excerpt.wireName -> "${who(h[Highlights.userId])}的摘录：$quote" + (note?.let { " 感想：${cut(it, 200)}" } ?: "")
+            else -> "${who(h[Highlights.userId])}的划线：$quote" + (note?.let { " 感想：${cut(it, 200)}" } ?: "")
+        }
+    }
 
     private fun reading(a: Args): String {
         val id = ref(a, EntityType.Book)
@@ -731,7 +748,7 @@ class RoomTools(
         }
         val b = Books.selectAll().where { (Books.id eq id) and (Books.roomId eq roomId) and Books.deletedAt.isNull() }.singleOrNull() ?: return "这本书已经删掉了"
         out.item(EntityType.Book, id, cut(b[Books.title], 80), b[Books.createdAt], line(b))
-        sharedHighlights(id).forEach { h -> out.text(highlightLine(h)) }
+        aiHighlights(id).forEach { h -> out.text(highlightLine(h)) }
         return out.result("")
     }
 

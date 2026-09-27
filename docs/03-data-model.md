@@ -1,7 +1,7 @@
 # 03 · 数据模型
 
-> 第 1–3 阶段的表已经写成 `server/src/main/resources/db/migration/V1__init.sql`（已在 PostgreSQL 16 上验证可执行）。
-> 后续阶段的表在本文件中先定义字段，到对应阶段再写成 `V2`、`V3`… 迁移。
+> 所有表都已写成 Flyway 迁移：`server/src/main/resources/db/migration/`（`V1__init.sql` 是第 1–3 阶段，之后每个阶段加新版本，目前到 `V24`）。
+> 本文件讲每张表是做什么的、关键字段；列的准确定义以迁移文件为准。已经部署的迁移不能再改，只能加新版本。
 
 ## 1. 通用约定
 
@@ -28,26 +28,26 @@
 | 表 | 用途 | 关键字段 |
 |---|---|---|
 | `users` | 账号 | `username` 唯一、`password_hash`（Argon2id）、`display_name`、`avatar_file_id`、`notification_prefs`、`ai_prefs`（AI 能看到哪些资料，缺的键按 true） |
-| `refresh_tokens` | 刷新令牌 | 只存哈希；`family_id`（同一次登录 = 一台设备，重复使用检测时整组作废）、`device_name`、`expires_at`、`revoked_at`、`replaced_by`（轮换链） |
+| `refresh_tokens` | 刷新令牌 | 只存哈希；`family_id`（同一次登录 = 一台设备，重复使用检测时整组作废）、`device_name`、`expires_at`、`revoked_at`、`replaced_by`（轮换链）。过期超过 30 天的每天清掉（P13-18） |
 | `rooms` | 房间 | `name`、`avatar_file_id`、`hero_file_id`（今天页主视觉）、`anniversary`、`timezone`、`last_seq` |
 | `room_members` | 成员 | `role`：owner / member；每房间最多 2 人（服务端校验） |
 | `invites` | 邀请码 | `code` 唯一、`expires_at`、`used_by` |
 | `change_log` | 同步日志 | 主键 `(room_id, seq)`；`entity_type`、`entity_id`、`op` |
-| `files` | 文件元数据 | `kind`：image / file / avatar / hero / epub / review；`sha256`；`storage_path` |
+| `files` | 文件元数据 | `kind`：image / file / avatar / hero / epub / review；`sha256`；`storage_path`。上传 30 天后仍没有任何地方在用的（消息、书、封面、头像、主视觉、审稿、任何一版文稿正文里的照片都不算没用）每天清掉，连同磁盘上的文件（P13-18） |
 | `messages` | 聊天消息 | `kind`：text / image / file / ai / system；`created_seq`（创建时的 seq，决定消息位置，永不改变）；`reply_to_id` + `reply_author_id` + `reply_excerpt`；`retracted_at/by`（撤回时清空 `body`、`file_id`，以及回复它的消息的 `reply_excerpt`）；`body` 上有三元组索引用于搜索；AI 回答的 `ai_prompt`（问题）、`ai_sources`（正文里 [n] 引用到的房间资料，jsonb 数组）、`ai_asked_by`（谁问的）和 `ai_stopped`（提问的人中途停下，正文是停下时已写出的部分）；图片消息的 `body` 是照片说明（≤ 30 字） |
 | `read_markers` | 未读位置 | 每人每房间一行；`last_read_seq`（对应 `messages.created_seq`）只增不减；只同步给本人 |
 | `moods` | 心情 | `label`、`intensity` 1–10、`note`、`needs_comfort` |
 | `mood_responses` | 对心情的回应（接口与代码里叫 `MoodReply`，避免和 HTTP response 混淆） | `kind`：here（我在这里）/ hug（给你一个拥抱）/ ready（等你准备好） |
 | `todos` | 待办 | `assignee_id`（空 = 两人）、`parent_id`（子任务，只有一层）、`due_date` 或 `due_at`、`recurrence`（RRULE）、`recurrence_prev_id`（由哪一次完成生成，唯一，防止重复生成）、`done_at/by` |
 | `events` | 日程 | 定时：`starts_at`、`ends_at`；全天（`all_day`）：`start_date`、`end_date`（含首尾，按房间时区）；`participant_ids`（空 = 两人）、`ics_uid`（导入去重） |
-| `devices` | 推送设备 | `provider`：fcm / unifiedpush（目前只用 unifiedpush）；`token` = 推送地址 |
+| `devices` | 推送设备 | `provider`：fcm / unifiedpush（目前只用 unifiedpush）；`token` = 推送地址。所属登录作废或整次过期后删掉 |
 
 `entity_type` 取值（与 `shared/model/EntityType` 一致）：
 `room` `member` `message` `read_marker` `mood` `mood_response` `todo` `event`，后续阶段追加。
 
 心情标签 `label` 的取值：`calm` 平静、`happy` 开心、`hopeful` 期待、`tired` 疲惫、`anxious` 焦虑、`down` 低落、`angry` 生气、`hurt` 委屈。
 
-## 3. 后续阶段（待写迁移）
+## 3. 第 4 阶段起的表（迁移 V2 起）
 
 ### 第 4 阶段：问答、计划、日历扩展、灵感、AI、任务队列
 
@@ -56,14 +56,14 @@
 | `questions` | 题库：`text`、`source`（ai / user / preset）、`suggested_by_job_id`、`adopted_by`、`adopted_at`（未采纳的 AI 建议 `adopted_at` 为空） |
 | `qna_rounds` | 某天的一问：`question_id`、`round_date`（房间时区）、`revealed_at`；同房间同日期唯一 |
 | `answers` | `round_id`、`author_id`、`body`、`confirmed_at`；**揭晓前接口只返回对方「是否已确认」，不返回 `body`** |
-| `plans` | `title`、`owner_id`、`status`（active / done / archived）、`target_date`（可空）、`next_step`、`next_step_owner_id`、`next_step_due`、`completed_at`、`completion_note`、`cover_file_id`（封面照片，可空；照片删了回到插画） |
+| `plans` | `title`、`owner_id`、`status`（active 进行中 / archived 先放一放 / done 已完成；重新打开时清掉 `completed_at`、留着 `completion_note`）、`target_date`（可空）、`next_step`、`next_step_owner_id`、`next_step_due`、`completed_at`、`completion_note`、`cover_file_id`（封面照片，可空；照片删了回到插画）、`next_step_todo_id`（下一步连着的待办，可空，P14-03：连着时下一步那三项跟着待办，待办做完或删掉时服务端把下一步清空） |
 | `plan_stages` | `plan_id`、`title`、`sort_order`、`done_at` |
 | `milestones` | `plan_id`、`title`、`target_date`、`done_at` |
-| `plan_logs` | `plan_id`、`author_id`、`body`（过程记录，不可变） |
+| `plan_logs` | `plan_id`、`author_id`、`body`（进展记录；记的人可以改、可以删，删了进回收站，P14-03） |
 | `todos` 增加列 | `plan_id` 引用 `plans` |
 | `rooms` 增加列 | `ics_token`（只读订阅链接用的随机令牌，可重置） |
 | `ideas` | 灵感：`author_id`、`body` |
-| `jobs` | 任务队列：`kind`、`payload` jsonb、`status`（queued / running / done / failed）、`run_at`、`attempts`、`last_error`、`locked_at` |
+| `jobs` | 任务队列：`kind`、`payload` jsonb、`status`（queued / running / done / failed）、`run_at`、`attempts`、`last_error`、`locked_at`。做完 7 天、失败 30 天后每天清掉（P13-18） |
 | `ai_jobs` | AI 调用记录：`room_id`、`requested_by`、`kind`（chat_answer / question_suggest / read_explain / review_findings / summary / yearly_review）、`status`、`model`、`input_tokens`、`output_tokens`、`result_ref`（结果写到了哪个实体）、`error`、时间戳 |
 
 ### 第 5 阶段：共同写作、留言
@@ -99,8 +99,8 @@
 |---|---|
 | `review_documents` | 同步实体（`review_document`）：`title`、`created_by`、`latest_version` |
 | `review_versions` | 同步实体（`review_version`），原文件**不可变**：`document_id`、`version`、`file_id`（原文件，files.kind = review）、`format`（pdf / text / sheet / slides）、`uploaded_by`、`preview_status`（pending / ready / failed）、`page_count`、`preview_error`；只有预览相关的列在后台生成完后更新 |
-| `review_pages` | 预览页，不走同步、按需取：`version_id`、`page_no`、`width`、`height`（pt）、`image_file_id`（144 dpi 的 JPEG，files.kind = review）、`text_layer` jsonb（`[{id, kind, rect, text}]`，段落或单元格，坐标按页面比例 0–1）、`images` jsonb（图片区域） |
+| `review_pages` | 预览页，不走同步、按需取：`version_id`、`page_no`、`width`、`height`（pt）、`image_file_id`（144 dpi 的 JPEG，特别大的页面最多 600 万像素；files.kind = review）、`text_layer` jsonb（`[{id, kind, rect, text}]`，段落或单元格，坐标按页面比例 0–1）、`images` jsonb（图片区域） |
 | `annotations` | 同步实体（`annotation`）：`document_id`、`version_id`、`anchor` jsonb（`{page, kind, rect?, ref?, quote?}`，kind 取 region / paragraph / cell / slide / image；ref 是文字层的块 id；quote 是原文摘录，用于在新版本里重新找位置）、`author_id`、`kind`（comment / proposal）、`status`（open / accepted / archived）、`body`、`carried_from_id`（跨版本追踪：新版本预览生成后，上一版 open 的批注复制一条过去）、`anchor_lost`（带过去时没找到原位置）、`resolved_by`、`resolved_at` |
 | `annotation_replies` | 同步实体（`annotation_reply`），讨论：`annotation_id`、`author_id`、`body`（不能删改） |
 | `ai_findings` | 同步实体（`ai_finding`）：`document_id`、`version_id`、`job_id`、`requested_by`、`title`、`body`、`evidence` jsonb（`[{page, ref, quote, rect}]`，1–3 条，quote 一定是那块里的原话，服务端核对过）、`status`（new / dismissed / converted）、`converted_annotation_id`、`carried_from_id`（新版本里证据还在就带过去）、`gone_in_version`（在第几版里证据原文找不到了，可能已改好）、`resolved_by`；没有回收站 |
-| `ai_actions` | 同步实体（`ai_action`，P8-02）：问 AI 时 AI 提议的动作。`message_id`（AI 回答 = jobId）、`position`、`kind`（event / todo / archive_item / idea）、`draft` jsonb（标题、备注、时间、指派、计划等，已换成 id 和 UTC）、`status`（proposed / accepted / dismissed）、`result_id`（建成的实体）、`decided_by`、`requested_by`；没有回收站 |
+| `ai_actions` | 同步实体（`ai_action`，P8-02）：问 AI 时 AI 提议的动作。`message_id`（AI 回答 = jobId）、`position`、`kind`（event / todo / archive_item / idea；P14-04 起加 plan / plan_stage / milestone / plan_log / next_step）、`draft` jsonb（标题、备注、时间、指派、计划等，已换成 id 和 UTC）、`status`（proposed / accepted / dismissed）、`result_id`（建成的实体）、`decided_by`、`requested_by`；没有回收站 |

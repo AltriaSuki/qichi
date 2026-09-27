@@ -7,22 +7,29 @@ import app.qichi.server.ai.tools.RoomTools
 import app.qichi.server.ai.tools.SourceBook
 import app.qichi.server.db.tx
 import app.qichi.server.serverTest
+import app.qichi.server.testContext
 import app.qichi.shared.api.AiPrefs
+import app.qichi.shared.api.AiReadExplainRequest
 import app.qichi.shared.api.Book
 import app.qichi.shared.api.CreateBookRequest
 import app.qichi.shared.api.CreateDocumentRequest
 import app.qichi.shared.api.CreateHighlightRequest
 import app.qichi.shared.api.CreateIdeaRequest
+import app.qichi.shared.api.CompletePlanRequest
 import app.qichi.shared.api.CreatePlanRequest
 import app.qichi.shared.api.Document
 import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
+import app.qichi.shared.api.Patch
 import app.qichi.shared.api.Plan
 import app.qichi.shared.api.QnaToday
 import app.qichi.shared.api.SaveDocumentVersionRequest
 import app.qichi.shared.api.SendMessageRequest
+import app.qichi.shared.api.UpdatePlanRequest
 import app.qichi.shared.api.WriteAnswerRequest
 import app.qichi.shared.model.HighlightKind
+import app.qichi.shared.model.PlanStatus
+import app.qichi.shared.model.ReadExplainMode
 import app.qichi.shared.util.UuidV7
 import io.ktor.client.call.body
 import java.io.ByteArrayOutputStream
@@ -48,7 +55,8 @@ class RoomToolsTest {
 
     private suspend fun room(aqi: Session, chi: Session, id: UUID) = Room(id, mapOf(aqi.userId() to "阿栖", chi.userId() to "小迟"))
 
-    private fun Room.tools(prefs: AiPrefs = AiPrefs(), book: SourceBook = SourceBook()) = RoomTools(id, Instant.now(), zone, names, prefs, book)
+    private fun Room.tools(prefs: AiPrefs = AiPrefs(), book: SourceBook = SourceBook(), openReaders: Set<UUID> = emptySet()) =
+        RoomTools(id, Instant.now(), zone, names, prefs, book, openReaders)
 
     private suspend fun RoomTools.call(name: String, args: String = "{}"): String = TestDatabase.database.tx { run(AiToolCall("c", name, args)) }
 
@@ -164,6 +172,29 @@ class RoomToolsTest {
         assertTrue(tools.call("events", """{"from":"下周"}""").startsWith("参数不对"))
     }
 
+    @Test fun `计划的状态（P14-03）：进行中、先放一放、已完成分开说；重新打开的计划不给上次的完成记录`() = serverTest { client ->
+        val (aqi, chi, roomId) = Api(client).pair()
+        val path = "/api/v1/rooms/$roomId/plans"
+        val paused = aqi.post(path, CreatePlanRequest(UuidV7.generate(), "学吉他", aqi.userId())).body<Plan>()
+        aqi.patch("$path/${paused.id}", UpdatePlanRequest(status = Patch.of(PlanStatus.Archived)))
+        val reopened = aqi.post(path, CreatePlanRequest(UuidV7.generate(), "秋天去海边", aqi.userId())).body<Plan>()
+        aqi.post("$path/${reopened.id}/complete", CompletePlanRequest("看到了海"))
+        aqi.patch("$path/${reopened.id}", UpdatePlanRequest(status = Patch.of(PlanStatus.Active)))
+        val done = aqi.post(path, CreatePlanRequest(UuidV7.generate(), "搬家", aqi.userId())).body<Plan>()
+        aqi.post("$path/${done.id}/complete", CompletePlanRequest("住进新家了"))
+
+        val tools = room(aqi, chi, roomId).tools()
+        val all = tools.call("plans", """{"status":"all"}""")
+        assertTrue(all.contains("学吉他（阿栖负责，先放一放）"), all)
+        assertTrue(all.contains("秋天去海边（阿栖负责，进行中）"), all)
+        assertFalse(all.contains("看到了海"), all)
+        assertTrue(all.contains("搬家（阿栖负责，已完成）") && all.contains("完成记录：住进新家了"), all)
+        val archived = tools.call("plans", """{"status":"archived"}""")
+        assertTrue(archived.contains("学吉他") && !archived.contains("搬家") && !archived.contains("秋天去海边"), archived)
+        val finished = tools.call("plans", """{"status":"done"}""")
+        assertTrue(finished.contains("搬家") && !finished.contains("学吉他"), finished)
+    }
+
     @Test fun `日期段：日程和聊天按房间时区的日子算`() = serverTest { client ->
         val (aqi, chi, roomId) = Api(client).pair()
         aqi.say(roomId, "今天说的话")
@@ -228,5 +259,48 @@ class RoomToolsTest {
         assertFalse(detail.contains("不必急着"), detail)
         assertFalse(detail.contains("私下想的"), detail)
         assertTrue(tools.call("search", """{"query":"不必急着"}""").startsWith("没有找到"))
+    }
+
+    @Test fun `阅读：打开「我没公开的阅读记录」的人，这个人没公开的划线、摘录、AI 解释给 AI；对方的照旧不给（P14-02）`() {
+        val gateway = FakeGateway().apply { answer = "这一句说的是慢下来" }
+        val ctx = testContext(aiGateway = gateway)
+        serverTest(ctx) { client ->
+            val (aqi, chi, roomId) = Api(client).pair()
+            val file = aqi.upload(roomId, epub(), fileName = "book.epub", kind = "epub", contentType = "application/epub+zip").body<FileMeta>()
+            val b = aqi.post("/api/v1/rooms/$roomId/books", CreateBookRequest(UuidV7.generate(), file.id, "海边的旅店", "某某")).body<Book>()
+            val path = "/api/v1/rooms/$roomId/books/${b.id}/highlights"
+            aqi.post(path, CreateHighlightRequest(UuidV7.generate(), HighlightKind.Highlight, "{}", "不必急着去哪里", "阿栖私下想的"))
+            aqi.post(path, CreateHighlightRequest(UuidV7.generate(), HighlightKind.Bookmark, "{}"))
+            chi.post(path, CreateHighlightRequest(UuidV7.generate(), HighlightKind.Excerpt, "{}", "海风一阵一阵", "小迟只给自己看"))
+            // 阿栖请 AI 解释了一段（只有自己看得到）
+            aqi.post("/api/v1/rooms/$roomId/ai/read-explain", AiReadExplainRequest(UuidV7.generate(), b.id, ReadExplainMode.Explain, "灯一盏一盏亮起来", "{}"))
+            ctx.jobs.drain()
+
+            val room = room(aqi, chi, roomId)
+            val aqiId = aqi.userId()
+            suspend fun detail(tools: RoomTools): String {
+                val n = Regex("\\[(\\d+)] 书《海边的旅店》").find(tools.call("reading"))!!.groupValues[1].toInt()
+                return tools.call("reading", """{"ref":$n}""")
+            }
+
+            // 谁都没打开：没公开的都不给
+            val closed = detail(room.tools())
+            assertFalse(closed.contains("不必急着") || closed.contains("灯一盏") || closed.contains("海风"), closed)
+
+            // 阿栖打开了：阿栖的划线、感想、AI 解释都给；小迟的照旧不给；书签不算
+            val open = room.tools(openReaders = setOf(aqiId))
+            val shown = detail(open)
+            assertTrue(shown.contains("阿栖的划线：「不必急着去哪里」") && shown.contains("阿栖私下想的"), shown)
+            assertTrue(shown.contains("阿栖请 AI 解释过「灯一盏一盏亮起来」，AI 说：这一句说的是慢下来"), shown)
+            assertFalse(shown.contains("海风") || shown.contains("小迟只给自己看"), shown)
+            assertFalse(open.call("search", """{"query":"不必急着"}""").startsWith("没有找到"), "搜索也搜得到")
+            assertTrue(open.call("search", """{"query":"海风"}""").startsWith("没有找到"))
+
+            // 「阅读」这一类有人关掉：谁打开了也不给
+            val readingOff = room.tools(AiPrefs(reading = false), openReaders = setOf(aqiId))
+            assertTrue(readingOff.definitions.none { it.name == "reading" })
+            assertTrue(readingOff.call("reading").startsWith("没有这个工具"))
+            assertTrue(readingOff.call("search", """{"query":"不必急着"}""").startsWith("没有找到"))
+        }
     }
 }

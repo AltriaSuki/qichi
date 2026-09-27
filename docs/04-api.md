@@ -1,7 +1,7 @@
 # 04 · 接口约定
 
-> 第 1–3 阶段的接口已写成 `api/openapi.yaml`（OpenAPI 3.1），那是**唯一的契约来源**：本文件讲约定和全貌，字段细节以 yaml 为准。
-> 后续阶段的接口先在本文件列出，到对应阶段再补进 yaml。
+> 所有接口都写在 `api/openapi.yaml`（OpenAPI 3.1），那是**唯一的契约来源**：本文件讲约定和全貌，字段细节以 yaml 为准。
+> 改接口的顺序：openapi.yaml → shared → 服务端 → 客户端。
 
 ## 1. 通用约定
 
@@ -16,7 +16,8 @@
 | 删除 | `DELETE` = 软删除（进回收站），返回完整对象（带 `deletedAt`）；彻底删除走回收站接口 |
 | 版本冲突 | 需要基线的写入（文稿、档案、留言编辑）带 `baseVersion`；不是最新 → **409**，`code = "conflict_version"`，响应里附最新版本号 |
 | 分页 | 游标式：消息用 `beforeSeq`（指消息的 `createdSeq`），其它列表用 `cursor` + `limit`，响应带 `nextCursor` |
-| 客户端信息 | 请求头 `X-Qichi-Client: android/{versionName}`，便于排查 |
+| 客户端信息 | 请求头 `X-Qichi-Client: android/{versionName} ({versionCode})`，便于排查；服务端据此判断 App 是否太旧（见 `upgrade_required`） |
+| 新旧版本 | 服务端可以比 App 新：新增实体类型、枚举取值、字段时，旧版 App 逐条解码，认不出来的跳过并记下，升级后重新快照（05 §3.2）；太旧的 App 由 `MIN_ANDROID_VERSION_CODE` 拦下 |
 | 大小限制 | 文字消息正文 ≤ 10,000 字；图片 ≤ 20MB；其它文件、EPUB、审稿文件 ≤ 100MB |
 
 ### 错误格式
@@ -53,12 +54,15 @@
 | `rate_limited` | 429 | 请求太频繁，看 `Retry-After` |
 | `ai_unavailable` | 503 | AI 服务未配置或暂时不可用 |
 | `ai_quota_exceeded` | 429 | 本月 AI 额度用完 |
+| `upgrade_required` | 426 | App 版本低于服务端要求（`MIN_ANDROID_VERSION_CODE`，默认不限制）。健康检查、注册、登录、刷新令牌、`/app/*`（下载新版）不受限 |
 | `internal_error` | 500 | 服务端未预料的错误（日志里有详情，响应里不含堆栈） |
 
 ### 令牌
 
 - 登录/注册返回 `{accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt}`
 - 访问令牌 15 分钟；刷新令牌 60 天，每次刷新都会换新，旧的立即作废；同一个旧刷新令牌被用第二次 → 该设备所有令牌作废（防盗用）
+- 例外（5 分钟宽限，P13-08）：被换掉的旧刷新令牌 5 分钟内再出现、且换出来的新令牌还没被用过 → 当作上次的回应丢在路上了，作废没送到的那对、再换发一对，不作废这次登录
+- App 登录被动失效（刷新令牌不能用了）时只清令牌、**保留本机数据**；同一账号重新登录后接着发送，换账号先提示有多少条没发出、确认后再清
 
 ## 2. 实时通道（WebSocket）
 
@@ -74,7 +78,8 @@
 {"type":"ai.delta","roomId":"…","jobId":"…","text":"周六去北边那片海，"}
 ```
 
-- `changed` 只是提示，客户端收到后调用 `sync` 拉取，不在通道里传实体内容。
+- `changed` 只是提示，客户端收到后调用 `sync` 拉取，不在通道里传实体内容。已读位置（`read_marker`）的变化只提示本人（P13-09）：对方拉取时本来就看不到，提示过去等于已读回执。
+- 这次登录被作废（登出、改密码时的其它登录、在「安全」页被踢、刷新令牌被盗用）时，服务端马上以关闭码 1008（`VIOLATED_POLICY`）断开它的连接（P13-09）。
 - `notify` 是内置通知（内容同经 ntfy 发的推送，见 `shared/api/Push.kt`），只发给要通知的那个人，并且只发给连接地址带 `?caps=notify` 的连接（旧版 App 不认识它）。App 在后台时据此弹通知。客户端遇到不认识的事件类型要跳过，不能断开。
 - `ai.delta` 是问 AI 边生成边显示（P8-03）：`text` 是到目前为止的回答全文（不是增量，丢几条没关系；不含动作段和 [n]），服务端最多每 250 毫秒发一次，只发给连接地址带 `ai_stream` 的连接（能力用逗号分开：`?caps=notify,ai_stream`）。最终回答照旧是 id = jobId 的 AI 消息。AI 自己查资料时（P11）带 `status`（如「正在查：日历 9/26–10/3」），这时 `text` 为空；开始写回答后 `status` 为 null。
 - 客户端 → 服务端不发业务消息；心跳用 WebSocket 的 ping/pong 帧（60 秒，120 秒没回应算断开）。
@@ -97,13 +102,13 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/health` | 健康检查，返回版本号 |
+| GET | `/health` | 健康检查，返回版本号；数据库连不上时 500 `internal_error` |
 | POST | `/auth/register` | 注册。没有任何用户时可直接注册（第一个账号）；否则必须带有效 `inviteCode`，注册后自动加入该房间 |
 | POST | `/auth/login` | 登录 |
 | POST | `/auth/refresh` | 刷新令牌 |
 | POST | `/auth/logout` | 作废当前刷新令牌 |
 | GET | `/me` | 当前用户与所在房间列表 |
-| PATCH | `/me` | 改显示名、头像、通知偏好（`notificationPrefs` 的键见 `shared/api/NotificationPrefs.kt`：各类开关与免打扰时段） |
+| PATCH | `/me` | 改显示名、头像、通知偏好（`notificationPrefs` 的键见 `shared/api/NotificationPrefs.kt`：各类开关与免打扰时段）、AI 能看什么（`aiPrefs`）、阅读的常用提示词（`readingPrompts`，整套替换，最多 20 条，id 不能重复） |
 | POST | `/me/password` | 改密码（作废其它设备的登录） |
 | GET | `/me/sessions` · DELETE `/me/sessions/{id}` | 登录设备管理（P7，「安全」页）：每次登录一行，标出当前设备；删除 = 让那台设备退出登录 |
 
@@ -169,9 +174,9 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | POST | `/rooms/{roomId}/ai/question-suggest` | 让 AI 根据共同历史出题 → 202 |
 | POST | `/rooms/{roomId}/questions/{id}/adopt` | 采纳进题库 |
 | DELETE | `/rooms/{roomId}/questions/{id}` | 软删除题目，进入回收站 |
-| POST · PATCH · DELETE | `/rooms/{roomId}/plans[/{id}]` | 计划 |
+| POST · PATCH · DELETE | `/rooms/{roomId}/plans[/{id}]` | 计划。PATCH 的 `status`：进行中 ↔ 先放一放（`archived`），已完成的改回 `active` 是重新打开（清掉完成时间、留着完成记录）；`nextStepTodoId` 让下一步用计划里的一件待办（P14-03，规则见 openapi） |
 | POST · PATCH · DELETE | `/rooms/{roomId}/plans/{planId}/stages[/{id}]`、`…/milestones[/{id}]` | 阶段、里程碑 |
-| POST | `/rooms/{roomId}/plans/{planId}/logs` | 过程记录 |
+| POST · PATCH · DELETE | `/rooms/{roomId}/plans/{planId}/logs[/{id}]` | 进展记录；改和删只能记的人，删了进回收站（`plan_log`，只有记的人能恢复，P14-03） |
 | POST | `/rooms/{roomId}/plans/{planId}/complete` | 完成计划（带完成记录） |
 | POST | `/rooms/{roomId}/calendar/import` | 导入 .ics（multipart） |
 | GET | `/rooms/{roomId}/calendar/export.ics` | 导出 |
@@ -191,7 +196,7 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | POST | `/rooms/{roomId}/documents/{id}/comments` | 段落旁留言（P9-03）：开头带 `quote`（钉住的原文，最多 200 字）和写时的 `version`；回复带 `parentId`；幂等 |
 | PATCH · DELETE | `/rooms/{roomId}/doc-comments/{id}` | 改留言正文 / 删除讨论开头进回收站（都只能作者；回复不能单独删） |
 | POST | `/rooms/{roomId}/doc-comments/{id}/resolve` · `/reopen` | 标为解决 / 重新打开（两人都可以，只对开头） |
-| POST | `/rooms/{roomId}/ai/write-assist` | 写作助手（P9-04 / P9-05）→ 202：润色 / 改错别字 / 缩短选中的一段，起标题，按体裁和日期范围参考房间资料起草稿。结果在 `GET …/ai/jobs/{jobId}` 的 `resultText`，只给发起的人看；AI 不改文稿 |
+| POST | `/rooms/{roomId}/ai/write-assist` | 写作助手（P9-04 / P9-05）→ 202：润色 / 改错别字 / 缩短选中的一段，起标题，按体裁和日期范围参考房间资料起草稿（起草时 AI 能自己查房间资料，和问 AI 一样守「AI 能看什么」，P14-04）。结果在 `GET …/ai/jobs/{jobId}` 的 `resultText`，只给发起的人看；AI 不改文稿 |
 | POST | `/rooms/{roomId}/documents/{id}/versions` | 保存新版本：`{id, baseVersion, body, restoredFromVersion?}`，新文稿的基线是 0；基线落后 409；同 `id` 重试返回已保存的版本 |
 | GET · POST · PATCH · DELETE | `/rooms/{roomId}/board/topics[/{id}]` | 留言主题：列表（置顶在前，其余按最近留言）/ 新建 / 改标题与置顶 / 删除进回收站 |
 | POST | `/rooms/{roomId}/board/topics/{topicId}/posts` | 发帖（可引用，摘录由服务端生成，原文之后修订也不变） |
@@ -218,7 +223,7 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | PATCH · DELETE | `/rooms/{roomId}/books/{id}` | 改书名、作者、共读计划 / 拿下书架（进回收站） |
 | PUT | `/rooms/{roomId}/books/{bookId}/progress` | 我的进度（每人每本一条） |
 | POST · PATCH · DELETE | `/rooms/{roomId}/books/{bookId}/highlights[/{id}]` | 书签、摘录、标注、感想（只能改删自己的；对方没共享的不会同步给你） |
-| POST | `/rooms/{roomId}/ai/read-explain` | 选中段落请 AI 解释（`mode = explain`）或和两人在这本书里的标注、摘录对照（`compare`）→ 202；结果是一条 `kind = ai` 的标记，只有自己看得到 |
+| POST | `/rooms/{roomId}/ai/read-explain` | 选中段落请 AI 解释（`mode = explain`）、和两人在这本书里的标注、摘录对照（`compare`），或按自己写的要求来（`custom`，要求放在 `instruction`，1–300 字，P14-05）→ 202；结果是一条 `kind = ai` 的标记，只有自己看得到。AI 能自己查房间资料（P14-04，守「AI 能看什么」），结果里不带来源编号 |
 | GET · POST · DELETE | `/rooms/{roomId}/summaries[/{id}]` | 总结列表 / 生成周、月、自定义范围（→ 202，结果是 id = jobId 的总结，正文用 [n] 引用来源）/ 删除（年度回顾锁定，403）；年度回顾由服务端的「年度检查」任务每 6 小时检查一次，过了 1 月 1 日自动生成上一年的 |
 
 ### 导出（P7）
@@ -244,10 +249,10 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 
 ### AI 提议、人确认（P8-02）
 
-问 AI 的回答里，模型可以在最后用 `<actions>[…]</actions>` 给出最多 5 个动作草稿（日程、待办、档案、灵感）；服务端把名字、计划名换成 id，把「日期 + 时刻」按房间时区换成 UTC，写成同步实体 `ai_action`（`messageId` = 那次问 AI 的 jobId），动作段不进消息正文。AI 不自己写入任何东西。
+问 AI 的回答里，模型可以在最后用 `<actions>[…]</actions>` 给出最多 5 个动作草稿（日程、待办、档案、灵感；P14-04 起还有新建计划、加阶段、加里程碑、记一笔进展、设下一步——后四种要认得出是哪个进行中的计划，新计划和已有的同名时不提议）；服务端把名字、计划名换成 id，把「日期 + 时刻」按房间时区换成 UTC，写成同步实体 `ai_action`（`messageId` = 那次问 AI 的 jobId），动作段不进消息正文。AI 不自己写入任何东西。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/rooms/{roomId}/ai/chat` | 带 `sourceMessageId` 时是长按消息「让 AI 整理」：提示词里带上那条消息，请模型整理成动作草稿 |
-| POST | `/rooms/{roomId}/ai-actions/{id}/accept` | 接受：按草稿建成实体（id = 请求里客户端生成的 `resultId`，建的人是点「好」的人），和状态一起在一个事务里提交；已接受过的原样返回；可经发件箱补发 |
+| POST | `/rooms/{roomId}/ai-actions/{id}/accept` | 接受：按草稿建成实体（id = 请求里客户端生成的 `resultId`，建的人是点「好」的人），和状态一起在一个事务里提交；已接受过的原样返回；可经发件箱补发。「设下一步」不新建实体，换掉那个计划的下一步（`resultId` 记成计划 id）；那个计划删了时 404 |
 | POST | `/rooms/{roomId}/ai-actions/{id}/dismiss` | 不用（已接受的不变） |

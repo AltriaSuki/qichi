@@ -7,6 +7,8 @@ import app.qichi.shared.api.CLIENT_HEADER
 import app.qichi.shared.api.Problem
 import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.RefreshRequest
+import app.qichi.shared.api.androidClientHeader
+import app.qichi.shared.model.ProblemCode
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.plugins.HttpSend
@@ -32,6 +34,8 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.URLProtocol
+import io.ktor.http.Url
 import io.ktor.http.content.TextContent
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
@@ -40,8 +44,11 @@ import io.ktor.utils.io.jvm.javaio.toInputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -66,12 +73,18 @@ class ApiClient(
     clientVersion: String,
     /** 请求失败时记录日志（不含请求正文与令牌）。 */
     private val logFailure: (path: String, error: Throwable) -> Unit = { _, _ -> },
+    /** App 的 versionCode：放进版本头，服务端据此判断 App 是否太旧（P13-07）。 */
+    clientVersionCode: Int? = null,
 ) {
     private val refreshMutex = Mutex()
     private val _sessionExpired = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    private val _upgradeRequired = MutableStateFlow(false)
 
     /** 刷新令牌失效时发出，SessionManager 据此回到登录页。 */
     val sessionExpired: SharedFlow<Unit> = _sessionExpired.asSharedFlow()
+
+    /** 服务端说这个版本太旧了（426 upgrade_required）：界面提示更新。装了新版、重新打开 App 之前一直是 true。 */
+    val upgradeRequired: StateFlow<Boolean> = _upgradeRequired.asStateFlow()
 
     val http: HttpClient = HttpClient(engine) {
         expectSuccess = false
@@ -84,31 +97,61 @@ class ApiClient(
         install(WebSockets) { pingIntervalMillis = 60.seconds.inWholeMilliseconds }
         defaultRequest {
             url(baseUrl.trimEnd('/') + API_PREFIX + "/")
-            header(CLIENT_HEADER, "android/$clientVersion")
+            header(CLIENT_HEADER, clientVersionCode?.let { androidClientHeader(clientVersion, it) } ?: "android/$clientVersion")
         }
+    }
+
+    /** 自己的服务器（协议、主机、端口）。令牌只发给它（Q6）：图片加载也走 [http]，别处的图片地址不能收到令牌。 */
+    private val home = Url(baseUrl)
+
+    private fun isHome(url: Url): Boolean =
+        url.protocol.withoutSocket() == home.protocol.withoutSocket() && url.host.equals(home.host, ignoreCase = true) && url.port == home.port
+
+    /** 实时通道的 ws / wss 和 http / https 算同一个地方 */
+    private fun URLProtocol.withoutSocket(): String = when (name) {
+        "wss" -> "https"
+        "ws" -> "http"
+        else -> name
     }
 
     init {
         http.plugin(HttpSend).intercept { request ->
-            if (request.attributes.contains(NoAuth)) return@intercept execute(request)
+            if (request.attributes.contains(NoAuth) || !isHome(request.url.build())) return@intercept execute(request)
             val token = tokenStore.read()?.accessToken
             if (token != null) request.headers[HttpHeaders.Authorization] = "Bearer $token"
             val first = execute(request)
             if (first.response.status != HttpStatusCode.Unauthorized || token == null) return@intercept first
 
-            val fresh = refreshTokens(usedAccessToken = token) ?: return@intercept first
-            request.headers[HttpHeaders.Authorization] = "Bearer ${fresh.accessToken}"
-            execute(request)
+            when (val refreshed = refreshTokens(usedAccessToken = token)) {
+                is Refresh.Done -> {
+                    request.headers[HttpHeaders.Authorization] = "Bearer ${refreshed.tokens.accessToken}"
+                    execute(request)
+                }
+                // 调用方看到 401、令牌已清：SessionExpiredException
+                Refresh.Expired -> first
+                // 离线、超时、服务器出错：这次请求算网络错误，稍后再试，不能当成「登录失效」或「请求被拒」（P13-10）
+                is Refresh.Unavailable -> throw RefreshUnavailableException(refreshed.cause)
+            }
         }
+    }
+
+    private sealed interface Refresh {
+        data class Done(val tokens: AuthTokens) : Refresh
+
+        /** 登录已失效（刷新令牌不能用了），令牌已清掉 */
+        data object Expired : Refresh
+
+        /** 这次没刷新成（离线、超时、服务器出错），登录本身可能还好好的 */
+        data class Unavailable(val cause: Throwable?) : Refresh
     }
 
     /**
      * 刷新令牌（单飞）：若别的请求已经刷新过（令牌已变），直接用新的。
-     * @return 新令牌；刷新失败返回 null（登录已失效时会清掉令牌并发出 [sessionExpired]）
+     * 只有服务端明确说刷新令牌不能用了（401）才清掉令牌并发出 [sessionExpired]。
      */
-    private suspend fun refreshTokens(usedAccessToken: String): AuthTokens? = refreshMutex.withLock {
-        val current = tokenStore.read() ?: return null
-        if (current.accessToken != usedAccessToken) return current
+    private suspend fun refreshTokens(usedAccessToken: String): Refresh = refreshMutex.withLock {
+        val current = tokenStore.read() ?: return Refresh.Expired
+        if (current.accessToken != usedAccessToken) return Refresh.Done(current)
 
         val response = try {
             http.request("auth/refresh") {
@@ -119,20 +162,20 @@ class ApiClient(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            return null
+            return Refresh.Unavailable(e)
         }
         when {
             response.status.isSuccess() -> {
                 val tokens = QichiJson.decodeFromString(AuthTokens.serializer(), response.bodyAsText())
                 tokenStore.write(tokens)
-                tokens
+                Refresh.Done(tokens)
             }
             response.status == HttpStatusCode.Unauthorized -> {
                 tokenStore.clear()
                 _sessionExpired.tryEmit(Unit)
-                null
+                Refresh.Expired
             }
-            else -> null
+            else -> Refresh.Unavailable(null)
         }
     }
 
@@ -185,6 +228,10 @@ class ApiClient(
         }
         return response
     }
+
+    private suspend fun parseProblem(response: HttpResponse): Problem? = runCatching {
+        QichiJson.decodeFromString(Problem.serializer(), response.bodyAsText())
+    }.getOrNull()?.also { if (it.code == ProblemCode.UpgradeRequired) _upgradeRequired.value = true }
 
     /**
      * multipart 上传（文件）：不限总时长，[onProgress] 报告已发送 / 总字节数。
@@ -243,10 +290,6 @@ class ApiClient(
         }
         return TextContent(text, ContentType.Application.Json)
     }
-
-    private suspend fun parseProblem(response: HttpResponse): Problem? = runCatching {
-        QichiJson.decodeFromString(Problem.serializer(), response.bodyAsText())
-    }.getOrNull()
 
     companion object {
         /** 请求上带这个标记就不附加令牌、不自动刷新。 */

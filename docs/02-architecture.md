@@ -47,6 +47,7 @@
 | EPUB | Readium Kotlin Toolkit | 目录、分页、书签、定位、搜索都现成（第 6 阶段才引入） |
 | 令牌保存 | DataStore + Android Keystore 加密（Tink） | 不用明文 SharedPreferences |
 | 推送 | UnifiedPush + 自建 ntfy（见 §6、D10） | 两台手机没有谷歌服务 |
+| 桌面组件 | Jetpack Glance（appwidget） | 用 Compose 的写法写桌面组件，不用手写 RemoteViews（D15，第 15 阶段引入） |
 
 ### 服务端（`server/`）
 
@@ -157,7 +158,8 @@ qichi/
             ├── mood/  qna/  plan/  todo/  calendar/  ideas/
             ├── board/  writing/
             ├── archive/  decisions/  timeline/  reading/  review/  summary/
-            └── trash/
+            ├── trash/
+            └── widget/          桌面待办组件（Glance）
 ```
 
 **为什么是三个独立的 Gradle 构建而不是一个？** 服务端的 Docker 镜像只需要 `server/` 和 `shared/`，不需要安装 Android SDK；Android Studio 只打开 `android/`，同步速度快。`shared/` 被两边以源码方式引入，改一处两边同时生效。
@@ -169,7 +171,7 @@ qichi/
 - **单 Activity + Compose**。底部四个标签各有自己的返回栈；「一起」下的页面压在「一起」的返回栈里。
 - **单向数据流**：`Screen` 只接收 `UiState` 并发出事件；`ViewModel` 持有 `StateFlow<UiState>`，调用 `Repository`。
 - **离线优先**：`Repository` 对外只暴露 Room 的 `Flow`。写操作 = 先写 Room（标记为待发送）→ 放进发件箱 → 由 `OutboxWorker` 发到服务端 → 服务端返回后更新 Room。详见 `05-sync-offline.md`。
-- **深链格式**：`qichi://room/{roomId}/{page}[/{id}]`，例如 `qichi://room/r1/chat`、`qichi://room/r1/mood/m9`。通知点击、分享链接都走这个。
+- **深链格式**：`qichi://room/{roomId}/{page}[/{id}]`，例如 `qichi://room/r1/chat`、`qichi://room/r1/mood/m9`。通知点击、分享链接、桌面组件都走这个（`todo/{id}` 打开那条待办的编辑面板，`todo/new` 新建）。
 - **天色主题**：`core/designsystem` 根据本机时间选择清晨/白天/黄昏/深夜四套配色，整页淡入切换；「减少动画」开启时直接切换。
 - **字体打包进 App**：思源黑体（Noto Sans SC，可变字重）、IBM Plex Mono、思源宋体（Noto Serif SC，只用于书页）、龙藏体（Long Cang，手写短句）放进 `res/font/`（D13）。不用谷歌的「可下载字体」，因为没有谷歌服务的手机加载不了。字体合计约 49MB，个人使用可以接受。
 - **服务器地址**：从 `android/local.properties` 的 `qichi.baseUrl` 读入 `BuildConfig`，不写死在代码里。
@@ -231,3 +233,4 @@ App 在前台时靠 WebSocket 实时收到变更，不需要推送。App 在后�
 | D12 | 内置通知：App 在后台用前台服务保持 WebSocket，服务端经实时通道发 `notify`，不用另装 ntfy；ntfy 保留为备选（2026-09-24，人类选择） | 人类不想让两台手机再装别的软件；代价是通知栏常驻一条低调通知、耗电略多，仍要加电池白名单。厂商推送（小米、华为等）要在各家平台注册，暂不做 |
 | D13 | 界面换成「新方向」：正文改用思源黑体、数字用 IBM Plex Mono、手写短句和拍立得说明、书页批注用龙藏体（完整打包），思源宋体只留给书页；删掉 Cormorant Garamond（2026-09-24，人类选定新方向，并确认「一切按设计稿」） | 字和层次参考 Day One、iA Writer、Bear，更好读；代价是安装包约多 22MB（加黑体约 18MB、龙藏体约 5MB、等宽字不到 1MB，减 Cormorant 约 2MB） |
 | D14 | 问 AI 时模型可以调用只读查询工具自己查房间资料（2026-09-26，人类选定） | 事先检索猜不中时 AI 只能说不确定；两个人的数据量小，让模型按需查几轮最准。代价是复杂问题更慢、用量约 2–5 倍，查到的内容都会发给模型服务商；工具只读、只限本房间、遵守「AI 能看什么」（两人都允许），不给没揭晓的问答回答 |
+| D15 | 桌面待办组件用 Jetpack Glance（androidx.glance:glance-appwidget 1.2.0）写（2026-09-27，人类选定） | 用和 App 界面一样的 Compose 写法，勾掉、撤回、打开都有现成的动作；代价是多一个依赖、安装包大一点，组件由系统来画，只能用系统字体、纯色和圆角（没有胶带、手写和纹理）。Glance 自带两个透明的跳转 Activity，是库内部的，App 自己仍然只有 MainActivity |

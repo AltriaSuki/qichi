@@ -55,7 +55,9 @@ fun UpdateDialog(vm: UpdateViewModel = hiltViewModel()) {
             containerColor = colors.background,
             title = { Text("有新版本 ${s.release.versionName}", style = type.pageTitle.copy(color = colors.ink)) },
             text = {
+                val reason by vm.updater.requiredReason.collectAsStateWithLifecycle()
                 Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    reason?.let { Text(it, style = type.body.copy(color = colors.accent)) }
                     if (s.release.notes.isNotBlank()) Text(s.release.notes, style = type.body.copy(color = colors.ink))
                     Text("${mb(s.release.sizeBytes)} · 在栖迟里下载，装好后数据都在", style = type.caption.copy(color = colors.muted))
                 }

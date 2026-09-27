@@ -40,6 +40,8 @@ import app.qichi.core.sync.OutboxProcessor
 import app.qichi.core.sync.RealtimeClient
 import app.qichi.core.sync.SyncEngine
 import app.qichi.core.sync.SyncScheduler
+import app.qichi.core.sync.PrefsUnknownContentStore
+import app.qichi.core.sync.UnknownContent
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -63,9 +65,20 @@ object SyncModule {
     @Singleton
     fun localStore(db: QichiDatabase): LocalStore = LocalStore(db)
 
+    /** 同步时认不出来的内容（服务端比 App 新）记在这里，升级后重新快照、界面提示更新（P13-07）。 */
     @Provides
     @Singleton
-    fun syncEngine(api: ApiClient, db: QichiDatabase, store: LocalStore): SyncEngine = SyncEngine(api, db, store)
+    fun unknownContent(@ApplicationContext context: Context): UnknownContent =
+        UnknownContent(PrefsUnknownContentStore(context), BuildConfig.VERSION_CODE)
+
+    @Provides
+    @IntoSet
+    fun unknownContentCleaner(unknown: UnknownContent): LocalDataCleaner = LocalDataCleaner { unknown.clearAll() }
+
+    @Provides
+    @Singleton
+    fun syncEngine(api: ApiClient, db: QichiDatabase, store: LocalStore, unknown: UnknownContent): SyncEngine =
+        SyncEngine(api, db, store, unknown)
 
     @Provides
     @Singleton
@@ -137,8 +150,14 @@ object SyncModule {
 
     @Provides
     @Singleton
-    fun chatRepository(db: QichiDatabase, store: LocalStore, api: ApiClient, scheduler: SyncScheduler, session: SessionManager): ChatRepository =
-        ChatRepository(db, store, api, scheduler, session)
+    fun chatRepository(
+        db: QichiDatabase,
+        store: LocalStore,
+        api: ApiClient,
+        scheduler: SyncScheduler,
+        session: SessionManager,
+        unknown: UnknownContent,
+    ): ChatRepository = ChatRepository(db, store, api, scheduler, session, unknown = unknown)
 
     @Provides
     @Singleton

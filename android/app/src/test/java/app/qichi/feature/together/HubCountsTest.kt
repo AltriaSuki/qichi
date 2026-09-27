@@ -64,7 +64,8 @@ class HubCountsTest {
         assertEquals("1", counts(rounds = listOf(round(listOf(partner))))[Page.Qna])
         assertEquals(null, counts(rounds = listOf(round(listOf(me))))[Page.Qna])
         assertEquals(null, counts(rounds = listOf(round(emptyList(), today.minusDays(1))))[Page.Qna], "昨天的轮次不算")
-        assertEquals("2", counts(plans = listOf(plan(PlanStatus.Active), plan(PlanStatus.Active), plan(PlanStatus.Done)))[Page.Plan])
+        // 先放一放的不算进行中（P14-03）
+        assertEquals("2", counts(plans = listOf(plan(PlanStatus.Active), plan(PlanStatus.Active), plan(PlanStatus.Done), plan(PlanStatus.Archived)))[Page.Plan])
         assertEquals("3", counts(ideas = List(3) { idea() })[Page.Ideas])
     }
 

@@ -34,7 +34,6 @@ import app.qichi.server.db.QichiDatabase
 import app.qichi.server.db.Questions
 import app.qichi.server.db.QnaRounds
 import app.qichi.server.db.Answers
-import app.qichi.server.db.RoomWriter
 import app.qichi.server.db.SyncedTable
 import app.qichi.server.db.Todos
 import app.qichi.server.db.Tx
@@ -59,8 +58,11 @@ import app.qichi.server.reading.toBook
 import app.qichi.server.plans.toPlan
 import app.qichi.server.plans.toPlanStage
 import app.qichi.server.plans.toMilestone
+import app.qichi.server.plans.toPlanLog
+import app.qichi.server.plans.LinkedSteps
 import app.qichi.server.qna.toQuestion
 import app.qichi.server.rooms.RoomService
+import app.qichi.server.sync.EntityRegistry
 import app.qichi.server.todos.TodoService
 import app.qichi.server.todos.toTodo
 import app.qichi.shared.api.Change
@@ -84,7 +86,6 @@ import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.Query
 import org.jetbrains.exposed.v1.jdbc.andWhere
-import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import java.time.Clock
@@ -94,12 +95,11 @@ import java.util.UUID
 
 /**
  * 回收站（P3-03）：列表、恢复、彻底删除。第 3 阶段包括消息、心情、待办、日程。
- * 心情只有作者能删，所以也只有作者能恢复或彻底删除；其它类型两位成员都可以。
+ * 心情只有作者能删，所以也只有作者能恢复或彻底删除（批注、文稿留言、计划的进展记录也是）；其它类型两位成员都可以。
  */
 class TrashService(
     private val db: QichiDatabase,
     private val rooms: RoomService,
-    private val writer: RoomWriter,
     private val writes: EntityWrites,
     private val todos: TodoService,
     private val files: FileService,
@@ -203,6 +203,12 @@ class TrashService(
                         val m = row.toMilestone()
                         add(Candidate(TrashType.Milestone, m, m.deletedAt!!, m.deletedBy!!))
                     }
+                // 进展记录（P14-03）：同上，计划在回收站里时随它一起
+                PlanLogs.join(Plans, JoinType.INNER, PlanLogs.planId, Plans.id).select(PlanLogs.columns)
+                    .where { Plans.deletedAt.isNull() }.deleted(PlanLogs, roomId, cursor, take).forEach { row ->
+                        val l = row.toPlanLog()
+                        add(Candidate(TrashType.PlanLog, l, l.deletedAt!!, l.deletedBy!!))
+                    }
                 Summaries.selectAll().deleted(Summaries, roomId, cursor, take).forEach { row ->
                     val s = row.toSummary()
                     add(Candidate(TrashType.Summary, s, s.deletedAt!!, s.deletedBy!!))
@@ -287,6 +293,9 @@ class TrashService(
                     hardDelete(this, roomId, userId, EntityType.Mood, id, Moods, now)
                 }
                 TrashType.Todo -> {
+                    // 还连着计划下一步的（删除时已经断开，这里兜底）：下一步结束，免得外键悄悄置空、手机上收不到
+                    (Todos.select(Todos.id).where { Todos.parentId eq id }.map { it[Todos.id] } + id)
+                        .forEach { LinkedSteps.end(this, writes, roomId, userId, it) }
                     // 由它生成的下一次重复：来源置空
                     Todos.select(Todos.id).where { Todos.recurrencePrevId eq id }.map { it[Todos.id] }.forEach { next ->
                         writes.update(this, roomId, userId, EntityType.Todo, next, Todos) { it[Todos.recurrencePrevId] = null }
@@ -306,6 +315,11 @@ class TrashService(
                     hardDelete(this, roomId, userId, EntityType.Question, id, Questions, now)
                 }
                 TrashType.Plan -> {
+                    // 挂在它下面的待办（包括回收站里的）：计划断开。外键也会把 plan_id 置空，但那样不写变化，
+                    // 两台手机上的待办会一直指向不存在的计划（S6），所以这里逐条写上
+                    Todos.select(Todos.id).where { Todos.planId eq id }.map { it[Todos.id] }.forEach { todo ->
+                        writes.update(this, roomId, userId, EntityType.Todo, todo, Todos) { it[Todos.planId] = null }
+                    }
                     PlanLogs.select(PlanLogs.id).where { PlanLogs.planId eq id }.map { it[PlanLogs.id] }
                         .forEach { hardDelete(this, roomId, userId, EntityType.PlanLog, it, PlanLogs, now) }
                     Milestones.select(Milestones.id).where { Milestones.planId eq id }.map { it[Milestones.id] }
@@ -339,6 +353,7 @@ class TrashService(
                 TrashType.Summary -> hardDelete(this, roomId, userId, EntityType.Summary, id, Summaries, now)
                 TrashType.PlanStage -> hardDelete(this, roomId, userId, EntityType.PlanStage, id, PlanStages, now)
                 TrashType.Milestone -> hardDelete(this, roomId, userId, EntityType.Milestone, id, Milestones, now)
+                TrashType.PlanLog -> hardDelete(this, roomId, userId, EntityType.PlanLog, id, PlanLogs, now)
                 TrashType.ReviewDocument -> {
                         val fileIds = reviews.detachFiles(id)
                         AiFindings.select(AiFindings.id).where { AiFindings.documentId eq id }.map { it[AiFindings.id] }.sortedDescending()
@@ -393,6 +408,7 @@ class TrashService(
             } == true
             PlanStages -> planDeleted(row[PlanStages.planId])
             Milestones -> planDeleted(row[Milestones.planId])
+            PlanLogs -> planDeleted(row[PlanLogs.planId])
             Annotations -> ReviewDocuments.select(ReviewDocuments.deletedAt).where { ReviewDocuments.id eq row[Annotations.documentId] }
                 .singleOrNull()?.get(ReviewDocuments.deletedAt) != null
             DocComments -> Documents.select(Documents.deletedAt).where { Documents.id eq row[DocComments.documentId] }
@@ -416,6 +432,10 @@ class TrashService(
                 val author = DocComments.select(DocComments.authorId).where { DocComments.id eq id }.single()[DocComments.authorId]
                 if (author != userId) forbidden("只能处理自己的留言")
             }
+            TrashType.PlanLog -> {
+                val author = PlanLogs.select(PlanLogs.authorId).where { PlanLogs.id eq id }.single()[PlanLogs.authorId]
+                if (author != userId) forbidden("只能处理自己记的进展")
+            }
             else -> Unit
         }
     }
@@ -430,32 +450,11 @@ class TrashService(
         hardDelete(tx, roomId, userId, EntityType.BoardPost, id, BoardPosts, now)
     }
 
-    private fun hardDelete(tx: Tx, roomId: UUID, userId: UUID, type: EntityType, id: UUID, table: SyncedTable, at: Instant) {
-        writer.change(tx, roomId, type, id, userId, at, ChangeOp.Delete)
-        table.deleteWhere { table.id eq id }
-    }
+    private fun hardDelete(tx: Tx, roomId: UUID, userId: UUID, type: EntityType, id: UUID, table: SyncedTable, at: Instant) =
+        writes.hardDelete(tx, roomId, userId, type, id, table, at)
 
-    private fun load(type: TrashType, id: UUID): SyncEntity? = when (type) {
-        TrashType.Message -> messageQuery().where { Messages.id eq id }.singleOrNull()?.toMessage()
-        TrashType.Mood -> Moods.selectAll().where { Moods.id eq id }.singleOrNull()?.toMood()
-        TrashType.Todo -> Todos.selectAll().where { Todos.id eq id }.singleOrNull()?.toTodo()
-        TrashType.Event -> Events.selectAll().where { Events.id eq id }.singleOrNull()?.toEvent()
-        TrashType.Question -> Questions.selectAll().where { Questions.id eq id }.singleOrNull()?.toQuestion()
-        TrashType.Plan -> Plans.selectAll().where { Plans.id eq id }.singleOrNull()?.toPlan()
-        TrashType.Idea -> Ideas.selectAll().where { Ideas.id eq id }.singleOrNull()?.toIdea()
-        TrashType.Document -> Documents.selectAll().where { Documents.id eq id }.singleOrNull()?.toDocument()
-        TrashType.BoardTopic -> BoardTopics.selectAll().where { BoardTopics.id eq id }.singleOrNull()?.toBoardTopic()
-        TrashType.BoardPost -> BoardPosts.selectAll().where { BoardPosts.id eq id }.singleOrNull()?.toBoardPost()
-        TrashType.ArchiveItem -> ArchiveItems.selectAll().where { ArchiveItems.id eq id }.singleOrNull()?.toArchiveItem()
-        TrashType.Decision -> Decisions.selectAll().where { Decisions.id eq id }.singleOrNull()?.toDecision()
-        TrashType.Book -> bookQuery().where { Books.id eq id }.singleOrNull()?.toBook()
-        TrashType.Summary -> Summaries.selectAll().where { Summaries.id eq id }.singleOrNull()?.toSummary()
-        TrashType.PlanStage -> PlanStages.selectAll().where { PlanStages.id eq id }.singleOrNull()?.toPlanStage()
-        TrashType.Milestone -> Milestones.selectAll().where { Milestones.id eq id }.singleOrNull()?.toMilestone()
-        TrashType.ReviewDocument -> ReviewDocuments.selectAll().where { ReviewDocuments.id eq id }.singleOrNull()?.toReviewDocument()
-        TrashType.Annotation -> Annotations.selectAll().where { Annotations.id eq id }.singleOrNull()?.toAnnotation()
-        TrashType.DocComment -> DocComments.selectAll().where { DocComments.id eq id }.singleOrNull()?.toDocComment()
-    }
+    /** 读回收站里那一项的当前状态（读法见 EntityRegistry） */
+    private fun load(type: TrashType, id: UUID): SyncEntity? = EntityRegistry.load(type.entityType, listOf(id)).singleOrNull()
 
     /** 在查询上加「这个房间、已删除、在游标之后」，按 (deletedAt, id) 降序取 [take] 条。 */
     private fun Query.deleted(table: SyncedTable, roomId: UUID, cursor: Cursor?, take: Int): Query {
@@ -490,6 +489,7 @@ val TrashType.entityType: EntityType
         TrashType.ReviewDocument -> EntityType.ReviewDocument
         TrashType.Annotation -> EntityType.Annotation
         TrashType.DocComment -> EntityType.DocComment
+        TrashType.PlanLog -> EntityType.PlanLog
     }
 
 private val TrashType.table: SyncedTable
@@ -513,4 +513,5 @@ private val TrashType.table: SyncedTable
         TrashType.ReviewDocument -> ReviewDocuments
         TrashType.Annotation -> Annotations
         TrashType.DocComment -> DocComments
+        TrashType.PlanLog -> PlanLogs
     }

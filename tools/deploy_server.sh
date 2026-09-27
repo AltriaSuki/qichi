@@ -4,7 +4,7 @@
 #
 #   QICHI_SSH_HOST=root@服务器 QICHI_SSH_PORT=端口 QICHI_DOMAIN=qichi1.duckdns.org tools/deploy_server.sh
 #
-# 同时把 deploy/docker-compose.yml 和 backup.sh 同步过去（.env 不动）。更新前先在服务器上跑一次备份。
+# 同时把 deploy/docker-compose.yml 和备份、告警脚本同步过去（.env 不动）。更新前先在服务器上跑一次备份。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${QICHI_SSH_HOST:?请设置 QICHI_SSH_HOST，如 root@1.2.3.4}"
@@ -19,7 +19,7 @@ echo "· 服务器上先备份"
 ssh -p "$PORT" "$QICHI_SSH_HOST" "/opt/qichi/deploy/backup.sh | tail -2"
 
 echo "· 传配置和镜像"
-scp -q -P "$PORT" deploy/docker-compose.yml deploy/backup.sh "$QICHI_SSH_HOST:/opt/qichi/deploy/"
+scp -q -P "$PORT" deploy/docker-compose.yml deploy/backup.sh deploy/check_disk.sh deploy/alert.sh "$QICHI_SSH_HOST:/opt/qichi/deploy/"
 docker save qichi-server:latest | gzip -1 | ssh -p "$PORT" "$QICHI_SSH_HOST" 'gunzip | docker load'
 
 echo "· 重启"

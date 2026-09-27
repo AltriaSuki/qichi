@@ -4,16 +4,23 @@ import app.qichi.server.MutableClock
 import app.qichi.server.TestDatabase
 import app.qichi.server.db.Jobs
 import app.qichi.server.db.tx
+import app.qichi.shared.util.UuidV7
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import java.time.Duration
 import java.util.Collections
@@ -36,6 +43,25 @@ class JobQueueTest {
         db.tx { queue.enqueue(this, kind, payload, maxAttempts = maxAttempts) }
 
     private suspend fun status(id: UUID) = db.tx { Jobs.selectAll().where { Jobs.id eq id }.single() }
+
+    /** 一个「执行中」的任务，最后一次心跳在 [lockedAgo] 之前（模拟进程被杀时留下的）。 */
+    private suspend fun insertRunning(kind: String, lockedAgo: Duration, attempts: Int, maxAttempts: Int): UUID = db.tx {
+        val id = UuidV7.generate()
+        val now = clock.instant()
+        Jobs.insert {
+            it[Jobs.id] = id
+            it[Jobs.kind] = kind
+            it[payload] = JsonObject(emptyMap())
+            it[status] = JobQueue.STATUS_RUNNING
+            it[runAt] = now.minus(lockedAgo)
+            it[Jobs.attempts] = attempts
+            it[Jobs.maxAttempts] = maxAttempts
+            it[lockedAt] = now.minus(lockedAgo)
+            it[createdAt] = now
+            it[updatedAt] = now
+        }
+        id
+    }
 
     @Test
     fun `入队的任务被执行一次，做完标记 done`() = runBlocking {
@@ -89,6 +115,81 @@ class JobQueueTest {
         repeat(10) { n -> enqueue("n", buildJsonObject { put("n", n) }) }
         coroutineScope { (1..4).map { async { queue.drain() } }.awaitAll() }
         assertEquals((0 until 10).toList(), done.sorted())
+    }
+
+    @Test
+    fun `执行中断（心跳停了）的任务放回队列重新执行；还在心跳的不动`() = runBlocking {
+        var runs = 0
+        queue.register("work") { runs++ }
+        val stale = insertRunning("work", lockedAgo = JobQueue.STALE_AFTER.plusSeconds(1), attempts = 1, maxAttempts = 3)
+        val alive = insertRunning("work", lockedAgo = JobQueue.HEARTBEAT, attempts = 1, maxAttempts = 3)
+        assertEquals(1, queue.recoverStale())
+        assertEquals(JobQueue.STATUS_QUEUED, status(stale)[Jobs.status])
+        assertEquals(JobQueue.STATUS_RUNNING, status(alive)[Jobs.status])
+        queue.drain()
+        assertEquals(1, runs)
+        assertEquals(JobQueue.STATUS_DONE, status(stale)[Jobs.status])
+        assertEquals(2, status(stale)[Jobs.attempts])
+    }
+
+    @Test
+    fun `中断次数用完：标失败并调用收尾，不再重来`() = runBlocking {
+        val gaveUp = mutableListOf<UUID>()
+        queue.register("crashy", { job, _ -> gaveUp += job.id }) { error("不该再执行") }
+        val id = insertRunning("crashy", lockedAgo = Duration.ofMinutes(5), attempts = 2, maxAttempts = 2)
+        assertEquals(1, queue.recoverStale())
+        assertEquals(JobQueue.STATUS_FAILED, status(id)[Jobs.status])
+        assertEquals(listOf(id), gaveUp)
+        assertFalse(queue.runNext())
+    }
+
+    @Test
+    fun `最后一次失败时调用收尾，还能重试时不调用`() = runBlocking {
+        val gaveUp = mutableListOf<String>()
+        queue.register("flaky", { _, reason -> gaveUp += reason }) { error("还是不行") }
+        val id = enqueue("flaky", maxAttempts = 2)
+        queue.drain()
+        assertTrue(gaveUp.isEmpty(), "还能重试")
+        clock.advance(JobQueue.backoff(1))
+        queue.drain()
+        assertEquals(listOf("还是不行"), gaveUp)
+        assertEquals(JobQueue.STATUS_FAILED, status(id)[Jobs.status])
+    }
+
+    @Test
+    fun `服务停止时手上的任务放回队列`() = runBlocking {
+        val started = CompletableDeferred<Unit>()
+        queue.register("slow") {
+            started.complete(Unit)
+            awaitCancellation()
+        }
+        val id = enqueue("slow")
+        val worker = launch { queue.runNext() }
+        started.await()
+        worker.cancelAndJoin()
+        assertEquals(JobQueue.STATUS_QUEUED, status(id)[Jobs.status])
+    }
+
+    @Test
+    fun `文件那一道在做慢任务时，问 AI 那一道照样做`() = runBlocking {
+        val converting = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val answered = CompletableDeferred<Unit>()
+        queue.register("convert", lane = JobLane.Files) {
+            converting.complete(Unit)
+            release.await()
+        }
+        queue.register("ask", lane = JobLane.Ai) { answered.complete(Unit) }
+        val workers = queue.start(this, pollInterval = Duration.ofMillis(100))
+        try {
+            enqueue("convert")
+            withTimeout(5_000) { converting.await() }
+            enqueue("ask")
+            withTimeout(5_000) { answered.await() }
+        } finally {
+            release.complete(Unit)
+            workers.cancelAndJoin()
+        }
     }
 
     @Test

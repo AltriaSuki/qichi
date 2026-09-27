@@ -13,6 +13,7 @@ import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
 import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomService
+import app.qichi.server.sync.Visibility
 import app.qichi.shared.api.Answer
 import app.qichi.shared.api.CreateQuestionRequest
 import app.qichi.shared.api.QnaRound
@@ -67,6 +68,7 @@ class QnaService(
 
     suspend fun adopt(userId: UUID, roomId: UUID, id: UUID): Question = db.tx {
         rooms.requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId)
         val row = Questions.selectAll().where { (Questions.id eq id) and (Questions.roomId eq roomId) and Questions.deletedAt.isNull() }.singleOrNull() ?: notFound()
         if (row[Questions.adoptedAt] == null) writes.update(this, roomId, userId, EntityType.Question, id, Questions) {
             it[Questions.adoptedBy] = userId
@@ -95,11 +97,10 @@ class QnaService(
             .singleOrNull()?.toQnaRound()
         val yesterdayQuestion = yesterday?.let { Questions.selectAll().where { Questions.id eq it.questionId }.single().toQuestion() }
         val yesterdayAnswers = yesterday?.let { prior ->
-            Answers.selectAll().where { Answers.roundId eq prior.id }.map { it.toAnswer() }
-                .filter { it.authorId == userId || prior.revealedAt != null }
+            Visibility.answers(Answers.selectAll().where { Answers.roundId eq prior.id }.map { it.toAnswer() }, userId)
         } ?: emptyList()
         QnaToday(round, question, answers.firstOrNull { it.authorId == userId },
-            answers.firstOrNull { it.authorId != userId }?.takeIf { round.revealedAt != null },
+            answers.firstOrNull { it.authorId != userId && Visibility.answer(it, userId, round.revealedAt != null) },
             answers.any { it.authorId != userId && it.confirmedAt != null },
             yesterday, yesterdayQuestion, yesterdayAnswers)
     }

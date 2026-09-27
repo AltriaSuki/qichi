@@ -1,10 +1,12 @@
 package app.qichi.core.network
 
 import app.cash.turbine.test
+import app.qichi.core.auth.ExpiredSession
 import app.qichi.core.auth.InMemoryTokenStore
 import app.qichi.core.auth.LocalDataCleaner
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.auth.SessionState
+import app.qichi.core.auth.TokenStore
 import app.qichi.shared.api.AuthTokens
 import app.qichi.shared.api.Health
 import app.qichi.shared.api.LoginRequest
@@ -16,18 +18,22 @@ import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
+import io.ktor.client.request.get
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.OutgoingContent
 import io.ktor.http.headersOf
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import java.io.IOException
 import java.time.Instant
@@ -37,6 +43,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -69,11 +76,27 @@ class ApiClientTest {
     /**
      * 假服务端：只认 [validAccess]；refresh 用 [validRefresh] 换来下一对令牌。
      */
-    private inner class FakeServer(var validAccess: String, var validRefresh: String, var refreshFails: Boolean = false) {
+    private inner class FakeServer(
+        var validAccess: String,
+        var validRefresh: String,
+        var refreshFails: Boolean = false,
+        /** 刷新请求连不上（超时、离线） */
+        var refreshOffline: Boolean = false,
+        /** 刷新时服务器出错 */
+        var refreshServerError: Boolean = false,
+    ) {
         val refreshCalls = AtomicInteger()
         val engine = MockEngine { request ->
             val path = request.url.encodedPath
             when {
+                path.endsWith("/auth/refresh") && refreshOffline -> {
+                    refreshCalls.incrementAndGet()
+                    throw IOException("timeout")
+                }
+                path.endsWith("/auth/refresh") && refreshServerError -> {
+                    refreshCalls.incrementAndGet()
+                    problem(HttpStatusCode.InternalServerError, "internal_error")
+                }
                 path.endsWith("/auth/refresh") -> {
                     refreshCalls.incrementAndGet()
                     val sent = QichiJson.decodeFromString(RefreshRequest.serializer(), request.bodyText())
@@ -98,6 +121,30 @@ class ApiClientTest {
 
     private fun client(server: FakeServer, store: InMemoryTokenStore) =
         ApiClient(server.engine, "http://test", store, "test")
+
+    @Test
+    fun `令牌只发给自己的服务器：别处的图片地址、换了协议或端口的都不带（Q6）`() = runTest {
+        val seen = mutableMapOf<String, String?>()
+        val engine = MockEngine { request ->
+            seen[request.url.toString().lowercase()] = request.headers[HttpHeaders.Authorization]
+            respond("x", HttpStatusCode.OK)
+        }
+        val api = ApiClient(engine, "https://qichi.example.org", InMemoryTokenStore(tokens(1)), "test")
+        val mine = "Bearer ${tokens(1).accessToken}"
+
+        api.http.get("files/abc/thumb?w=400")
+        api.http.get("https://QICHI.example.org/api/v1/me")
+        api.http.get("https://images.example.com/cat.jpg")
+        api.http.get("http://qichi.example.org/api/v1/me")
+        api.http.get("https://qichi.example.org:8443/api/v1/me")
+
+        assertEquals(mine, seen["https://qichi.example.org/api/v1/files/abc/thumb?w=400"], "相对地址就是自己的服务器")
+        assertEquals(mine, seen["https://qichi.example.org/api/v1/me"], "主机名不分大小写")
+        assertEquals(5, seen.size)
+        assertNull(seen["https://images.example.com/cat.jpg"])
+        assertNull(seen["http://qichi.example.org/api/v1/me"])
+        assertNull(seen["https://qichi.example.org:8443/api/v1/me"])
+    }
 
     @Test
     fun `访问令牌过期时自动刷新一次再重试`() = runTest {
@@ -133,6 +180,24 @@ class ApiClientTest {
             awaitItem()
         }
         assertNull(store.read())
+    }
+
+    @Test
+    fun `刷新请求超时或服务器出错：这次请求算网络错误，令牌留着，不算登录失效（P13-10）`() = runTest {
+        for (offline in listOf(true, false)) {
+            val store = InMemoryTokenStore(tokens(1))
+            val server = FakeServer(validAccess = "expired", validRefresh = "r1", refreshOffline = offline, refreshServerError = !offline)
+            val api = client(server, store)
+            var expired = false
+            val scope = eagerScope()
+            scope.launch { api.sessionExpired.collect { expired = true } }
+
+            assertFailsWith<NetworkException> { api.get<Health>("anything") }
+            assertEquals(tokens(1), store.read(), "令牌不能清")
+            assertFalse(expired)
+            assertEquals(1, server.refreshCalls.get())
+            scope.cancel()
+        }
     }
 
     @Test
@@ -173,21 +238,44 @@ class ApiClientTest {
         }
         ApiClient(engine, "http://test", InMemoryTokenStore(), "0.1.0").get<Health>("health", auth = false)
         assertEquals("android/0.1.0", seen)
+        // 带上 versionCode：服务端据此判断 App 是否太旧（P13-07）
+        ApiClient(engine, "http://test", InMemoryTokenStore(), "0.2.345", clientVersionCode = 345).get<Health>("health", auth = false)
+        assertEquals("android/0.2.345 (345)", seen)
     }
 
     @Test
-    fun `刷新失败后会话回到登出状态并清掉本机数据`() = runTest {
+    fun `服务端说 App 太旧（426 upgrade_required）：抛出 ApiException，并记下需要更新`() = runTest {
+        val engine = MockEngine {
+            respond(
+                """{"type":"https://qichi.app/errors/upgrade_required","title":"App 版本太旧","status":426,"code":"upgrade_required"}""",
+                HttpStatusCode.UpgradeRequired,
+                problemJson,
+            )
+        }
+        val api = ApiClient(engine, "http://test", InMemoryTokenStore(tokens(1)), "test")
+        assertFalse(api.upgradeRequired.value)
+        val e = assertFailsWith<ApiException> { api.get<Health>("rooms/x/sync?since=0") }
+        assertEquals(ProblemCode.UpgradeRequired, e.code)
+        assertFalse(e.isRetryable)
+        assertTrue(api.upgradeRequired.value)
+    }
+
+    @Test
+    fun `刷新失败后会话回到登出状态，本机数据留着并提示还有几条没发出去`() = runTest {
         val store = InMemoryTokenStore(tokens(1))
         val server = FakeServer(validAccess = "nothing-valid", validRefresh = "r1", refreshFails = true)
         val api = client(server, store)
         var cleared = 0
         val scope = eagerScope()
-        val session = SessionManager(api, store, setOf(LocalDataCleaner { cleared++ }), "test", scope)
+        val session = SessionManager(api, store, setOf(LocalDataCleaner { cleared++ }), "test", scope, unsentCount = { 3 })
         assertEquals(SessionState.LoggedIn(userId), session.state.value)
+        assertNull(session.expired.value)
 
         runCatching { api.get<Health>("anything") }
         session.state.first { it == SessionState.LoggedOut }
-        assertEquals(1, cleared)
+        assertEquals(0, cleared, "登录被动失效时不清本机数据（P13-08）")
+        assertNull(store.read())
+        assertEquals(ExpiredSession(userId, 3), session.expired.value)
         scope.cancel()
     }
 
@@ -204,6 +292,29 @@ class ApiClientTest {
         assertNull(store.read())
         assertEquals(1, cleared)
         assertEquals(SessionState.LoggedOut, session.state.value)
+        scope.cancel()
+    }
+
+    @Test
+    fun `令牌还在读时 awaitLoaded 一直等，读完给出登录状态（冷启动时不当成没登录）`() = runTest {
+        val saved = InMemoryTokenStore(tokens(1))
+        val gate = CompletableDeferred<Unit>()
+        val slow = object : TokenStore by saved {
+            override suspend fun read(): AuthTokens? {
+                gate.await()
+                return saved.read()
+            }
+        }
+        val api = ApiClient(MockEngine { throw IOException("offline") }, "http://test", slow, "test")
+        val scope = eagerScope()
+        val session = SessionManager(api, slow, emptySet(), "test", scope)
+        assertEquals(SessionState.Loading, session.state.value)
+
+        val loaded = async { session.awaitLoaded() }
+        runCurrent()
+        assertFalse(loaded.isCompleted)
+        gate.complete(Unit)
+        assertEquals(SessionState.LoggedIn(userId), loaded.await())
         scope.cancel()
     }
 

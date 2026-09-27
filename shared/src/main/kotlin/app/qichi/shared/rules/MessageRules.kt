@@ -9,8 +9,14 @@ object MessageRules {
      * 回复摘要：原消息的前 60 个字（按字符，不会切断表情；连续空白合成一个空格）。
      * 图片、文件没有正文时写「[图片]」「[文件] 文件名」；已撤回的消息没有摘要。
      */
-    fun replyExcerpt(kind: MessageKind, body: String, fileName: String?, retracted: Boolean): String? {
-        if (retracted) return null
+    fun replyExcerpt(kind: MessageKind, body: String, fileName: String?, retracted: Boolean): String? =
+        if (retracted) null else asLine(kind, body, fileName, Limits.REPLY_EXCERPT_LENGTH)
+
+    /**
+     * 一条消息写成一行文字：写法和回复摘要一样（空白合成一个空格；没有正文的图片、文件写「[图片]」「[文件] 文件名」），
+     * 最多 [max] 个字符（不切断表情）。给 AI 看聊天记录时用它，长度按需要定，不借用回复摘要的 60 字。
+     */
+    fun asLine(kind: MessageKind, body: String, fileName: String?, max: Int): String? {
         val text = body.replace(WHITESPACE, " ").trim()
         val base = when {
             text.isNotEmpty() -> text
@@ -18,7 +24,7 @@ object MessageRules {
             kind == MessageKind.File -> listOfNotNull("[文件]", fileName?.takeIf { it.isNotBlank() }).joinToString(" ")
             else -> return null
         }
-        return base.takeCodePoints(Limits.REPLY_EXCERPT_LENGTH)
+        return base.takeCodePoints(max)
     }
 
     /** 照片说明：空白合成一个空格、去掉首尾空白，最多 [Limits.PHOTO_CAPTION_MAX] 个字符（多出的截掉，不切断表情）。 */

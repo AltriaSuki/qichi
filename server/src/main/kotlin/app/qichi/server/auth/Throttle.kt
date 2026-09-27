@@ -37,11 +37,17 @@ class FailureThrottle(
 
     fun recordFailure(key: String) {
         val now = clock.instant()
+        // 用随机用户名乱试会不断产生新 key：多了就把过期的清掉，免得这张表无限长
+        if (failures.size > SWEEP_ABOVE) sweep(now)
         val list = failures.computeIfAbsent(key) { ArrayDeque() }
         synchronized(list) {
             prune(list, now)
             list.addLast(now)
         }
+    }
+
+    private fun sweep(now: Instant) {
+        failures.entries.removeIf { (_, list) -> synchronized(list) { prune(list, now); list.isEmpty() } }
     }
 
     fun reset(key: String) {
@@ -50,5 +56,9 @@ class FailureThrottle(
 
     private fun prune(list: ArrayDeque<Instant>, now: Instant) {
         while (list.isNotEmpty() && !list.first().plus(window).isAfter(now)) list.removeFirst()
+    }
+
+    private companion object {
+        const val SWEEP_ABOVE = 10_000
     }
 }

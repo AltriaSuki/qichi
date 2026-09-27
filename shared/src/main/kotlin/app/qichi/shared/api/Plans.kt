@@ -16,6 +16,11 @@ data class Plan(
     val completedAt: Timestamp?, val completionNote: String?,
     /** 封面照片；为空时按 id 固定选一幅插画 */
     val coverFileId: Id? = null,
+    /**
+     * 下一步连着的待办（P14-03）：连着时下一步的内容、谁来做、截止跟着这件待办，它做完或删掉时下一步结束。
+     * 旧服务端没有这个字段。
+     */
+    val nextStepTodoId: Id? = null,
 ) : SyncEntity
 
 @Serializable
@@ -34,7 +39,7 @@ data class Milestone(
     val planId: Id, val title: String, val targetDate: Day?, val doneAt: Timestamp?,
 ) : SyncEntity
 
-/** 过程记录创建后不修改。 */
+/** 进展记录：记的人可以改、可以删（进回收站，P14-03）。 */
 @Serializable
 data class PlanLog(
     override val id: Id, val roomId: Id, override val seq: Long,
@@ -69,6 +74,8 @@ data class UpdatePlanRequest(
     @EncodeDefault(EncodeDefault.Mode.NEVER) val nextStepOwnerId: Patch<Id?> = Patch.Absent,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val nextStepDue: Patch<Day?> = Patch.Absent,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val coverFileId: Patch<Id?> = Patch.Absent,
+    /** 下一步用这个计划里的一件待办（P14-03）；同一次不能再写 nextStep 那三项。null = 断开 */
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val nextStepTodoId: Patch<Id?> = Patch.Absent,
 )
 
 @Serializable data class CreatePlanStageRequest(val id: Id, val title: String, val sortOrder: Int)
@@ -92,4 +99,5 @@ data class UpdateMilestoneRequest(
 )
 
 @Serializable data class CreatePlanLogRequest(val id: Id, val body: String)
+@Serializable data class UpdatePlanLogRequest(val body: String)
 @Serializable data class CompletePlanRequest(val completionNote: String)

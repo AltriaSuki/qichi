@@ -10,7 +10,10 @@ info:
     通用约定：
     - JSON，UTF-8，字段名 camelCase；时间 ISO-8601 UTC（`2026-09-21T11:30:00Z`）；纯日期 `2026-09-21`。
     - 枚举值是英文小写字符串（多个单词用下划线，如 `mood_response`）。
-    - 请求头 `X-Qichi-Client: android/{versionName}`，便于排查。
+    - 请求头 `X-Qichi-Client: android/{versionName} ({versionCode})`，便于排查；服务端也据此判断 App 是否太旧。
+    - App 版本低于服务端要求（服务端配置 `MIN_ANDROID_VERSION_CODE`，默认不限制）时，除健康检查、注册、登录、刷新令牌、
+      App 更新（`/app/*`）外的接口一律返回 **426** `upgrade_required`，App 提示更新。
+    - 新增实体类型、枚举取值、字段时，旧版 App 逐条解码：认不出来的跳过、同步位置照常前进，升级后重新快照（docs/05-sync-offline.md §3.2）。
     - 房间内资源都在 `/rooms/{roomId}/…` 下；不是该房间成员一律返回 **404**。
     - 创建：请求体带客户端生成的 `id`（UUIDv7）；新建返回 **201**，同 id 已存在返回 **200** 与已有对象；
       同 id 属于别人或别的房间返回 **409** `conflict_id`。
@@ -84,6 +87,7 @@ paths:
       tags: [system]
       operationId: getHealth
       summary: 健康检查
+      description: 服务在、数据库也能用才返回 200（最多等 2 秒查一次数据库）。
       security: []
       responses:
         '200':
@@ -91,6 +95,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Health' }
+        '500':
+          description: 数据库连不上（`internal_error`）
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   # ───────────────────────── 账号 ─────────────────────────
   /auth/register:
@@ -149,6 +158,8 @@ paths:
       description: |
         每次刷新都换一对新令牌，旧刷新令牌立即作废。
         已作废的刷新令牌被再次使用 → 这次登录（这台设备）的所有令牌全部作废，返回 401。
+        例外（5 分钟宽限）：被换掉的旧刷新令牌在 5 分钟内再出现、且换出来的新令牌还没被用过 → 当作上次的回应丢在路上了，
+        作废没送到的那对、再换发一对新的（200）。
       security: []
       requestBody:
         required: true
@@ -395,6 +406,7 @@ paths:
         - `toSeq` 是本页扫描到的最大 seq，下次用它作为 `since`。它可能大于 `changes` 里最大的 `seq`
           （有些变化被合并了，或对你不可见，比如对方的 `read_marker`）。
         - `hasMore = true` 时立即用 `toSeq` 继续拉。
+        - `changes` 里可能出现客户端不认识的 `type` 或枚举取值（服务端比 App 新）：客户端跳过这几条，照常前进到 `toSeq`。
       parameters:
         - name: since
           in: query
@@ -412,6 +424,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '426': { $ref: '#/components/responses/UpgradeRequired' }
 
   /ws:
     get:
@@ -1497,8 +1510,10 @@ paths:
     post:
       tags: [ai, reading]
       operationId: aiReadExplain
-      summary: 选中一段请 AI 解释或对比 → 202
-      description: 结果写成一条 kind = ai 的标记（id = jobId，只有自己看得到），完成后发 ai.done。
+      summary: 选中一段请 AI 解释、对比或按自己的要求来 → 202
+      description: |
+        结果写成一条 kind = ai 的标记（id = jobId，只有自己看得到），完成后发 ai.done。
+        `mode = custom`（P14-05）时按 `instruction` 来，结果的开头写着「问：要求」。
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/AiReadExplainRequest' } } }
@@ -1894,7 +1909,10 @@ paths:
     post:
       tags: [ai]
       operationId: acceptAiAction
-      summary: 接受 AI 的提议（P8-02）：服务端按草稿建成日程 / 待办 / 档案 / 灵感（id = resultId）；已经接受过的原样返回
+      summary: 接受 AI 的提议（P8-02）：服务端按草稿建成日程 / 待办 / 档案 / 灵感 / 计划 / 阶段 / 里程碑 / 进展（id = resultId）；已经接受过的原样返回
+      description: |
+        `next_step`（P14-04）不新建实体，是把 `planId` 那个计划的下一步换成草稿里的（resultId 记成那个计划的 id）。
+        计划相关的提议（除 `plan` 外）要那个计划还在，否则 404。
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/AcceptAiActionRequest' } } }
@@ -2352,6 +2370,12 @@ paths:
     patch:
       tags: [plans]
       operationId: updatePlan
+      description: |
+        只改发来的字段。状态（P14-03）：进行中 ↔ 先放一放（`archived`）；已完成的发 `active` 是重新打开——完成时间清掉，
+        完成记录留着（再完成时换成新的）；已完成的不能直接放一放；完成要用 `…/complete`。
+        下一步连着待办（P14-03）：发 `nextStepTodoId` = 这个计划里一件没做完、没删的待办，下一步的内容、谁来做、截止都跟着那件待办
+        （同一次请求里不能再写 `nextStep`、`nextStepOwnerId`、`nextStepDue`）；之后那件待办改名字、改交给谁、改截止，下一步跟着变；
+        做完或删掉时下一步结束（这几个字段都清空）；移出这个计划时只断开，下一步的文字留着。直接改下一步的文字、谁来做或截止，也会断开。
       requestBody:
         required: true
         content:
@@ -2359,6 +2383,7 @@ paths:
             schema: { $ref: '#/components/schemas/UpdatePlanRequest' }
       responses:
         '200': { description: 修改后计划, content: { application/json: { schema: { $ref: '#/components/schemas/Plan' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [plans]
@@ -2457,6 +2482,33 @@ paths:
       responses:
         '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/PlanLog' } } } }
         '201': { description: 已创建, content: { application/json: { schema: { $ref: '#/components/schemas/PlanLog' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rooms/{roomId}/plans/{planId}/logs/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/PlanId'
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [plans]
+      operationId: updatePlanLog
+      summary: 改一条进展记录（P14-03，只有记的人能改）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdatePlanLogRequest' }
+      responses:
+        '200': { description: 修改后的记录, content: { application/json: { schema: { $ref: '#/components/schemas/PlanLog' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [plans]
+      operationId: deletePlanLog
+      summary: 删一条进展记录进回收站（P14-03，只有记的人能删、能恢复）
+      responses:
+        '200': { description: 已移入回收站, content: { application/json: { schema: { $ref: '#/components/schemas/PlanLog' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
   /rooms/{roomId}/plans/{planId}/complete:
     parameters:
@@ -2709,6 +2761,11 @@ components:
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
+    UpgradeRequired:
+      description: App 版本低于服务端要求（`upgrade_required`）。除健康检查、注册、登录、刷新令牌、`/app/*` 外的接口都可能返回
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
     AiQuotaExceeded:
       description: 本月 AI 额度用完（`ai_quota_exceeded`）
       content:
@@ -2832,6 +2889,7 @@ components:
         - rate_limited
         - ai_unavailable
         - ai_quota_exceeded
+        - upgrade_required
         - internal_error
     Problem:
       type: object
@@ -2958,6 +3016,11 @@ components:
         notificationPrefs: { $ref: '#/components/schemas/NotificationPrefs' }
         createdAt: { $ref: '#/components/schemas/Instant' }
         aiPrefs: { $ref: '#/components/schemas/AiPrefs' }
+        readingPrompts:
+          type: array
+          description: 阅读里的常用提示词（P14-05），最多 20 条；旧服务端没有这个字段
+          maxItems: 20
+          items: { $ref: '#/components/schemas/ReadingPrompt' }
     NotificationPrefs:
       type: object
       description: 通知偏好。具体字段在 P3-10（推送）确定；在那之前是空对象。
@@ -2966,8 +3029,10 @@ components:
       type: object
       description: |
         AI 能看到哪些房间资料（每人一份）。两个人都允许的类别 AI 才看得到：任何一人关掉，谁发起的 AI 请求都看不到（P11）。
-        缺的字段按 true（默认都能看）。`chat` 指更早的聊天：问 AI 时总会带上最近的几十条聊天。
-        writing 文稿与段落留言 · board 留言板 · qna 已揭晓的问答 · reading 阅读（书、进度、公开的摘录） · review 审稿 · summaries 总结。
+        类别缺的字段按 true（默认都能看）。`chat` 指更早的聊天：问 AI 时总会带上最近的几十条聊天。
+        writing 文稿与段落留言 · board 留言板 · qna 已揭晓的问答 · reading 阅读（书、进度、公开的划线、摘录和 AI 解释） · review 审稿 · summaries 总结。
+        `readingPrivate`（P14-02）：我没公开的划线、摘录、感想和 AI 解释也给 AI 用（谁问都一样）；默认 false，各管各的、不取交集，
+        `reading` 有人关掉时照旧谁的都不给。
       properties:
         archive: { type: boolean, default: true }
         decisions: { type: boolean, default: true }
@@ -2983,6 +3048,7 @@ components:
         reading: { type: boolean, default: true }
         review: { type: boolean, default: true }
         summaries: { type: boolean, default: true }
+        readingPrivate: { type: boolean, default: false }
     MyRoom:
       type: object
       required: [roomId, name, role]
@@ -3009,6 +3075,11 @@ components:
         avatarFileId: { $ref: '#/components/schemas/NullableUuid' }
         notificationPrefs: { $ref: '#/components/schemas/NotificationPrefs' }
         aiPrefs: { $ref: '#/components/schemas/AiPrefs' }
+        readingPrompts:
+          type: array
+          description: 整套替换（顺序即显示顺序）；最多 20 条，每条 id 不重复
+          maxItems: 20
+          items: { $ref: '#/components/schemas/ReadingPrompt' }
 
     # ── 同步实体的公共字段 ──
     SyncFields:
@@ -3488,6 +3559,9 @@ components:
             coverFileId:
               $ref: '#/components/schemas/NullableUuid'
               description: 封面照片（房间里的一张图片）；为空时 App 按计划 id 固定选一幅插画（P10-06）
+            nextStepTodoId:
+              $ref: '#/components/schemas/NullableUuid'
+              description: 下一步连着的待办（P14-03）；连着时 nextStep、nextStepOwnerId、nextStepDue 跟着那件待办。旧服务端没有这个字段
     PlanStage:
       allOf:
         - $ref: '#/components/schemas/SyncFields'
@@ -3509,7 +3583,7 @@ components:
             targetDate: { $ref: '#/components/schemas/NullableLocalDate' }
             doneAt: { $ref: '#/components/schemas/NullableInstant' }
     PlanLog:
-      description: 创建后不可修改的过程记录
+      description: 进展记录。记的人可以改、可以删（进回收站，P14-03）
       allOf:
         - $ref: '#/components/schemas/SyncFields'
         - type: object
@@ -3580,7 +3654,8 @@ components:
       enum: [highlight, bookmark, excerpt, ai]
     ReadExplainMode:
       type: string
-      enum: [explain, compare]
+      description: explain 解释 · compare 和两个人的标注、摘录对照 · custom 按自己写的要求（P14-05）
+      enum: [explain, compare, custom]
     AiReadExplainRequest:
       type: object
       required: [jobId, bookId, mode, text, locator]
@@ -3592,6 +3667,18 @@ components:
         locator: { type: string, maxLength: 8000 }
         before: { type: string, maxLength: 500 }
         after: { type: string, maxLength: 500 }
+        instruction:
+          type: [string, 'null']
+          maxLength: 300
+          description: 自己写的要求（`mode = custom` 时必填，1–300 字）
+    ReadingPrompt:
+      type: object
+      description: 阅读里的一条常用提示词（P14-05）。每人一套，存在账号上，对方看不到。
+      required: [id, title, instruction]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        title: { type: string, minLength: 1, maxLength: 20 }
+        instruction: { type: string, minLength: 1, maxLength: 300 }
     Book:
       description: 同步实体类型 `book`（P6）；正文不进同步，按需下载
       allOf:
@@ -4043,6 +4130,9 @@ components:
         coverFileId:
           $ref: '#/components/schemas/NullableUuid'
           description: 换封面：先上传图片（kind = image）再带上文件 id；null 改回插画。必须是这个房间里的图片，否则 400
+        nextStepTodoId:
+          $ref: '#/components/schemas/NullableUuid'
+          description: 下一步用这个计划里的一件待办（P14-03，见 PATCH 说明）；null 断开
     CreatePlanStageRequest:
       type: object
       required: [id, title, sortOrder]
@@ -4076,6 +4166,11 @@ components:
       required: [id, body]
       properties:
         id: { $ref: '#/components/schemas/Uuid' }
+        body: { type: string, minLength: 1, maxLength: 10000 }
+    UpdatePlanLogRequest:
+      type: object
+      required: [body]
+      properties:
         body: { type: string, minLength: 1, maxLength: 10000 }
     CompletePlanRequest:
       type: object
@@ -4486,7 +4581,8 @@ components:
 
     AiActionKind:
       type: string
-      enum: [event, todo, archive_item, idea]
+      description: P14-04 起加上计划相关的：plan 新建计划、plan_stage 加阶段、milestone 加里程碑、plan_log 记一笔进展、next_step 设下一步
+      enum: [event, todo, archive_item, idea, plan, plan_stage, milestone, plan_log, next_step]
     AiActionStatus:
       type: string
       enum: [proposed, accepted, dismissed]
@@ -4495,6 +4591,8 @@ components:
       description: |
         AI 提议的草稿，按 kind 取用字段：event 用 title/note/location 和 allDay + startDate/endDate 或 startsAt/endsAt；
         todo 用 title/note/assigneeId/dueDate 或 dueAt/planId；archive_item 用 archiveKind/title/note（正文）；idea 用 title（正文）。
+        P14-04：plan 用 title/assigneeId（负责人）/dueDate（目标日）/nextStep；plan_stage 用 planId/title；milestone 用 planId/title/dueDate；
+        plan_log 用 planId/title（正文）；next_step 用 planId/title（下一步）/assigneeId（谁来做）/dueDate。
       required: [title]
       properties:
         title: { type: string, minLength: 1, maxLength: 2000 }
@@ -4513,6 +4611,7 @@ components:
           oneOf:
             - $ref: '#/components/schemas/ArchiveKind'
             - type: 'null'
+        nextStep: { type: [string, 'null'], maxLength: 1000, description: 新建计划时的第一步（P14-04） }
     AiAction:
       description: 同步实体类型 `ai_action`（P8-02）：问 AI 时 AI 提议的动作，人点「好」才由服务端建成真正的实体；没有回收站
       allOf:
@@ -4549,7 +4648,7 @@ components:
     TrashType:
       type: string
       description: 第 3 阶段可恢复的类型，后续阶段追加
-      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post, archive_item, decision, book, summary, plan_stage, milestone, review_document, annotation, doc_comment]
+      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post, archive_item, decision, book, summary, plan_stage, milestone, review_document, annotation, doc_comment, plan_log]
     TrashItem:
       type: object
       required: [type, id, deletedAt, deletedBy, data]
@@ -4578,6 +4677,7 @@ components:
             - $ref: '#/components/schemas/Milestone'
             - $ref: '#/components/schemas/ReviewDocument'
             - $ref: '#/components/schemas/Annotation'
+            - $ref: '#/components/schemas/PlanLog'
     TrashPage:
       type: object
       required: [items, nextCursor]

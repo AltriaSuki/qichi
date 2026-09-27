@@ -14,6 +14,10 @@ import app.qichi.shared.api.SaveDocumentVersionRequest
 import app.qichi.shared.api.SendMessageRequest
 import app.qichi.shared.model.ProblemCode
 import app.qichi.shared.util.UuidV7
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
+import app.qichi.shared.api.QichiJson
 import io.ktor.client.statement.bodyAsBytes
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -98,5 +102,18 @@ class ExportTest {
         val photoName = withFiles.keys.single { it.startsWith("附件/") && it.endsWith("sunset.png") }.removePrefix("附件/")
         assertEquals("看日落\n\n![日落](../附件/$photoName)\n\n（照片）", withFiles["文稿/海边周末.md"])
         assertFalse(withFiles.keys.any { it.endsWith("other.png") }, "别的房间的文件不导出")
+    }
+
+    @Test fun `消息多过一页时边读边写：一条不少、不重复、按先后，data json 是合法的 JSON`() = serverTest { client ->
+        val (aqi, chi, room) = Api(client).pair()
+        val base = "/api/v1/rooms/$room"
+        val count = 520 // 导出时一页读 500 条
+        repeat(count) { i -> (if (i % 2 == 0) aqi else chi).post("$base/messages", SendMessageRequest(UuidV7.generate(), "text", "第 $i 句")) }
+        val files = unzip(chi.get("$base/export").bodyAsBytes())
+        val messages = QichiJson.parseToJsonElement(files["data.json"]!!).jsonObject["messages"]!!.jsonArray
+        assertEquals((0 until count).map { "第 $it 句" }, messages.map { it.jsonObject["body"]!!.jsonPrimitive.content })
+        val chat = files["聊天记录.md"]!!
+        assertEquals(count, Regex("第 \\d+ 句").findAll(chat).count())
+        assertTrue(chat.indexOf("第 0 句") < chat.indexOf("第 519 句"))
     }
 }

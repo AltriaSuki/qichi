@@ -4,6 +4,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
@@ -32,9 +33,11 @@ private val log = LoggerFactory.getLogger(UnifiedPushSender::class.java)
 /**
  * UnifiedPush：设备注册时上报的 token 就是分发器（自建 ntfy）给的推送地址，POST 过去即可。
  * 只往 https 地址发（本机开发可以用 localhost）；配置了 [allowedHosts] 时只往这些主机发，防止被当成跳板请求任意地址。
+ * 自建 ntfy 开了访问控制（只有带令牌的才能发，Q4）时，[token] 是它发的令牌；只带给 [allowedHosts] 里的主机，别处拿不到。
  */
 class UnifiedPushSender(
     private val allowedHosts: Set<String>,
+    private val token: String? = null,
     engine: HttpClientEngine = CIO.create(),
 ) : PushSender {
     private val http = HttpClient(engine) {
@@ -58,6 +61,7 @@ class UnifiedPushSender(
         return try {
             val response = http.post(endpoint) {
                 contentType(ContentType.Application.Json)
+                if (token != null && Url(endpoint).host.lowercase() in allowedHosts) bearerAuth(token)
                 setBody(payload)
             }
             when {

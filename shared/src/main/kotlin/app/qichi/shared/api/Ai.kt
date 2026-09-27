@@ -29,6 +29,8 @@ data class AiReadExplainRequest(
     val locator: String,
     val before: String = "",
     val after: String = "",
+    /** 自己写的要求（[ReadExplainMode.Custom] 时必填，P14-05） */
+    val instruction: String? = null,
 )
 
 /** AI 请求被接受（202）：结果稍后写进对应实体，并通过 WebSocket 发 ai.done。 */

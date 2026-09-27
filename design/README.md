@@ -2,7 +2,7 @@
 
 `screens/*.dc.html` 是「栖迟 · 界面总览」画布的源码。画布分两页：
 
-- **新方向**（`New-*.dc.html`，36 张，**现在以它为准**）：字和层次参考 Day One、iA Writer、Bear，颜色沿用晨雾，加了一套统一的装饰。由 `tools/design/gen_screens.py` 生成。
+- **新方向**（`New-*.dc.html`，43 张，**现在以它为准**）：字和层次参考 Day One、iA Writer、Bear，颜色沿用晨雾，加了一套统一的装饰。由 `tools/design/gen_screens.py` 生成。
 - **晨雾**（其余文件）：上一版，只作对照；第 10 阶段做完后不再更新。
 
 - **看效果**：打开画布 <https://claude.ai/artifact/M871aFHDnXdZ3fUPvrUW7X>（默认打开「新方向」页）。这些文件依赖画布的运行时（`support.js`），直接用浏览器打开本地文件不能正确显示；要本机截图用 `tools/design/render.js`。
@@ -16,20 +16,21 @@
 |---|---|
 | `New-Spec` | 字、层次与装饰（规范页，1280 宽） |
 | `New-Today`（长页）/ `-Dawn` / `-Dusk` / `-Night` | 今天；清晨、黄昏、深夜 |
-| `New-Chat` / `New-Chat-Streaming` | 聊天；AI 正在回答 |
+| `New-Chat` / `New-Chat-Streaming` / `New-Chat-Plan` / `New-Chat-Save` | 聊天；AI 正在回答；AI 提议计划相关的记录；长按 AI 的回答（存成灵感、文稿） |
 | `New-Together` / `-Create` / `-Look` | 一起 · 生活 / 创作 / 回看 |
 | `New-Me` | 我的 |
 | `New-Mood` `New-Qna` `New-Calendar` `New-Todo` | 心情、问答、日历、待办 |
-| `New-Plan-List` / `New-Plan` | 计划首页 / 单个计划 |
+| `New-Plan-List` / `New-Plan`（长页）/ `New-Plan-Next` / `New-Plan-Paused` | 计划首页（进行中、放一放、已完成）/ 单个计划 / 做完一步挑下一步 / 先放一放的计划 |
 | `New-Ideas` / `New-Ideas-Empty` / `New-Tags` | 灵感（软木板）/ 空的时候 / 标签 |
 | `New-Writing-List` / `New-Writing` / `New-Writing-Behind` / `New-Writing-Focus` | 写作首页 / 编辑器（署名打开）/ 对方先存了新版 / 专注（深夜） |
 | `New-Messages` | 留言 |
 | `New-Timeline` / `New-Timeline-Loading` | 时间线（日记式）/ 加载中 |
 | `New-Archive` | 档案 |
 | `New-Decision-List` / `New-Decision` | 决定首页 / 单个决定 |
-| `New-Reading-Shelf` / `New-Reading` | 书架 / 书内 |
+| `New-Reading-Shelf` / `New-Reading` / `New-Reading-AskAi` | 书架 / 书内 / 选中一段后按自己的要求问 AI |
 | `New-Review-List` / `New-Review` | 审稿首页 / 单份 |
 | `New-Summary-List` / `New-Summary` | 总结首页 / 单份 |
+| `New-Widget` / `New-Widget-Night` | 桌面待办组件（大、小两种尺寸）/ 深夜、今天的都做完了 |
 
 ## 晨雾（对照）
 

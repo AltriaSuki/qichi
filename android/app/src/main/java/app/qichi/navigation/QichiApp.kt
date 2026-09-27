@@ -29,8 +29,6 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.navigation
 import androidx.navigation.toRoute
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.component.QichiTabBar
@@ -80,7 +78,7 @@ import app.qichi.feature.writing.DocumentListScreen
 private const val PAGE_TRANSITION_MILLIS = 200
 
 /**
- * App 的外壳：NavHost（四个标签各一个嵌套图）+ 标签根页面才显示的底部标签栏。
+ * App 的外壳：NavHost（图的形状见 [qichiGraph]）+ 标签根页面才显示的底部标签栏。
  * @param pendingLink 待处理的深链（来自通知或外部链接），处理后调用 [onLinkHandled]
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -91,7 +89,8 @@ fun QichiApp(
     navigator: QichiNavigator = rememberQichiNavigator(),
 ) {
     val destination = navigator.currentDestination()
-    val currentTab = navigator.currentTab(destination)
+    // 跟着 destination 一起重算：返回栈一变就重组
+    val currentTab = navigator.currentTab
     val atTabRoot = navigator.isTabRoot(destination)
     val roomId = LocalRoomId.current
     val unread by hiltViewModel<UnreadViewModel, UnreadViewModel.Factory>(key = "unread-$roomId") { it.create(roomId) }
@@ -135,13 +134,18 @@ fun QichiApp(
                 popEnterTransition = popEnter,
                 popExitTransition = popExit,
             ) {
-                navigation<TodayGraph>(startDestination = TodayHome) {
-                    composable<TodayHome> { val todayRoom = LocalRoomId.current; TodayScreen(roomId = todayRoom, onOpen = { navigator.open(it) }, onOpenPlan = { navigator.open(Page.Plan, it.toString()) },
-                        onOpenDecision = { navigator.open(Page.Decisions, it.toString()) },
-                        onOpenMessage = { navigator.handle(DeepLink.ToTab(todayRoom.toString(), TopTab.Chat, it.toString())) }) }
-                }
-                navigation<ChatGraph>(startDestination = ChatHome()) {
-                    composable<ChatHome> { entry ->
+                qichiGraph(
+                    todayHome = {
+                        val todayRoom = LocalRoomId.current
+                        TodayScreen(
+                            roomId = todayRoom,
+                            onOpen = { navigator.open(it) },
+                            onOpenPlan = { navigator.open(Page.Plan, it.toString()) },
+                            onOpenDecision = { navigator.open(Page.Decisions, it.toString()) },
+                            onOpenMessage = { navigator.handle(DeepLink.ToTab(todayRoom.toString(), TopTab.Chat, it.toString())) },
+                        )
+                    },
+                    chatHome = { entry ->
                         val jumpTo = entry.toRoute<ChatHome>().jumpTo?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
                         val chatRoom = LocalRoomId.current
                         ChatScreen(
@@ -150,10 +154,8 @@ fun QichiApp(
                             onArchive = { navigator.open(Page.Archive, "new:${it.id}") },
                             onOpenSource = { src -> navigator.openSource(chatRoom, src) },
                         )
-                    }
-                }
-                navigation<TogetherGraph>(startDestination = TogetherHome) {
-                    composable<TogetherHome> {
+                    },
+                    togetherHome = {
                         var group by rememberSaveable { mutableStateOf(TogetherGroup.Life) }
                         val hubRoom = LocalRoomId.current
                         val hub = hiltViewModel<TogetherHubViewModel, TogetherHubViewModel.Factory>(key = "hub-$hubRoom") { it.create(hubRoom) }
@@ -168,20 +170,22 @@ fun QichiApp(
                             group = group, onGroupChange = { group = it }, onOpen = { navigator.open(it) }, counts = counts,
                             people = hubPeople, recent = recent, onOpenItem = { page, id -> navigator.open(page, id) }, onAddIdea = hub::addIdea,
                         )
-                    }
-                    composable<TogetherPage> { entry ->
+                    },
+                    meHome = { MeScreen(roomId = LocalRoomId.current, onOpen = { navigator.open(it) }) },
+                    togetherPage = { entry ->
                         val route = entry.toRoute<TogetherPage>()
                         val roomId = LocalRoomId.current
                         when (route.page) {
                             Page.Mood -> MoodScreen(roomId = roomId, onBack = navigator::back)
                             Page.Qna -> QnaScreen(roomId = roomId, onBack = navigator::back)
-                            Page.Todo -> TodoScreen(roomId = roomId, onBack = navigator::back)
+                            // id：桌面组件点进来时要打开的那条待办，或 new 新建（P15-02）
+                            Page.Todo -> TodoScreen(roomId = roomId, open = route.id, onBack = navigator::back)
                             Page.Calendar -> CalendarMonthScreen(
                                 roomId = roomId,
                                 onBack = navigator::back,
-                                onDayClick = { date -> navigator.navController.navigate(CalendarDay(date.toString())) },
-                                onEventsClick = { navigator.navController.navigate(EventList()) },
-                                onNewEvent = { navigator.navController.navigate(EventList(create = true)) },
+                                onDayClick = { date -> navigator.push(CalendarDay(date.toString())) },
+                                onEventsClick = { navigator.push(EventList()) },
+                                onNewEvent = { navigator.push(EventList(create = true)) },
                             )
                             Page.Plan -> {
                                 val planId = route.id?.let { runCatching { java.util.UUID.fromString(it) }.getOrNull() }
@@ -267,21 +271,8 @@ fun QichiApp(
                             }
                             else -> PagePlaceholder(route.page.title, onBack = navigator::back)
                         }
-                    }
-
-                    composable<CalendarDay> { entry ->
-                        val route = entry.toRoute<CalendarDay>()
-                        val roomId = LocalRoomId.current
-                        val date = java.time.LocalDate.parse(route.date)
-                        CalendarDayScreen(roomId = roomId, date = date, onBack = navigator::back)
-                    }
-                    composable<EventList> { entry ->
-                        EventListScreen(roomId = LocalRoomId.current, onBack = navigator::back, startCreating = entry.toRoute<EventList>().create)
-                    }
-                }
-                navigation<MeGraph>(startDestination = MeHome) {
-                    composable<MeHome> { MeScreen(roomId = LocalRoomId.current, onOpen = { navigator.open(it) }) }
-                    composable<MePage> { entry ->
+                    },
+                    mePage = { entry ->
                         val route = entry.toRoute<MePage>()
                         when (route.page) {
                             Page.Members -> MembersScreen(roomId = LocalRoomId.current, onBack = navigator::back)
@@ -301,8 +292,17 @@ fun QichiApp(
                             Page.RoomSettings -> RoomSettingsScreen(roomId = LocalRoomId.current, onBack = navigator::back)
                             else -> PagePlaceholder(route.page.title, onBack = navigator::back)
                         }
-                    }
-                }
+                    },
+                    calendarDay = { entry ->
+                        val route = entry.toRoute<CalendarDay>()
+                        val roomId = LocalRoomId.current
+                        val date = java.time.LocalDate.parse(route.date)
+                        CalendarDayScreen(roomId = roomId, date = date, onBack = navigator::back)
+                    },
+                    eventList = { entry ->
+                        EventListScreen(roomId = LocalRoomId.current, onBack = navigator::back, startCreating = entry.toRoute<EventList>().create)
+                    },
+                )
             }
         }
         // 标签根页面按返回：回到上一个用过的标签；没有历史时退出。

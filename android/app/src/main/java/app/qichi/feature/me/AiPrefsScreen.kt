@@ -107,7 +107,14 @@ fun AiPrefsScreen(onBack: () -> Unit, vm: AiPrefsViewModel = hiltViewModel()) {
             SectionLabel("回看", modifier = Modifier.padding(top = Spacing.l))
             toggle("档案", "偏好、共识、界限……", p.archive) { p.copy(archive = it) }
             toggle("决定", "备选和各自在意的点", p.decisions) { p.copy(decisions = it) }
-            toggle("阅读", "书架、进度和公开的摘录；没公开的不会给", p.reading) { p.copy(reading = it) }
+            toggle("阅读", "书架、进度，公开的划线、摘录和 AI 解释", p.reading) { p.copy(reading = it) }
+            // 各管各的（P14-02）：只管自己的记录，不用两个人都打开
+            toggle(
+                "我没公开的阅读记录",
+                "打开后，你没公开的划线、摘录、感想和 AI 解释也给 AI 用——谁问都一样，AI 的回答两个人都看得到。" +
+                    "这一项只管你自己的；「阅读」有人关掉时照旧不给。",
+                p.readingPrivate,
+            ) { p.copy(readingPrivate = it) }
             toggle("审稿", "批注、讨论和 AI 审稿发现", p.review) { p.copy(review = it) }
             toggle("总结", null, p.summaries) { p.copy(summaries = it) }
             Spacer(Modifier.height(Spacing.xl))

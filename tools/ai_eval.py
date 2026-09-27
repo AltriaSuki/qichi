@@ -47,14 +47,14 @@ CASES = {
                         history="小迟：周六早上出发怎么样？\n阿栖：好呀，想去人少的海边\n小迟：车程别超过两小时"),
     "question_suggest": dict(now=NOW, history="小迟：周六早上出发怎么样？\n阿栖：好呀\n小迟：最近总是加班，有点想休息"),
     "read_explain": dict(title="海边的旅店", author="（林晚）", text="她不必急着去哪里，先在这里坐一会儿。",
-                         before="雨是从傍晚开始下的。", after="她于是真的坐了很久。"),
+                         before="雨是从傍晚开始下的。", after="她于是真的坐了很久。", lookup=""),
     "write_polish": dict(title="海边周末", text=WRITE_TEXT),
     "write_proofread": dict(text="我们在海边座了很久，看着太阳慢慢的落下去，心里觉得很平净。"),
     "write_shorten": dict(text=WRITE_TEXT),
     "write_titles": dict(title="未命名", text=WRITE_TEXT + "\n\n晚上回到民宿，小迟说下次还要来。"),
-    "write_draft": dict(now=NOW, genre="回顾：这段时间一起做了什么、定下了什么、心情怎么样", range="9月1日—9月7日", sources=SUMMARY_SOURCES),
+    "write_draft": dict(now=NOW, genre="回顾：这段时间一起做了什么、定下了什么、心情怎么样", range="9月1日—9月7日", sources=SUMMARY_SOURCES, lookup=""),
     "read_compare": dict(title="海边的旅店", author="（林晚）", text="她不必急着去哪里，先在这里坐一会儿。",
-                         notes="阿栖：我们总是太急 —— 想起去年搬家那周\n小迟：雨天就适合发呆"),
+                         notes="阿栖：我们总是太急 —— 想起去年搬家那周\n小迟：雨天就适合发呆", lookup=""),
 }
 
 # ── 检查 ──

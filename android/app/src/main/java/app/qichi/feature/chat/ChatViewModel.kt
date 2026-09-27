@@ -12,12 +12,17 @@ import app.qichi.core.data.AttachmentPreparer
 import app.qichi.core.data.ChatRepository
 import app.qichi.shared.api.Mood
 import java.time.Instant
+import app.qichi.core.ui.aiAnswerTitle
+import app.qichi.core.ui.plainAiAnswer
 import app.qichi.core.ui.zoneOf
 import app.qichi.core.ui.todayIn
 import app.qichi.core.data.MoodRepository
+import app.qichi.core.data.DocumentRepository
 import app.qichi.core.data.DraftStore
 import app.qichi.core.data.FileRepository
+import app.qichi.core.data.IdeaRepository
 import app.qichi.core.data.People
+import app.qichi.core.data.PlanRepository
 import app.qichi.core.data.PreparedAttachment
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.network.ApiException
@@ -29,6 +34,7 @@ import app.qichi.core.sync.SyncEngine
 import app.qichi.di.ApplicationScope
 import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.AiAction
+import app.qichi.shared.api.Document
 import app.qichi.shared.api.Message
 import app.qichi.shared.model.AiJobStatus
 import app.qichi.shared.model.ProblemCode
@@ -58,6 +64,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.UUID
 
@@ -146,6 +153,9 @@ class ChatViewModel @AssistedInject constructor(
     realtime: RealtimeClient,
     @ApplicationContext private val context: Context,
     session: SessionManager,
+    plans: PlanRepository,
+    private val ideas: IdeaRepository,
+    private val documents: DocumentRepository,
 ) : ViewModel() {
 
     val messages: Flow<PagingData<Local<Message>>> = chat.messages(roomId).cachedIn(viewModelScope)
@@ -185,7 +195,10 @@ class ChatViewModel @AssistedInject constructor(
 
     private val _pendingAi = MutableStateFlow<List<PendingAi>>(emptyList())
     val pendingAi: StateFlow<List<PendingAi>> = _pendingAi.asStateFlow()
+    /** 提交并等待任务结果（轮询）；显示「没有得到回答」时停掉 */
     private val aiWatchers = mutableMapOf<UUID, Job>()
+    /** 等回答同步下来就收起这一项；比 [aiWatchers] 活得久：回答晚到了（已经显示失败），照样换成正式的消息 */
+    private val answerWatchers = mutableMapOf<UUID, Job>()
 
     /** 选好了照片、正在写说明（还没开始上传） */
     private val _captioning = MutableStateFlow<Upload?>(null)
@@ -459,7 +472,24 @@ class ChatViewModel @AssistedInject constructor(
     val aiActions: StateFlow<Map<UUID, List<AiAction>>> = chat.observeAiActions(roomId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    /** 计划的名字（P14-04：AI 提议给某个计划加阶段、记进展时，卡片上写着是哪个计划） */
+    val planTitles: StateFlow<Map<UUID, String>> = plans.observePlans(roomId)
+        .map { list -> list.associate { it.value.id to it.value.title } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     fun acceptAiAction(a: AiAction) = viewModelScope.launch { chat.acceptAiAction(a) }
+
+    /** AI 的回答存成灵感（P14-04）：去掉来源编号，超长截到上限。 */
+    fun saveAnswerAsIdea(m: Message) = viewModelScope.launch {
+        val idea = ideas.add(roomId, plainAiAnswer(m.body))
+        _events.tryEmit(ChatEvent.Toast(if (idea != null) "存成灵感了" else "这条没有能存的内容"))
+    }
+
+    /** AI 的回答存成文稿（P14-04）：标题用问的那句话，正文先放进草稿；建好后打开它，保存了才是 v1。 */
+    fun saveAnswerAsDocument(m: Message, onCreated: (Document) -> Unit) = viewModelScope.launch {
+        val title = aiAnswerTitle(m.aiPrompt, Limits.DOCUMENT_TITLE_LENGTH.last)
+        documents.createWithDraft(roomId, title, plainAiAnswer(m.body))?.let(onCreated)
+    }
 
     fun dismissAiAction(a: AiAction) = viewModelScope.launch { chat.dismissAiAction(a) }
 
@@ -494,11 +524,18 @@ class ChatViewModel @AssistedInject constructor(
 
     fun dismissAi(jobId: UUID) {
         aiWatchers.remove(jobId)?.cancel()
+        answerWatchers.remove(jobId)?.cancel()
         _pendingAi.update { list -> list.filterNot { it.jobId == jobId } }
     }
 
     private fun submitAi(pending: PendingAi) {
         aiWatchers.remove(pending.jobId)?.cancel()
+        if (answerWatchers[pending.jobId]?.isActive != true) {
+            answerWatchers[pending.jobId] = viewModelScope.launch {
+                chat.observeHasMessage(pending.jobId).first { it }
+                dismissAi(pending.jobId)
+            }
+        }
         aiWatchers[pending.jobId] = viewModelScope.launch {
             try {
                 chat.askAi(roomId, pending.jobId, pending.prompt, pending.sourceMessageId)
@@ -516,22 +553,22 @@ class ChatViewModel @AssistedInject constructor(
                 markAiFailed(pending.jobId)
                 return@launch
             }
-            // 回答同步下来就收起；实时通道断了也不怕：每隔几秒问一次任务状态
-            launch {
-                chat.observeHasMessage(pending.jobId).first { it }
-                dismissAi(pending.jobId)
-            }
-            while (true) {
-                delay(AI_POLL_MS)
-                val job = runCatching { chat.aiJob(roomId, pending.jobId) }.getOrNull() ?: continue
-                when (job.status) {
-                    AiJobStatus.Failed -> {
-                        markAiFailed(pending.jobId)
-                        break
-                    }
-                    AiJobStatus.Done -> runCatching { syncEngine.pull(roomId) }
-                    else -> Unit
-                }
+            // 实时通道断了也不怕：每隔几秒问一次任务状态。最多等 [AI_WAIT_MAX_MS]（服务端卡住时不会一直转），
+            // 之后显示「没有得到回答 · 重试」；回答同步下来时由 answerWatchers 收起这一项（P13-03）
+            withTimeoutOrNull(AI_WAIT_MAX_MS) { pollUntilFailed(pending.jobId) }
+            markAiFailed(pending.jobId)
+        }
+    }
+
+    /** 每隔几秒问一次任务状态，直到服务端说失败为止；完成了就拉取一次，让回答同步下来。 */
+    private suspend fun pollUntilFailed(jobId: UUID) {
+        while (true) {
+            delay(AI_POLL_MS)
+            val job = runCatching { chat.aiJob(roomId, jobId) }.getOrNull() ?: continue
+            when (job.status) {
+                AiJobStatus.Failed -> return
+                AiJobStatus.Done -> runCatching { syncEngine.pull(roomId) }
+                else -> Unit
             }
         }
     }
@@ -583,6 +620,8 @@ class ChatViewModel @AssistedInject constructor(
         const val OFFLINE_ATTACH = "离线时不能发图片和文件"
         const val AI_PROMPT_MAX = 2000
         const val AI_POLL_MS = 3_000L
+        /** 等 AI 回答最多等这么久（服务端问 AI 最多 3 分钟，加上排队和一次重试） */
+        const val AI_WAIT_MAX_MS = 5 * 60_000L
         const val ORGANIZE_PROMPT = "帮我整理这条消息"
     }
 }

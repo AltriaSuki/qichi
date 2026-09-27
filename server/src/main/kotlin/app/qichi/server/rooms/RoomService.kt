@@ -32,7 +32,6 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
-import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertIgnore
 import org.jetbrains.exposed.v1.jdbc.select
@@ -121,14 +120,11 @@ class RoomService(
                 row[Rooms.seq] = seq
                 row[updatedAt] = now
             }
-            // 换下来的主视觉照片（专门为主视觉上传的那种）不再有用，连文件一起删掉
+            // 换下来的主视觉照片（专门为主视觉上传的那种）别处也没在用，就连文件一起删掉
             req.heroFileId.ifPresent { newHero ->
                 if (previousHero != null && previousHero != newHero) {
-                    Files.select(Files.storagePath)
-                        .where { (Files.id eq previousHero) and (Files.kind eq FileKind.Hero.wireName) }
-                        .singleOrNull()
-                        ?.let { released += it[Files.storagePath] }
-                        ?.also { Files.deleteWhere { Files.id eq previousHero } }
+                    val heroKind = Files.select(Files.id).where { (Files.id eq previousHero) and (Files.kind eq FileKind.Hero.wireName) }.any()
+                    if (heroKind) files.releaseIfUnused(previousHero)?.let(released::add)
                 }
             }
             RoomRepository.room(roomId)!!
@@ -168,6 +164,12 @@ class RoomService(
     suspend fun acceptInvite(userId: UUID, code: String): RoomDetail = db.tx {
         val roomId = redeem(this, code.trim().uppercase(), userId)
         detail(roomId)
+    }
+
+    /** 邀请码现在能不能用（注册前的预检，不加锁；真正兑换时 [redeem] 还会在锁内再判断）。 */
+    fun checkInvite(code: String) {
+        val invite = Invites.selectAll().where { Invites.code eq code }.singleOrNull() ?: inviteInvalid()
+        if (invite[Invites.usedBy] != null || !invite[Invites.expiresAt].isAfter(clock.instant())) inviteInvalid()
     }
 
     /**

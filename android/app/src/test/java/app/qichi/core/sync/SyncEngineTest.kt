@@ -29,6 +29,13 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -38,6 +45,7 @@ import org.robolectric.annotation.Config
 import java.time.LocalDate
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -62,6 +70,11 @@ class SyncEngineTest {
     private val syncPages = ArrayDeque<SyncResponse>()
     private var bootstrap: Bootstrap? = null
 
+    /** 服务端比 App 新时的原始数据（里面有 App 不认识的东西）：有就先用它们 */
+    private val rawSyncPages = ArrayDeque<JsonObject>()
+    private var rawBootstrap: JsonObject? = null
+    private var bootstrapCalls = 0
+
     @Before
     fun setUp() {
         db = SyncFixtures.database()
@@ -70,13 +83,20 @@ class SyncEngineTest {
         server.custom = { request ->
             val path = request.url.encodedPath
             when {
-                path.endsWith("/bootstrap") ->
-                    respond(QichiJson.encodeToString(Bootstrap.serializer(), bootstrap!!), HttpStatusCode.OK, json)
+                path.endsWith("/bootstrap") -> {
+                    bootstrapCalls++
+                    respond(rawBootstrap?.toString() ?: QichiJson.encodeToString(Bootstrap.serializer(), bootstrap!!), HttpStatusCode.OK, json)
+                }
                 path.endsWith("/sync") -> {
                     val since = request.url.parameters["since"]!!.toLong()
-                    val page = syncPages.removeFirstOrNull() ?: SyncResponse(since, since, false, emptyList())
-                    assertEquals(since, page.fromSeq, "客户端应从上一页的 toSeq 继续")
-                    respond(QichiJson.encodeToString(SyncResponse.serializer(), page), HttpStatusCode.OK, json)
+                    val raw = rawSyncPages.removeFirstOrNull()
+                    if (raw != null) {
+                        respond(raw.toString(), HttpStatusCode.OK, json)
+                    } else {
+                        val page = syncPages.removeFirstOrNull() ?: SyncResponse(since, since, false, emptyList())
+                        assertEquals(since, page.fromSeq, "客户端应从上一页的 toSeq 继续")
+                        respond(QichiJson.encodeToString(SyncResponse.serializer(), page), HttpStatusCode.OK, json)
+                    }
                 }
                 else -> null
             }
@@ -94,6 +114,109 @@ class SyncEngineTest {
         room = room, members = listOf(member(me, 2), member(partner, 3)), lastSeq = lastSeq, readMarker = null,
         moods = emptyList(), moodReplies = emptyList(), todos = todos, events = emptyList(), messages = emptyList(), hasMoreMessages = false,
     )
+
+    private fun rawPage(from: Long, to: Long, vararg changes: JsonElement) = buildJsonObject {
+        put("fromSeq", from)
+        put("toSeq", to)
+        put("hasMore", false)
+        put("changes", JsonArray(changes.toList()))
+    }
+
+    private fun rawChange(seq: Long, type: String, data: JsonElement, id: UUID = UUID.randomUUID()) = buildJsonObject {
+        put("seq", seq)
+        put("type", type)
+        put("id", id.toString())
+        put("op", "upsert")
+        put("data", data)
+    }
+
+    private val poll = buildJsonObject { put("question", "周末去哪？") }
+
+    @Test
+    fun `同步里有不认识的实体类型或枚举取值：认得的照常写入、lastSeq 照常前进、记下需要更新`() = runTest {
+        val unknown = UnknownContent(UnknownContent.MemoryStore(), currentVersion = 10)
+        engine = SyncEngine(SyncFixtures.api(server.engine), db, store, unknown)
+        bootstrap = boot(lastSeq = 4)
+        engine.pull(roomId)
+        assertFalse(unknown.needsNewerApp.value)
+
+        val b = todo("买花", seq = 5)
+        val guest = JsonObject(QichiJson.encodeToJsonElement(Member.serializer(), member(partner, 7)).jsonObject + ("role" to JsonPrimitive("guest")))
+        rawSyncPages += rawPage(
+            4, 8,
+            QichiJson.encodeToJsonElement(Change.serializer(), change(b)),
+            rawChange(6, "poll", poll),
+            rawChange(7, "member", guest),
+        )
+        engine.pull(roomId)
+
+        assertEquals(8, engine.lastSeq(roomId))
+        assertEquals("买花", store.get<Todo>(EntityType.Todo, b.id)!!.value.title)
+        assertTrue(unknown.needsNewerApp.value)
+        assertFalse(unknown.needsRebootstrap(roomId))
+    }
+
+    @Test
+    fun `升级到新版后重新快照：补回旧版跳过的内容，记录清掉`() = runTest {
+        val marks = UnknownContent.MemoryStore()
+        val v10 = UnknownContent(marks, currentVersion = 10)
+        engine = SyncEngine(SyncFixtures.api(server.engine), db, store, v10)
+        bootstrap = boot(lastSeq = 4)
+        engine.pull(roomId)
+        rawSyncPages += rawPage(4, 5, rawChange(5, "poll", poll))
+        engine.pull(roomId)
+        assertEquals(5, engine.lastSeq(roomId))
+        assertEquals(1, bootstrapCalls)
+
+        // 装了新版（版本号 11）：同一份记录，看得出是旧版留下的
+        val v11 = UnknownContent(marks, currentVersion = 11)
+        assertTrue(v11.needsRebootstrap(roomId))
+        assertFalse(v11.needsNewerApp.value)
+        engine = SyncEngine(SyncFixtures.api(server.engine), db, store, v11)
+        val c = todo("新版才看得到的", seq = 5)
+        bootstrap = boot(lastSeq = 5, todos = listOf(c))
+        engine.pull(roomId)
+
+        assertEquals(2, bootstrapCalls)
+        assertEquals("新版才看得到的", store.get<Todo>(EntityType.Todo, c.id)!!.value.title)
+        assertFalse(v11.needsRebootstrap(roomId))
+        assertFalse(v11.needsNewerApp.value)
+        // 之后照常增量，不再快照
+        engine.pull(roomId)
+        assertEquals(2, bootstrapCalls)
+    }
+
+    @Test
+    fun `快照里认不出来的去掉，认得的照常写入并记下`() = runTest {
+        val unknown = UnknownContent(UnknownContent.MemoryStore(), currentVersion = 10)
+        engine = SyncEngine(SyncFixtures.api(server.engine), db, store, unknown)
+        val a = todo("买菜", seq = 4)
+        val base = QichiJson.encodeToJsonElement(Bootstrap.serializer(), boot(lastSeq = 4, todos = listOf(a))).jsonObject
+        rawBootstrap = JsonObject(base + ("polls" to JsonArray(listOf(poll))))
+        engine.pull(roomId)
+
+        assertEquals(4, engine.lastSeq(roomId))
+        assertEquals("买菜", store.get<Todo>(EntityType.Todo, a.id)!!.value.title)
+        assertTrue(unknown.needsNewerApp.value)
+    }
+
+    @Test
+    fun `拉取出错时记下问题，这个房间拉取成功后清掉；断网不算问题`() = runTest {
+        bootstrap = boot(lastSeq = 4)
+        engine.pull(roomId)
+        assertNull(engine.problem.value)
+
+        server.failNext500 = 1
+        assertTrue(runCatching { engine.pull(roomId) }.isFailure)
+        assertEquals(roomId, engine.problem.value?.roomId)
+
+        engine.pull(roomId)
+        assertNull(engine.problem.value)
+
+        server.online = false
+        assertTrue(runCatching { engine.pull(roomId) }.isFailure)
+        assertNull(engine.problem.value)
+    }
 
     @Test
     fun `首次快照保存问答实体`() = runTest {

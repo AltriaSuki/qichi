@@ -605,6 +605,40 @@ def divtop(P, first):
     return '' if first else f'border-top:1px dashed {P["line2"]};'
 
 
+# ---------------------------------------------------------------- 面板、开关、输入框（P15-01，对照 App 的底部面板、SwitchRow、QichiTextField）
+def sheet(P, inner, gap=22, bg=None, pad='0 28px 24px'):
+    """底部面板：半透明遮罩 + 顶上圆角 + 小把手；底色默认同页面。"""
+    return (f'<div aria-hidden="true" style="position:absolute;left:0;top:0;right:0;bottom:0;z-index:8;background:rgba(0,0,0,.32)">'
+            f'</div><div role="dialog" style="position:absolute;left:0;right:0;bottom:0;z-index:9;border-radius:28px 28px 0 0;'
+            f'background:{bg or P["bg"]}"><div aria-hidden="true" style="display:flex;align-items:center;justify-content:center;'
+            f'height:48px"><span style="width:32px;height:4px;border-radius:2px;background:{T(P, "muted", .4)}"></span></div>'
+            f'<div style="display:flex;flex-direction:column;gap:{gap}px;padding:{pad}">{inner}</div></div>')
+
+
+def switch(P, on):
+    """开关：40×22 的胶囊，开是墨色底，关是细边框；圆点 16。"""
+    look = f'background:{P["ink"]};border:1px solid {P["ink"]}' if on else f'background:transparent;border:1px solid {P["line2"]}'
+    return (f'<span role="switch" aria-checked="{"true" if on else "false"}" style="display:inline-flex;align-items:center;flex:none;'
+            f'box-sizing:border-box;width:40px;height:22px;padding:0 2px;border-radius:11px;{look}"><span style="width:16px;'
+            f'height:16px;border-radius:50%;margin-left:{18 if on else 0}px;background:{P["bg"] if on else P["faint"]}"></span></span>')
+
+
+def switchrow(P, text, desc, on):
+    d = f'<span style="font-size:13px;line-height:1.5;color:{P["muted"]}">{desc}</span>' if desc else ''
+    return (f'<label style="display:flex;align-items:center;gap:16px;min-height:56px"><span style="flex:1;min-width:0;'
+            f'display:flex;flex-direction:column"><span style="font-size:16px;line-height:1.7">{text}</span>{d}</span>'
+            f'{switch(P, on)}</label>')
+
+
+def field(P, lab, value='', placeholder='', multi=False):
+    """输入框：上面是小标题，下面是 surface 底色的胶囊（多行时是卡片圆角）；空的时候显示 muted 色的提示。"""
+    txt = (f'<span style="font-size:16px;line-height:1.7">{value}</span>' if value
+           else f'<span style="font-size:15px;line-height:1.7;color:{P["muted"]}">{placeholder}</span>')
+    return (f'<div>{label(P, lab)}<div style="display:flex;align-items:{"flex-start" if multi else "center"};min-height:46px;'
+            f'box-sizing:border-box;padding:{"12px 18px" if multi else "0 18px"};border-radius:{14 if multi else 23}px;'
+            f'background:{P["surface"]}">{txt}</div></div>')
+
+
 TABS = [('今天', 'sun', 'New-Today.dc.html'), ('聊天', 'chat', 'New-Chat.dc.html'),
         ('一起', 'rings', 'New-Together.dc.html'), ('我的', 'user', 'New-Me.dc.html')]
 
@@ -844,6 +878,61 @@ def b_chat_stream():
              + f'<div style="align-self:flex-start;margin:-6px 4px 0;line-height:1">{M("20:12", 11, P["muted"])}</div>' + ai)
     wr('New-Chat-Streaming.dc.html', page(P, '聊天 · AI 正在回答', chat_head(P) + msgs_area(P, inner)
                                           + chat_bottom(P, '', False) + tabbar(P, '聊天')))
+
+
+def proposal(P, ic, title, head, detail='', by=''):
+    """AI 提议卡片（按 New-Chat）：雾蓝虚线框 + 淡底；记下了的写谁记的，右边是「查看」。"""
+    lines = (f'<div style="font-size:15px;font-weight:500;line-height:1.45">{title}</div>'
+             f'<div style="font-size:12px;line-height:1.5;color:{P["muted"]}">{head}</div>'
+             + (f'<div style="font-size:12px;line-height:1.5;color:{P["muted"]}">{detail}</div>' if detail else '')
+             + (f'<div style="font-size:12px;line-height:1.5;color:{P["B"]}">{by}记下了</div>' if by else ''))
+    btns = act(P, '查看') if by else act(P, '不用', P['muted']) + primary(P, '好', small=True)
+    return (f'<div style="display:flex;align-items:center;gap:10px;padding:8px 8px 8px 12px;border-radius:12px;'
+            f'border:1.3px dashed {T(P, "B", .45)};background:{T(P, "B", .06)}">{tile(P, ic, "B", 34)}<div style="flex:1;'
+            f'min-width:0">{lines}</div>{btns}</div>')
+
+
+def ai_block(P, asker, question, text, extra=''):
+    """回答完了的 AI 消息（按 New-Chat）：小标记、谁问的、回答，下面可以跟提议卡片。"""
+    return (f'<div style="align-self:stretch;display:flex;flex-direction:column;gap:8px;margin:2px 2px">'
+            f'<div style="display:flex;align-items:center;gap:8px">{aimark(P)}<span style="font-size:12px;color:{P["muted"]}">'
+            f'{asker}问：{question}</span></div><p style="margin:0;font-size:15px;line-height:1.75">{text}</p>{extra}</div>')
+
+
+def b_chat_plan():
+    P = DAY
+    # P14-04：AI 能提议计划相关的记录——新计划、阶段、里程碑、进展、下一步；加到已有计划里的写着是哪个计划
+    cards = (proposal(P, 'flag', '东山那家民宿周六还有房', '计划的进展', '计划「秋天去一次海边」', '阿栖')
+             + proposal(P, 'flag', '订下东山那家民宿', '计划的下一步 · 9月25日 周五 前', '给阿栖 · 计划「秋天去一次海边」')
+             + proposal(P, 'flag', '月底搬家', '新计划 · 目标 9月30日 周三', '小迟负责 · 第一步：列一张要打包的清单'))
+    ai = ai_block(P, '阿栖', '这周末前要做的，帮我理一理',
+                  f'去海边那边，东山那家民宿周六还有房{ref(P, 1)}，可以先订下来；搬家的事聊了好几次{ref(P, 2)}，'
+                  f'可以单独当成一个计划。', cards)
+    inner = (other(P, '民宿那边刚回我了，周六有房。')
+             + f'<div style="align-self:flex-start;margin:-6px 4px 0;line-height:1">{M("19:40", 11, P["muted"])}</div>'
+             + mine(P, '那搬家的事也得排一排了。') + ai)
+    wr('New-Chat-Plan.dc.html', page(P, '聊天 · AI 提议计划', chat_head(P) + msgs_area(P, inner) + chat_bottom(P, '', False)
+                                     + tabbar(P, '聊天')))
+
+
+def b_chat_save():
+    P = DAY
+    ai = ai_block(P, '小迟', '国庆回家带什么给妈妈？',
+                  f'你们在档案里记过，妈妈最近在学打太极{ref(P, 1)}，也说过家里的茶快喝完了{ref(P, 2)}。'
+                  f'可以带一套轻便的练功服，再配一盒她常喝的茶。')
+    # 面板盖住下半屏：被长按的这条留在面板上面看得见
+    inner = (other(P, '国庆回家的话，你觉得带什么给妈妈好？')
+             + f'<div style="align-self:flex-start;margin:-6px 4px 0;line-height:1">{M("20:12", 11, P["muted"])}</div>' + ai
+             + '<div aria-hidden="true" style="flex:none;height:290px"></div>')
+    # 长按 AI 的回答：P14-04 起多了「存成灵感」「存成文稿」（问题做标题、回答做正文，去掉依据编号）
+    rows = ''.join(f'<div style="display:flex;align-items:center;min-height:52px;font-size:16px;line-height:1.7">{t}</div>'
+                   for t in ['回复', '复制', '存进档案', '存成灵感', '存成文稿', '删除'])
+    head = (f'<div style="margin-bottom:8px;font-size:13px;line-height:1.5;color:{P["muted"]};display:-webkit-box;'
+            f'-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">AI：你们在档案里记过，妈妈最近在学打太极，'
+            f'也说过家里的茶快喝完了。可以带一套轻便的练功服，再配一盒她常喝的茶。</div>')
+    body = (chat_head(P) + msgs_area(P, inner) + chat_bottom(P, '', False) + tabbar(P, '聊天')
+            + sheet(P, head + rows, 0, P['paper'], '0 28px 28px'))
+    wr('New-Chat-Save.dc.html', page(P, '聊天 · 存下 AI 的回答', body))
 
 
 HUB_ROWS = {
@@ -1089,42 +1178,122 @@ def b_plan_list():
                        f'{nextstep(P, nxt)}<div style="margin-top:6px;font-size:12px;color:{P["muted"]}">{meta}</div></a>',
                     None, rot, '16px 16px 12px')
 
-    items = (item('New-Plan.dc.html', '秋天去一次海边', mark(P, '迟', 22), 'sea', ['done', 'cur', 'todo'], ['选地方', '订住处', '出发前'],
-                  '对比三家民宿的价格和交通', f'{M("4", 12)} 个待办 · 里程碑 {M("09.28", 12)}', -.6, 'B')
-             + item('#', '把阳台改成茶座', mark(P, '栖', 22), 'window', ['cur', 'todo', 'todo'], ['量尺寸', '选家具', '布置'],
-                    '量阳台的长和宽', f'{M("2", 12)} 个待办', .5, 'A')
+    # P14-03：分三段；进行中的按目标日排，过了目标日的用暮玫瑰色写「过了目标 N 天」；小字是阶段、待办各完成了几个
+    late = f'<span style="color:{P["accent"]}">过了目标 {M("4", 12)} 天</span>'
+    items = (item('#', '把阳台改成茶座', mark(P, '栖', 22), 'window', ['cur', 'todo', 'todo'], ['量尺寸', '选家具', '布置'],
+                  '量阳台的长和宽', f'阶段 {M("0/3", 12)} · 待办 {M("1/3", 12)} · {late}', -.6, 'B')
+             + item('New-Plan.dc.html', '秋天去一次海边', mark(P, '迟', 22), 'sea', ['done', 'cur', 'todo'], ['选地方', '订住处', '出发前'],
+                    '对比三家民宿的价格和交通', f'阶段 {M("1/3", 12)} · 待办 {M("1/5", 12)} · 里程碑 {M("09.28", 12)} · 目标 周六', .5, 'A')
              + item('#', '一起读完《海边的旅店》', pair(P, 22, P['card']), 'shelf', None, None, '每晚读一章',
-                    f'读到 {M("42%", 12)} · 没有截止', -.4, 'accent'))
-    body = (bar2(P, 'New-Together.dc.html', '计划', 'flag', 'accent') + tabs(P, ['进行中', '已完成'], '进行中')
+                    f'待办 {M("3/7", 12)}', -.4, 'accent'))
+    body = (bar2(P, 'New-Together.dc.html', '计划', 'flag', 'accent') + tabs(P, ['进行中', '放一放', '已完成'], '进行中')
             + scroll(items, '12px 24px 100px', 22) + fab(P, '新计划'))
     wr('New-Plan-List.dc.html', page(P, '计划', body))
 
 
+def plan_mile(P, text, date, done):
+    ic = (checkbox(P, True, 20) if done else
+          f'<span style="width:20px;display:inline-flex;justify-content:center;flex:none"><span style="width:9px;height:9px;'
+          f'background:{P["B"]};transform:rotate(45deg)"></span></span>')
+    return (f'<div style="display:flex;align-items:center;gap:14px;min-height:44px">{ic}<span style="flex:1;font-size:16px;'
+            f'{"color:" + P["faint"] if done else ""}">{text}</span>{M(date, 13, P["muted"])}</div>')
+
+
+def plan_banner(P, sc, alt, sticker_text=''):
+    stk = (f'<span style="position:absolute;right:14px;bottom:10px">'
+           f'{sticker(P, sticker_text, "accent", -4, 16).replace("background:" + T(P, "accent", .08), "background:" + P["card"])}</span>'
+           if sticker_text else '')
+    return (f'<div style="position:relative;flex:none">{scene(sc, 334, 116, 14, alt)}{tape(P, "accent", 60, -6, "top:-8px;left:18px", .35)}'
+            f'{stk}</div>')
+
+
+def plan_owner(P, w, text, stages, labels):
+    """标题下：负责人 · 目标 · 阶段几 / 几（P14-03），再是阶段条。"""
+    return (f'<div><div style="display:flex;align-items:center;gap:8px">{mark(P, w, 20)}<span style="font-size:13px;line-height:1.5;'
+            f'color:{P["muted"]}">{text}</span></div>{stage(P, stages, labels, 10)}</div>')
+
+
+def plan_logs(P, rows, start):
+    """记录：日期、这一笔、下面写着谁记的（P14-03）；最后一行是计划从哪天开始。"""
+    def row(d, body, by=''):
+        byh = f'<div style="font-size:12px;line-height:1.5;color:{P["faint"]}">{by}</div>' if by else ''
+        return (f'<div style="display:flex;gap:18px;padding:8px 0"><span style="flex:none;width:56px">{M(d, 17, P["muted"])}</span>'
+                f'<div style="flex:1;min-width:0"><div style="font-size:14px;line-height:1.6">{body}</div>{byh}</div></div>')
+    return '<section>' + label(P, '记录', ic='pen', key='accent') + ''.join(row(*r) for r in rows) + row(start, '开始') + '</section>'
+
+
+def plan_trailing(P):
+    return btn_icon(P, '编辑', 'pen') + btn_icon(P, '更多', 'more')
+
+
+def plan_sea(P, step=True):
+    """「秋天去一次海边」的主体。[step] 为假时下一步刚做完、空着（New-Plan-Next 的底下）。"""
+    if step:
+        # 下一步用的是计划里的一件待办：多一行小字，「完成」就是勾掉那件待办
+        nxt = card(P, f'<div style="font-size:12px;font-weight:700;color:{P["accent"]}">下一步</div><div style="font-size:17px;'
+                      f'font-weight:600;line-height:1.5;margin:2px 0">对比三家民宿的价格和交通</div><div style="display:flex;'
+                      f'align-items:center;gap:4px;font-size:12px;line-height:1.5;color:{P["muted"]}">{icon("todo", 12)}'
+                      f'计划里的待办，做完它这一步就完成了</div><div style="display:flex;align-items:center;gap:8px">'
+                      f'{mark(P, "栖", 18)}<span style="font-size:13px;color:{P["muted"]}">明天截止</span><span style="flex:1"></span>'
+                      f'{act(P, "完成")}</div>', 'accent', 0, '14px 16px 4px')
+        todos = (todo(P, '对比三家民宿的价格和交通', right='明天' + mark(P, '栖', 18))
+                 + todo(P, '查往返车次', right='今天' + mark(P, '迟', 18)))
+        count = '1/5'
+    else:
+        nxt = card(P, f'<div style="font-size:12px;font-weight:700;color:{P["accent"]}">下一步</div><div style="font-size:17px;'
+                      f'line-height:1.5;margin:2px 0 12px;color:{P["faint"]}">写下下一步要做的一件小事</div>', 'accent', 0, '14px 16px 4px')
+        todos = todo(P, '查往返车次', right='今天' + mark(P, '迟', 18))
+        count = '2/5'
+    content = (plan_banner(P, 'sea', '海边', '还有 2 天')
+               + plan_owner(P, '迟', f'负责人 小迟 · 目标 周六 · 阶段 {M("1/3", 12)}', ['done', 'cur', 'todo'], ['选地方', '订住处', '出发前'])
+               + nxt + '<section>' + label(P, '里程碑', ic='flag', key='B') + plan_mile(P, '确定目的地', '09.03', True)
+               + plan_mile(P, '订好住处', '09.28', False) + '</section><section>'
+               + label(P, '待办', M(count, 13, P['muted']), 'todo', 'B') + todos
+               + todo(P, '整理行李清单', right='明天' + mark(P, '栖', 18), meta=M('1/2', 12) + ' 衣物已装好')
+               + todo(P, '核对预算', right='周日' + pair(P, 18))
+               + ('' if step else todo(P, '对比三家民宿的价格和交通', right=mark(P, '栖', 18), done=True))
+               + todo(P, '确定出发日期', right=pair(P, 18), done=True) + '</section>'
+               + plan_logs(P, [('09.22', '东山那家民宿周六还有房', '小迟'), ('09.03', '定了去东山岛', '阿栖')], '08.30')
+               + f'<div style="display:flex;justify-content:center">{act(P, "完成这个计划")}</div>')
+    return bar3(P, 'New-Plan-List.dc.html', '计划', 'flag', 'accent', '秋天去一次海边', plan_trailing(P)) + scroll(content, '6px 28px 24px', 22)
+
+
 def b_plan():
     P = DAY
+    # 长页：里面的东西都能点开改；右上角是编辑和菜单（先放一放、换封面、删除）
+    wr('New-Plan.dc.html', page(P, '计划 · 秋天去一次海边', plan_sea(P), h=1210))
 
-    def mile(text, date, done):
-        ic = (checkbox(P, True, 20) if done else
-              f'<span style="width:20px;display:inline-flex;justify-content:center;flex:none"><span style="width:9px;height:9px;'
-              f'background:{P["B"]};transform:rotate(45deg)"></span></span>')
-        return (f'<div style="display:flex;align-items:center;gap:14px;min-height:44px">{ic}<span style="flex:1;font-size:16px;'
-                f'{"color:" + P["faint"] if done else ""}">{text}</span>{M(date, 13, P["muted"])}</div>')
 
-    banner = (f'<div style="position:relative;flex:none">{scene("sea", 334, 116, 14, "海边")}{tape(P, "accent", 60, -6, "top:-8px;left:18px", .35)}'
-              f'<span style="position:absolute;right:14px;bottom:10px">{sticker(P, "还有 2 天", "accent", -4, 16).replace("background:" + T(P, "accent", .08), "background:" + P["card"])}</span></div>')
-    nxt = card(P, f'<div style="font-size:12px;font-weight:700;color:{P["accent"]}">下一步</div><div style="font-size:17px;font-weight:600;'
-                  f'line-height:1.5;margin:2px 0">对比三家民宿的价格和交通</div><div style="display:flex;align-items:center;gap:8px">'
-                  f'{mark(P, "栖", 18)}<span style="font-size:13px;color:{P["muted"]}">周五截止</span><span style="flex:1"></span>'
-                  f'{act(P, "完成")}</div>', 'accent', 0, '14px 16px 4px')
-    content = (banner + '<div>' + stage(P, ['done', 'cur', 'todo'], ['选地方', '订住处', '出发前'], 2) + '</div>' + nxt
-               + '<section>' + label(P, '里程碑', ic='flag', key='B') + mile('确定目的地', '09.03', True) + mile('订好住处', '09.28', False)
-               + '</section><section>' + label(P, '待办', M('3', 13, P['muted']), 'todo', 'B')
-               + todo(P, '查往返车次', right='周四' + mark(P, '迟', 18))
-               + todo(P, '整理行李清单', right='周五' + mark(P, '栖', 18), meta=M('1/2', 12) + ' 衣物已装好')
-               + todo(P, '核对预算', right='周日' + pair(P, 18)) + '</section>')
-    trailing = f'<span style="display:inline-flex;margin-right:4px">{mark(P, "迟", 24)}</span>' + btn_icon(P, '更多', 'more')
-    body = bar3(P, 'New-Plan-List.dc.html', '计划', 'flag', 'accent', '秋天去一次海边', trailing) + scroll(content, '6px 28px 24px', 18)
-    wr('New-Plan.dc.html', page(P, '计划 · 秋天去一次海边', body))
+def b_plan_next():
+    P = DAY
+
+    def row(t, d, w):
+        # 计划里没做完的待办：截止早的在前，没有截止的按先后；点一下就用它做下一步
+        dh = f'<span style="font-size:13px;color:{P["muted"]}">{d}</span>' if d else ''
+        return (f'<div style="display:flex;align-items:center;gap:12px;min-height:50px"><span style="display:inline-flex;'
+                f'color:{P["muted"]}">{icon("todo", 16)}</span><span style="flex:1;min-width:0;font-size:16px;line-height:1.7">{t}</span>'
+                f'{dh}{mark(P, w, 18) if w else ""}</div>')
+
+    rows = row('查往返车次', '今天', '迟') + row('整理行李清单', '明天', '栖') + row('核对预算', '周日', '') + row('订接送的车', '', '栖')
+    inner = (f'<div><div style="font-size:17px;font-weight:700;line-height:1.5">这一步完成了，下一步做什么？</div>'
+             f'<div style="margin-top:4px;font-size:13px;line-height:1.5;color:{P["muted"]}">从计划里没做完的待办里挑一件，做完它，'
+             f'这一步就跟着完成。</div></div><div>{rows}</div><div style="display:flex;justify-content:space-between">'
+             f'{act(P, "写一件别的事")}{act(P, "先不定", P["muted"])}</div>')
+    wr('New-Plan-Next.dc.html', page(P, '计划 · 挑下一步', plan_sea(P, step=False) + sheet(P, inner)))
+
+
+def b_plan_paused():
+    P = DAY
+    paused = card(P, f'<div style="font-size:12px;letter-spacing:.3em;color:{P["accent"]}">先放一放了</div><div style="margin-top:4px;'
+                     f'font-size:15px;line-height:1.7;color:{P["muted"]}">想接着推进时点「接着做」，下一步、待办和记录都还在。</div>'
+                     f'<div style="display:flex;justify-content:flex-end">{act(P, "接着做")}</div>', None, 0, '18px 20px 8px')
+    content = (plan_banner(P, 'snow', '雪山')
+               + plan_owner(P, '栖', f'负责人 阿栖 · 目标 {M("12.20", 12)} · 阶段 {M("1/3", 12)}', ['done', 'cur', 'todo'], ['定地方', '请假', '出发'])
+               + paused + '<section>' + label(P, '待办', M('0/2', 13, P['muted']), 'todo', 'B')
+               + todo(P, '问问公司年假怎么排', right=pair(P, 18)) + todo(P, '看看滑雪要带什么', right=mark(P, '迟', 18)) + '</section>'
+               + plan_logs(P, [('09.10', '年假要到十二月才能定，先放一放', '阿栖'), ('08.30', '查了长白山和阿勒泰', '小迟')], '08.26'))
+    body = bar3(P, 'New-Plan-List.dc.html', '计划', 'flag', 'accent', '冬天去看一次雪', plan_trailing(P)) + scroll(content, '6px 28px 24px', 22)
+    wr('New-Plan-Paused.dc.html', page(P, '计划 · 先放一放', body))
 
 
 IDEAS = [('给对方写一封信，约好明年秋天再拆。', ['#送给对方'], '栖', '09.21', 'A', True),
@@ -1550,19 +1719,18 @@ def b_shelf():
     wr('New-Reading-Shelf.dc.html', page(P, '阅读', body))
 
 
-def b_reading():
-    P = DAY
-
+def reading_page(P, toolbar=True):
     def tb(x):
         return (f'<button type="button" style="min-height:44px;padding:0 9px;border:0;background:transparent;color:inherit;'
                 f'font-family:inherit;font-size:14px;font-weight:500">{x}</button>')
 
-    toolbar = (f'<span role="toolbar" aria-label="选中的文字" style="position:absolute;left:14px;top:calc(100% + 4px);z-index:4;'
-               f'display:inline-flex;align-items:center;padding:0 6px;border-radius:22px;background:{P["ink"]};color:{P["bg"]};'
-               f'font-family:{SANS};line-height:1;box-shadow:{P["fab"]};white-space:nowrap">{tb("标注")}{tb("摘录")}<span '
-               f'aria-hidden="true" style="width:1px;height:16px;margin:0 4px;background:{P["bg"]};opacity:.3"></span><span '
-               f'style="display:inline-flex;align-items:center;padding-left:6px;opacity:.8">{icon("spark", 13, 1.6)}</span>{tb("解释")}'
-               f'{tb("对比")}</span>')
+    # P14-05：「对比」后面多一个「问 AI…」，按自己的要求问（常用的提示词，或者当场写一句）
+    bar = (f'<span role="toolbar" aria-label="选中的文字" style="position:absolute;left:14px;top:calc(100% + 4px);z-index:4;'
+           f'display:inline-flex;align-items:center;padding:0 6px;border-radius:22px;background:{P["ink"]};color:{P["bg"]};'
+           f'font-family:{SANS};line-height:1;box-shadow:{P["fab"]};white-space:nowrap">{tb("标注")}{tb("摘录")}<span '
+           f'aria-hidden="true" style="width:1px;height:16px;margin:0 4px;background:{P["bg"]};opacity:.3"></span><span '
+           f'style="display:inline-flex;align-items:center;padding-left:6px;opacity:.8">{icon("spark", 13, 1.6)}</span>{tb("解释")}'
+           f'{tb("对比")}{tb("问 AI…")}</span>') if toolbar else ''
     note = (f'<div style="display:flex;align-items:center;gap:6px;margin:0 0 14px;color:{P["B"]}"><svg width="30" height="20" '
             f'viewBox="0 0 30 20" aria-hidden="true"><path d="M26 2C18 4 10 8 4 16M4 16l1-6M4 16l6-1" fill="none" stroke="{P["B"]}" '
             f'stroke-width="1.3" stroke-linecap="round"/></svg>{mark(P, "迟", 18)}{hand(P, "我也喜欢这一句", 19, "B", -2)}</div>')
@@ -1575,13 +1743,37 @@ def b_reading():
           f'<p style="margin:0"><span style="text-decoration:underline;text-decoration-color:{P["B"]};text-decoration-thickness:2px;'
           f'text-underline-offset:6px;text-decoration-style:wavy">不必急着去哪里，先在这里坐一会儿。</span></p>{note}'
           f'<p style="margin:0 0 60px;position:relative">她于是真的坐了很久。窗外的雨没有停，<span style="background:{T(P, "accent", .18)};'
-          f'border-radius:2px">楼下的灯却一直亮着</span>，像有人特意为她留的。{toolbar}</p>'
+          f'border-radius:2px">楼下的灯却一直亮着</span>，像有人特意为她留的。{bar}</p>'
           f'<p style="margin:0">她把信重新展开，又慢慢折好。</p></div>')
     # 收起时底部只留一行小页码
     foot = (f'<div style="flex:none;display:flex;justify-content:center;align-items:center;height:28px;padding-bottom:14px;'
             f'background:{P["paper"]}">{M("118 / 286", 11, P["faint"])}</div>')
-    body = pg + foot
-    wr('New-Reading.dc.html', page(P, '阅读 · 海边的旅店', body, root_bg=P['paper']))
+    return pg + foot
+
+
+def b_reading():
+    P = DAY
+    wr('New-Reading.dc.html', page(P, '阅读 · 海边的旅店', reading_page(P), root_bg=P['paper']))
+
+
+def b_reading_ask():
+    P = DAY
+
+    def prompt(title, text):
+        # 常用的提示词：名字 + 一行要求；点一下直接问
+        return (f'<div style="padding:8px 0"><div style="font-size:16px;line-height:1.7">{title}</div><div style="font-size:13px;'
+                f'line-height:1.5;color:{P["muted"]};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{text}</div></div>')
+
+    inner = (f'<div style="font-size:17px;font-weight:700;line-height:1.5">按你的要求问 AI</div>'
+             f'<div style="font-size:15px;line-height:1.7;color:{P["muted"]}">「楼下的灯却一直亮着」</div>'
+             f'<div>{label(P, "常用的")}{prompt("翻成英文", "把这段翻译成英文，保留原来的语气")}'
+             f'{prompt("和我们有关的", "这段和我们最近的生活有什么呼应？可以翻翻我们的记录")}'
+             f'{prompt("讲讲写法", "这段用了什么写法，好在哪里")}</div>'
+             + field(P, '写一句要求', '这盏灯在后面的章节里还出现过吗？', multi=True)
+             + switchrow(P, '存成常用的', '下次选中一段时直接点', True) + primary(P, '问 AI', full=True)
+             + f'<div>{act(P, "管理常用的提示词", P["muted"])}</div>')
+    wr('New-Reading-AskAi.dc.html', page(P, '阅读 · 按你的要求问 AI', reading_page(P, toolbar=False) + sheet(P, inner, 12),
+                                         root_bg=P['paper']))
 
 
 def docthumb(P):
@@ -1688,6 +1880,130 @@ def b_summary():
 
 
 # ================================================================ 字与层次、装饰
+# ================================================================ 桌面待办组件（P15-02）
+# 桌面组件由系统来画（Glance）：只能用系统字体、纯色和圆角，没有胶带、手写、纹理和倾斜；颜色跟着手机本地时间的天色走。
+WSANS = "Roboto,'Noto Sans SC','PingFang SC',sans-serif"
+
+
+def statusbar(P, time, light):
+    c = '#FFFFFF' if light else P['ink']
+    bars = ''.join(f'<span style="width:3px;height:{h}px;border-radius:1px;background:{c}"></span>' for h in (4, 6, 8, 10))
+    bat = (f'<span style="display:inline-flex;box-sizing:border-box;width:22px;height:11px;padding:1.5px;border:1.4px solid {c};'
+           f'border-radius:3px"><span style="width:70%;border-radius:1px;background:{c}"></span></span>')
+    return (f'<div style="flex:none;display:flex;align-items:center;gap:6px;height:40px;padding:0 26px;font-family:{WSANS};'
+            f'font-size:14px;font-weight:500;color:{c}">{time}<span style="flex:1"></span><span style="display:inline-flex;'
+            f'align-items:flex-end;gap:2px">{bars}</span>{bat}</div>')
+
+
+def app_icon(P, glyph, name, light, ours=False):
+    """桌面上的图标：别的应用只画个通用图形；栖迟的是雾海远山（同 App 图标）。"""
+    if ours:
+        face = ('<svg width="56" height="56" viewBox="18 18 72 72" aria-hidden="true" style="display:block">'
+                '<rect x="0" y="0" width="108" height="108" fill="#ECEBE6"/><circle cx="68" cy="38" r="6" fill="#FFFFFF" fill-opacity=".85"/>'
+                '<path d="M18,58C27,54 32,51 38,52S47,47 54,49S64,54 71,51S81,45 90,48V90H18z" fill="#BAC3C6"/>'
+                '<path d="M18,66C29,62 35,60 43,62S55,65 62,61S75,57 90,63V90H18z" fill="#9DA9AD"/>'
+                '<path d="M18,72C28,70 36,68 44,70S59,74 67,70S80,67 90,71V90H18z" fill="#7F8D92"/>'
+                '<path d="M18,76H90V90H18z" fill="#EEF0EE"/>'
+                '<path d="M44,90C47,82 50,79 54,77S61,75 64,75L68,75C70,76 72,78 74,80S78,85 80,90Z" fill="#39413F"/></svg>')
+    else:
+        face = f'<span style="display:inline-flex;color:#3B4248">{icon(glyph, 26, 1.6)}</span>'
+    fg = '#FFFFFF' if light else P['ink']
+    cap = f'<span style="font-family:{WSANS};font-size:12px;line-height:1.3;color:{fg}">{name}</span>' if name else ''
+    return (f'<span style="display:flex;flex-direction:column;align-items:center;gap:6px;width:76px"><span style="display:inline-flex;'
+            f'align-items:center;justify-content:center;width:56px;height:56px;border-radius:50%;overflow:hidden;'
+            f'background:rgba(255,255,255,.78)">{face}</span>{cap}</span>')
+
+
+def wcheck(P, done, s=20):
+    if done:
+        return (f'<span aria-hidden="true" style="display:inline-flex;align-items:center;justify-content:center;flex:none;width:{s}px;'
+                f'height:{s}px;border-radius:50%;background:{P["A"]};color:{P["on"]}">{icon("check", s - 8, 2)}</span>')
+    return (f'<span aria-hidden="true" style="flex:none;width:{s}px;height:{s}px;box-sizing:border-box;border-radius:50%;'
+            f'border:1.4px solid {P["muted"]}"></span>')
+
+
+def wrow(P, title, due='', late=False, w='', done=False, small=False):
+    """一行：圆圈（点它勾掉）、标题（点它打开这件待办）、截止（过期的用暮玫瑰色）、交给谁；刚勾掉的划线，右边「撤回」。"""
+    if done:
+        right = (f'<span role="button" style="flex:none;display:inline-flex;align-items:center;height:30px;padding:0 12px;'
+                 f'border-radius:15px;background:{T(P, "accent", .1)};color:{P["accent"]};font-size:13px;font-weight:500">撤回</span>')
+    elif small:
+        right = ''
+    else:
+        right = ((f'<span style="flex:none;font-size:12px;color:{P["accent"] if late else P["muted"]}">{due}</span>' if due else '')
+                 + (who(P, w, 16, P['card']) if w else ''))
+    look = f'color:{P["faint"]};text-decoration:line-through' if done else ''
+    return (f'<div style="flex:none;display:flex;align-items:center;gap:{10 if small else 12}px;min-height:{38 if small else 46}px">'
+            f'{wcheck(P, done, 18 if small else 20)}<span style="flex:1;min-width:0;font-size:{14 if small else 15}px;line-height:1.4;'
+            f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;{look}">{title}</span>{right}</div>')
+
+
+def whead(P, n, small=False):
+    """「今天」、还有几件（点这一行打开待办页）；右边「＋」新建一件。"""
+    if not n:
+        count = ''
+    elif small:
+        count = f'<span style="font-size:13px;color:{P["muted"]}">{n}</span>'
+    else:
+        count = (f'<span style="display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:11px;'
+                 f'background:{T(P, "B", .12)};color:{P["B"]};font-size:12px;font-weight:500">还有 {n} 件</span>')
+    s = 32 if small else 36
+    add = (f'<span role="button" aria-label="新待办" style="display:inline-flex;align-items:center;justify-content:center;flex:none;'
+           f'width:{s}px;height:{s}px;border-radius:50%;background:{P["ink"]};color:{P["bg"]}">{icon("plus", 18, 1.8)}</span>')
+    return (f'<div style="flex:none;display:flex;align-items:center;gap:8px;min-height:40px"><span style="font-size:{15 if small else 17}px;'
+            f'font-weight:700;line-height:1.3">今天</span>{count}<span style="flex:1"></span>{add}</div>')
+
+
+def widget(P, w, h, inner, pad):
+    return (f'<div role="region" aria-label="栖迟 · 今天的待办" style="flex:none;display:flex;flex-direction:column;width:{w}px;'
+            f'height:{h}px;box-sizing:border-box;padding:{pad};border-radius:24px;background:{P["card"]};color:{P["ink"]};'
+            f'font-family:{WSANS};overflow:hidden">{inner}</div>')
+
+
+def b_widget(P, fname, title, time, empty=False):
+    light = P['dark']
+    if P['dark']:
+        # 夜里的壁纸：深色的天、月亮、几层远山
+        stars = ''.join(f'<circle cx="{x}" cy="{y}" r="{r}" fill="#FFFFFF" fill-opacity=".55"/>'
+                        for x, y, r in [(40, 120, 1.2), (120, 70, 1), (210, 140, 1.4), (350, 90, 1), (70, 300, 1), (250, 330, 1.2)])
+        art = ('<svg width="390" height="844" viewBox="0 0 390 844" role="img" aria-label="桌面壁纸" style="display:block"><defs>'
+               '<linearGradient id="nightwall" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#18202A"/>'
+               '<stop offset="1" stop-color="#2C3643"/></linearGradient></defs><rect width="390" height="844" fill="url(#nightwall)"/>'
+               + stars + '<circle cx="312" cy="208" r="24" fill="#E9E4D8" fill-opacity=".9"/>'
+               '<circle cx="312" cy="208" r="46" fill="#E9E4D8" fill-opacity=".07"/>'
+               '<path d="M0 560c60-30 110-48 170-40s100-38 160-30 42 18 60 16V844H0z" fill="#26303B"/>'
+               '<path d="M0 640c70-24 130-30 190-18s110 10 200-6V844H0z" fill="#212A34"/>'
+               '<path d="M0 720c80-16 160-20 240-8s110 6 150 0V844H0z" fill="#1B232C"/></svg>')
+    else:
+        art = scene('fog', 390, 844, 0, '桌面壁纸')
+    wall = f'<div aria-hidden="true" style="position:absolute;left:0;top:0;z-index:-1">{art}</div>'
+    if empty:
+        big = (whead(P, 0) + f'<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;'
+               f'text-align:center"><span style="font-size:15px;font-weight:500">今天的事都做完了</span><span style="font-size:13px;'
+               f'color:{P["muted"]}">想起什么，点右上角的 ＋ 记下来</span></div>')
+        small = (whead(P, 0, True) + f'<div style="flex:1;display:flex;align-items:center;justify-content:center;font-size:13px;'
+                 f'color:{P["muted"]}">都做完了</div>')
+    else:
+        # 只列跟我有关的（交给我的、两个人的），今天到期和过了期的；过了期的在前
+        big = (whead(P, 3) + wrow(P, '给阳台的绿萝换盆', '昨天', True, '栖') + wrow(P, '取回干洗的外套', w='栖')
+               + wrow(P, '订周六的餐位', '18:00', w='both') + wrow(P, '买明早的牛奶', done=True))
+        small = (whead(P, 3, True) + wrow(P, '给阳台的绿萝换盆', small=True) + wrow(P, '取回干洗的外套', small=True)
+                 + wrow(P, '订周六的餐位', small=True))
+    grid = (app_icon(P, '', '栖迟', light, True)
+            + ''.join(app_icon(P, g, n, light) for g, n in [('cal', '日历'), ('photo', '相册'), ('clock', '时钟')]))
+    dock = ''.join(app_icon(P, g, '', light) for g in ('chat', 'mail', 'search', 'photo'))
+    c = '#FFFFFF' if light else P['ink']
+    body = (wall + statusbar(P, time, light)
+            + f'<div style="flex:1;display:flex;flex-direction:column;gap:22px;padding:14px 16px 0">'
+            + widget(P, 358, 262, big, '12px 14px 8px 18px')
+            + f'<div style="display:flex;gap:12px;align-items:flex-start">{widget(P, 171, 171, small, "10px 10px 6px 14px")}'
+            + f'<div style="flex:1;display:grid;grid-template-columns:1fr 1fr;row-gap:12px;justify-items:center">{grid}</div></div></div>'
+            + f'<div style="flex:none;display:flex;justify-content:space-around;padding:0 16px 10px">{dock}</div>'
+            + f'<div aria-hidden="true" style="flex:none;display:flex;justify-content:center;padding:4px 0 10px"><span style="width:108px;'
+            + f'height:4px;border-radius:2px;background:{c};opacity:.7"></span></div>')
+    wr(fname, page(P, title, body))
+
+
 def b_spec():
     P = DAY
     W, H = 1280, 2600
@@ -1814,6 +2130,14 @@ def build():
     b_summary_list()
     b_summary()
     b_spec()
+    # 第 15 阶段加的画板放在最后：插画的编号接着往后排，前面的画板不跟着变
+    b_plan_next()
+    b_plan_paused()
+    b_reading_ask()
+    b_chat_plan()
+    b_chat_save()
+    b_widget(DAY, 'New-Widget.dc.html', '桌面待办组件', '14:20')
+    b_widget(NIGHT, 'New-Widget-Night.dc.html', '桌面待办组件 · 深夜', '23:10', True)
 
 
 VOID = {'meta', 'link', 'input', 'br', 'img', 'hr', 'source', 'area', 'base', 'col', 'embed', 'param', 'track', 'wbr'}

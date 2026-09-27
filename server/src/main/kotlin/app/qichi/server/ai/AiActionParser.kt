@@ -31,6 +31,7 @@ data class ParsedAnswer(val text: String, val actions: List<ParsedAction>)
  *
  * 这里把名字换成成员 id、计划名换成计划 id、「日期 + 时刻」按房间时区换成 UTC，长度按 [Limits] 截断；
  * 缺必要字段、看不懂的条目直接丢掉（宁可少提议，不给出建不成的卡片）。没有这一段就没有动作。
+ * 计划相关的（P14-04）：加阶段、里程碑、进展、下一步要能认出是哪个进行中的计划；新建的计划和已有的同名时不提议。
  */
 class AiActionParser(
     private val zone: ZoneId,
@@ -81,6 +82,11 @@ class AiActionParser(
         "todo" -> todo(o)
         "archive", "archive_item" -> archive(o)
         "idea" -> idea(o)
+        "plan" -> newPlan(o)
+        "plan_stage", "stage" -> planStage(o)
+        "milestone" -> milestone(o)
+        "plan_log", "progress" -> planLog(o)
+        "next_step" -> nextStep(o)
         else -> null
     }
 
@@ -134,8 +140,52 @@ class AiActionParser(
         return ParsedAction(AiActionKind.Idea, AiActionDraft(body))
     }
 
+    // ── 计划相关（P14-04） ──
+
+    private fun newPlan(o: JsonObject): ParsedAction? {
+        val title = cut(o.str("title"), Limits.PLAN_TITLE_LENGTH.last) ?: return null
+        if (plans.containsKey(title)) return null
+        return ParsedAction(
+            AiActionKind.Plan,
+            AiActionDraft(
+                title, assigneeId = member(o.str("owner", "assignee")), dueDate = date(o.str("target_date", "date")),
+                nextStep = cut(o.str("next_step"), Limits.PLAN_STEP_LENGTH.last),
+            ),
+        )
+    }
+
+    private fun planStage(o: JsonObject): ParsedAction? {
+        val planId = plan(o.str("plan")) ?: return null
+        val title = cut(o.str("title"), Limits.PLAN_TITLE_LENGTH.last) ?: return null
+        return ParsedAction(AiActionKind.PlanStage, AiActionDraft(title, planId = planId))
+    }
+
+    private fun milestone(o: JsonObject): ParsedAction? {
+        val planId = plan(o.str("plan")) ?: return null
+        val title = cut(o.str("title"), Limits.PLAN_TITLE_LENGTH.last) ?: return null
+        return ParsedAction(AiActionKind.Milestone, AiActionDraft(title, planId = planId, dueDate = date(o.str("date", "target_date"))))
+    }
+
+    private fun planLog(o: JsonObject): ParsedAction? {
+        val planId = plan(o.str("plan")) ?: return null
+        val body = cut(o.str("body", "title"), PLAN_LOG_DRAFT_MAX) ?: return null
+        return ParsedAction(AiActionKind.PlanLog, AiActionDraft(body, planId = planId))
+    }
+
+    private fun nextStep(o: JsonObject): ParsedAction? {
+        val planId = plan(o.str("plan")) ?: return null
+        val title = cut(o.str("title", "step", "next_step"), Limits.PLAN_STEP_LENGTH.last) ?: return null
+        return ParsedAction(
+            AiActionKind.NextStep,
+            AiActionDraft(title, planId = planId, assigneeId = member(o.str("assignee", "owner")), dueDate = date(o.str("due_date", "date"))),
+        )
+    }
+
     companion object {
         const val OPEN = "<actions>"
+
+        /** AI 提议的一笔进展最多这么长（草稿的正文上限，见 openapi AiActionDraft） */
+        private const val PLAN_LOG_DRAFT_MAX = 2000
         const val CLOSE = "</actions>"
 
         private val citation = Regex("\\s?\\[\\d{1,4}]")

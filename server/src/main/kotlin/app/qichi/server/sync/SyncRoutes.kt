@@ -21,10 +21,16 @@ import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.pingPeriod
 import io.ktor.server.websocket.timeout
 import io.ktor.server.websocket.webSocket
+import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
+import io.ktor.websocket.close
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.onSubscription
+import kotlinx.coroutines.launch
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
@@ -60,6 +66,7 @@ fun Route.syncRoutes(ctx: AppContext) {
          */
         webSocket("/ws") {
             val userId = call.user.userId
+            val familyId = call.user.familyId
             val caps = call.request.queryParameters["caps"].orEmpty().split(',').map { it.trim() }.toSet()
             val rooms = ConcurrentHashMap.newKeySet<UUID>()
             val hello = ctx.database.tx(readOnly = true) {
@@ -71,18 +78,31 @@ fun Route.syncRoutes(ctx: AppContext) {
             }
             send(Frame.Text(QichiJson.encodeToString(WsEvent.serializer(), hello)))
 
-            ctx.realtime.events
-                .filter { event -> (event.userId == null || event.userId == userId) && (event.cap == null || event.cap in caps) }
-                .filter { event ->
-                    // 连接期间新加入的房间：第一次收到它的事件时查一次成员身份
-                    event.roomId in rooms || ctx.database.tx(readOnly = true) {
-                        RoomRepository.isMember(event.roomId, userId)
-                    }.also { if (it) rooms += event.roomId }
+            coroutineScope {
+                val forwarding = launch {
+                    ctx.realtime.events
+                        .filter { event -> (event.userId == null || event.userId == userId) && (event.cap == null || event.cap in caps) }
+                        .filter { event ->
+                            // 连接期间新加入的房间：第一次收到它的事件时查一次成员身份
+                            event.roomId in rooms || ctx.database.tx(readOnly = true) {
+                                RoomRepository.isMember(event.roomId, userId)
+                            }.also { if (it) rooms += event.roomId }
+                        }
+                        .onEach { event ->
+                            send(Frame.Text(QichiJson.encodeToString(WsEvent.serializer(), event.event)))
+                        }
+                        .collect()
                 }
-                .onEach { event ->
-                    send(Frame.Text(QichiJson.encodeToString(WsEvent.serializer(), event.event)))
-                }
-                .collect()
+                // 这次登录被作废（登出、改密码、踢设备、刷新令牌被盗用）就马上断开，不再收任何通知（P13-09）；
+                // 开始等之后再核对一次，握手之后、开始等之前被作废的也不漏
+                ctx.realtime.revocations
+                    .onSubscription {
+                        if (!ctx.auth.isSessionActive(userId, familyId)) emit(SessionsRevoked(userId, setOf(familyId)))
+                    }
+                    .first { it.userId == userId && familyId in it.familyIds }
+                forwarding.cancel()
+            }
+            close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "登录已失效"))
         }
     }
 }

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面待办组件里没勾的圆圈：细边框，画的时候染成 muted 色 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <stroke android:width="1.4dp" android:color="#FFFFFFFF" />
+    <solid android:color="#00000000" />
+</shape>

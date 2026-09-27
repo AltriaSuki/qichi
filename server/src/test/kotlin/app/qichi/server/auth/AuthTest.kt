@@ -58,6 +58,41 @@ class AuthTest {
         api.register("xiaochi", inviteCode = "ABCDEFGH").assertProblem(HttpStatusCode.BadRequest, ProblemCode.InviteInvalid)
     }
 
+    /** 数一数算了几次密码哈希（参数调低，和 fastHasher 一样快）。 */
+    private class CountingHasher : PasswordHasher(memoryKib = 1024, iterations = 1, parallelism = 1) {
+        @Volatile var hashes = 0
+        override fun hash(password: String): String = super.hash(password).also { hashes++ }
+    }
+
+    @Test
+    fun `注定失败的注册不计算密码哈希（没有邀请码、邀请码无效、用户名重复）`() {
+        val hasher = CountingHasher()
+        serverTest(ctx = testContext(hasher = hasher)) { client ->
+            val api = Api(client)
+            api.registerOk("aqi")
+            assertEquals(1, hasher.hashes)
+            api.register("xiaochi").assertProblem(HttpStatusCode.Forbidden, ProblemCode.RegistrationClosed)
+            api.register("xiaochi", inviteCode = "ABCDEFGH").assertProblem(HttpStatusCode.BadRequest, ProblemCode.InviteInvalid)
+            api.register("aqi", inviteCode = "ABCDEFGH").assertProblem(HttpStatusCode.Conflict, ProblemCode.UsernameTaken)
+            assertEquals(1, hasher.hashes, "被拒绝的注册一次哈希都不算")
+        }
+    }
+
+    @Test
+    fun `同一个 IP 换着用户名乱试也会被限流，窗口过后恢复`() {
+        val clock = MutableClock()
+        serverTest(ctx = testContext(clock = clock)) { client ->
+            val api = Api(client)
+            api.registerOk("aqi")
+            repeat(20) { api.login("nobody$it", "whatever").assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized) }
+            // 这个 IP 已经错了 20 次：连正确的密码也要等
+            api.login("aqi").assertProblem(HttpStatusCode.TooManyRequests, ProblemCode.RateLimited)
+
+            clock.advance(Duration.ofMinutes(16))
+            api.loginOk("aqi")
+        }
+    }
+
     @Test
     fun `注册参数不合法时列出每个字段`() = serverTest { client ->
         val problem = Api(client).register("A!", password = "short", displayName = "  ")
@@ -110,36 +145,93 @@ class AuthTest {
         }
     }
 
+    private suspend fun io.ktor.client.HttpClient.refresh(token: String) =
+        post("/api/v1/auth/refresh") { json(RefreshRequest(token)) }
+
     @Test
-    fun `刷新会轮换令牌；旧刷新令牌第二次使用导致该设备所有令牌作废`() = serverTest { client ->
-        val api = Api(client)
-        val session = api.registerOk("aqi")
-        val first = session.tokens
+    fun `刷新会轮换令牌；旧令牌 5 分钟后再用视为被盗用，整组作废`() {
+        val clock = MutableClock()
+        serverTest(ctx = testContext(clock = clock)) { client ->
+            val session = Api(client).registerOk("aqi")
+            val first = session.tokens
 
-        val refreshed = client.post("/api/v1/auth/refresh") { json(RefreshRequest(first.refreshToken)) }
-        assertEquals(HttpStatusCode.OK, refreshed.status)
-        val second = refreshed.body<AuthTokens>()
-        assertNotEquals(first.refreshToken, second.refreshToken)
-        client.get("/api/v1/me") { bearerAuth(second.accessToken) }.let { assertEquals(HttpStatusCode.OK, it.status) }
+            val refreshed = client.refresh(first.refreshToken)
+            assertEquals(HttpStatusCode.OK, refreshed.status)
+            val second = refreshed.body<AuthTokens>()
+            assertNotEquals(first.refreshToken, second.refreshToken)
+            client.get("/api/v1/me") { bearerAuth(second.accessToken) }.let { assertEquals(HttpStatusCode.OK, it.status) }
 
-        // 旧令牌再用一次：视为被盗用，整组作废
-        client.post("/api/v1/auth/refresh") { json(RefreshRequest(first.refreshToken)) }
-            .assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized)
-        client.post("/api/v1/auth/refresh") { json(RefreshRequest(second.refreshToken)) }
-            .assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized)
-        client.get("/api/v1/me") { bearerAuth(second.accessToken) }
-            .assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized)
+            clock.advance(Duration.ofMinutes(6))
+            client.refresh(first.refreshToken).assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized)
+            client.refresh(second.refreshToken).assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized)
+            client.get("/api/v1/me") { bearerAuth(second.accessToken) }
+                .assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized)
+        }
     }
 
     @Test
-    fun `重复使用只影响那一台设备`() = serverTest { client ->
-        val api = Api(client)
-        val phoneA = api.registerOk("aqi")
-        val phoneB = api.loginOk("aqi")
-        val old = phoneA.tokens.refreshToken
-        client.post("/api/v1/auth/refresh") { json(RefreshRequest(old)) }
-        client.post("/api/v1/auth/refresh") { json(RefreshRequest(old)) }
-        assertEquals(HttpStatusCode.OK, phoneB.get("/api/v1/me").status)
+    fun `刷新的回应丢了：5 分钟内拿旧令牌再试，换发一对新的，登录不作废；丢两次也行`() {
+        val clock = MutableClock()
+        serverTest(ctx = testContext(clock = clock)) { client ->
+            val first = Api(client).registerOk("aqi").tokens
+            // 服务端换了 second，但回应没送到手机
+            val lost = client.refresh(first.refreshToken).body<AuthTokens>()
+
+            clock.advance(Duration.ofMinutes(2))
+            val retried = client.refresh(first.refreshToken)
+            assertEquals(HttpStatusCode.OK, retried.status)
+            val lostAgain = retried.body<AuthTokens>()
+            // 这次的回应又丢了，再试一次还是可以
+            clock.advance(Duration.ofMinutes(2))
+            val third = client.refresh(first.refreshToken).body<AuthTokens>()
+            assertEquals(HttpStatusCode.OK, client.get("/api/v1/me") { bearerAuth(third.accessToken) }.status)
+
+            // 没送到的那几对已经作废；拿到手的这对照常轮换
+            val next = client.refresh(third.refreshToken)
+            assertEquals(HttpStatusCode.OK, next.status)
+            assertNotEquals(lost.refreshToken, lostAgain.refreshToken)
+        }
+    }
+
+    @Test
+    fun `换出来的新令牌已经被用过，旧令牌再出现就是被盗用：整组作废`() {
+        val clock = MutableClock()
+        serverTest(ctx = testContext(clock = clock)) { client ->
+            val first = Api(client).registerOk("aqi").tokens
+            val second = client.refresh(first.refreshToken).body<AuthTokens>()
+            val third = client.refresh(second.refreshToken).body<AuthTokens>()
+
+            clock.advance(Duration.ofMinutes(1))
+            client.refresh(first.refreshToken).assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized)
+            client.refresh(third.refreshToken).assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized)
+            client.get("/api/v1/me") { bearerAuth(third.accessToken) }
+                .assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized)
+        }
+    }
+
+    @Test
+    fun `登出之后旧令牌不享受宽限`() = serverTest { client ->
+        val session = Api(client).registerOk("aqi")
+        val first = session.tokens
+        val second = client.refresh(first.refreshToken).body<AuthTokens>()
+        session.tokens = second
+        assertEquals(HttpStatusCode.NoContent, session.post("/api/v1/auth/logout", RefreshRequest(second.refreshToken)).status)
+        client.refresh(first.refreshToken).assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized)
+    }
+
+    @Test
+    fun `重复使用只影响那一台设备`() {
+        val clock = MutableClock()
+        serverTest(ctx = testContext(clock = clock)) { client ->
+            val api = Api(client)
+            val phoneA = api.registerOk("aqi")
+            val phoneB = api.loginOk("aqi")
+            val old = phoneA.tokens.refreshToken
+            client.refresh(old)
+            clock.advance(Duration.ofMinutes(6))
+            client.refresh(old).assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized)
+            assertEquals(HttpStatusCode.OK, phoneB.get("/api/v1/me").status)
+        }
     }
 
     @Test

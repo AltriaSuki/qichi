@@ -11,6 +11,8 @@ import kotlinx.serialization.Serializable
  * - todo：[title]、[note]、[assigneeId]、[dueDate] 或 [dueAt]、[planId]
  * - archive_item：[archiveKind]、[title]、[note]（正文）
  * - idea：[title]（正文）
+ * - 计划相关（P14-04）：plan 用 [title]、[assigneeId]（负责人）、[dueDate]（目标日）、[nextStep]；plan_stage 用 [planId]、[title]；
+ *   milestone 用 [planId]、[title]、[dueDate]；plan_log 用 [planId]、[title]（正文）；next_step 用 [planId]、[title]、[assigneeId]、[dueDate]
  * 服务端从模型的回答里解析出来，名字、计划、时间都已经换成 id 和 UTC 时间。
  */
 @Serializable
@@ -28,6 +30,8 @@ data class AiActionDraft(
     val dueAt: Timestamp? = null,
     val planId: Id? = null,
     val archiveKind: ArchiveKind? = null,
+    /** 新建计划时的第一步（P14-04） */
+    val nextStep: String? = null,
 )
 
 /**

@@ -134,6 +134,7 @@ class BoardService(
         val title = (req.title as? Patch.Value)?.value?.let(::checkTitle)
         return db.tx {
             rooms.requireMember(roomId, userId)
+            RoomRepository.lockRoom(roomId)
             val current = liveTopic(roomId, id)
             val pin = (req.pinned as? Patch.Value)?.value
             val changeTitle = title != null && title != current.title

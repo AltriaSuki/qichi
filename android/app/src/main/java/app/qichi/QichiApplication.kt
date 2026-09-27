@@ -24,10 +24,13 @@ import app.qichi.core.sync.RealtimeClient
 import app.qichi.core.sync.SyncEngine
 import app.qichi.core.sync.SyncScheduler
 import app.qichi.di.ApplicationScope
+import app.qichi.feature.widget.TodoWidgetUpdater
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
@@ -49,6 +52,8 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
     @Inject lateinit var api: ApiClient
     @Inject lateinit var push: PushRegistrar
     @Inject lateinit var updater: app.qichi.core.update.AppUpdater
+    @Inject lateinit var unknownContent: app.qichi.core.sync.UnknownContent
+    @Inject lateinit var todoWidget: TodoWidgetUpdater
     @Inject @ApplicationScope lateinit var appScope: CoroutineScope
 
     override val workManagerConfiguration: Configuration
@@ -110,11 +115,25 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
         }
 
         appScope.launch {
+            // 服务端要求更新、或同步里有这个版本认不出来的内容：马上查新版并说明原因（P13-07）
+            combine(api.upgradeRequired, unknownContent.needsNewerApp) { tooOld, unreadable ->
+                when {
+                    tooOld -> "服务器已经更新，这个版本太旧了，更新后才能继续同步"
+                    unreadable -> "对方用了新版本的功能，有些内容这个版本显示不了，更新后就能看到"
+                    else -> null
+                }
+            }.distinctUntilChanged().collect { reason -> if (reason != null) updater.requireUpdate(reason) }
+        }
+
+        appScope.launch {
             // 联网恢复：马上把发件箱里攒下的发出去
             network.isOnline.collect { online ->
                 if (online && session.currentUserId != null) scheduler.kickOutbox(now = true)
             }
         }
+
+        // 桌面待办组件：本机的待办一变（自己改的、同步来的）就跟着刷新（P15-02）
+        todoWidget.start(appScope)
     }
 
     private fun onForegroundLoggedIn() {

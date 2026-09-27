@@ -23,6 +23,7 @@ import app.qichi.server.db.Summaries
 import app.qichi.server.db.Tx
 import app.qichi.server.db.Users
 import app.qichi.server.db.tx
+import app.qichi.server.jobs.JobLane
 import app.qichi.server.jobs.JobQueue
 import app.qichi.server.jobs.QueuedJob
 import app.qichi.server.messages.messageQuery
@@ -31,7 +32,6 @@ import app.qichi.server.plugins.ApiException
 import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
 import app.qichi.server.reading.toHighlight
-import app.qichi.server.reading.visibleTo
 import app.qichi.server.review.FindingParser
 import app.qichi.server.review.toAiFinding
 import app.qichi.server.rooms.RoomRepository
@@ -39,6 +39,7 @@ import app.qichi.server.rooms.RoomService
 import app.qichi.server.summaries.SourceLine
 import app.qichi.server.summaries.SummaryData
 import app.qichi.server.sync.RealtimeHub
+import app.qichi.server.sync.Visibility
 import app.qichi.shared.api.AiChatRequest
 import app.qichi.shared.api.AiFinding
 import app.qichi.shared.api.AiJob
@@ -87,6 +88,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -136,13 +138,36 @@ class AiService(
     private val stopRequested: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
 
     init {
-        queue.register(JOB_CHAT) { job -> answerInChat(job) }
-        queue.register(JOB_QUESTION) { job -> suggestQuestion(job) }
-        queue.register(JOB_READ) { job -> explainReading(job) }
-        queue.register(JOB_SUMMARY) { job -> summarize(job) }
-        queue.register(JOB_YEARLY_CHECK) { _ -> yearlyCheck() }
-        queue.register(JOB_REVIEW) { job -> reviewFindings(job) }
-        queue.register(JOB_WRITE) { job -> writeAssist(job) }
+        // 队列彻底放弃（出了预料之外的错、执行中断次数用完）时由 giveUp 把 ai_jobs 标成失败，App 不会一直等（P13-03）
+        queue.register(JOB_CHAT, ::giveUp, JobLane.Ai) { job -> answerInChat(job) }
+        queue.register(JOB_QUESTION, ::giveUp, JobLane.Ai) { job -> suggestQuestion(job) }
+        queue.register(JOB_READ, ::giveUp, JobLane.Ai) { job -> explainReading(job) }
+        queue.register(JOB_SUMMARY, ::giveUp, JobLane.Ai) { job -> summarize(job) }
+        // 年度检查放弃了也要接着排下一次，不然每年一次的回顾就断了
+        queue.register(JOB_YEARLY_CHECK, { _, _ -> ensureYearlyCheck() }) { _ -> yearlyCheck() }
+        queue.register(JOB_REVIEW, ::giveUp, JobLane.Ai) { job -> reviewFindings(job) }
+        queue.register(JOB_WRITE, ::giveUp, JobLane.Ai) { job -> writeAssist(job) }
+    }
+
+    /** 队列放弃了这个 AI 任务：还没有结果的标成失败并通知（App 显示「没有得到回答 · 重试」，同一 jobId 可以重新排队）。 */
+    private suspend fun giveUp(job: QueuedJob, reason: String) {
+        val jobId = job.payload["aiJobId"]?.jsonPrimitive?.contentOrNull?.let(UUID::fromString) ?: return
+        val roomId = db.tx {
+            val row = AiJobs.selectAll().where { AiJobs.id eq jobId }.forUpdate().singleOrNull() ?: return@tx null
+            val status = fromWire<AiJobStatus>(row[AiJobs.status])
+            if (status == AiJobStatus.Done || status == AiJobStatus.Failed) return@tx null
+            val now = clock.instant()
+            AiJobs.update({ AiJobs.id eq jobId }) {
+                it[AiJobs.status] = AiJobStatus.Failed.wireName
+                it[error] = "没有得到结果"
+                it[finishedAt] = now
+                it[updatedAt] = now
+            }
+            row[AiJobs.roomId]
+        } ?: return
+        log.warn("AI 任务 {} 放弃：{}", jobId, reason)
+        stopRequested -= jobId
+        realtime.aiDone(roomId, jobId, AiJobStatus.Failed.wireName)
     }
 
     /** 问 AI（聊天里）。同一 jobId 再次请求：失败的重新排队，其余返回当前状态。 */
@@ -154,46 +179,17 @@ class AiService(
             if (gateway == null) throw unavailable()
             req.sourceMessageId?.let { sourceId ->
                 val ok = Messages.select(Messages.id).where {
-                    (Messages.id eq sourceId) and (Messages.roomId eq roomId) and Messages.deletedAt.isNull() and Messages.retractedAt.isNull()
+                    (Messages.id eq sourceId) and (Messages.roomId eq roomId) and Visibility.quotableMessage()
                 }.any()
                 validate { check(ok, "sourceMessageId", "要整理的消息不存在") }
             }
             RoomRepository.lockRoom(roomId)
-            val existing = AiJobs.selectAll().where { AiJobs.id eq req.jobId }.singleOrNull()
-            if (existing != null) {
-                if (existing[AiJobs.roomId] != roomId || existing[AiJobs.requestedBy] != userId) {
-                    throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
-                }
-                val status = fromWire<AiJobStatus>(existing[AiJobs.status])
-                if (status != AiJobStatus.Failed) return@tx AiJobAccepted(req.jobId, status)
-                checkQuota()
-                AiJobs.update({ AiJobs.id eq req.jobId }) {
-                    it[AiJobs.status] = AiJobStatus.Queued.wireName
-                    it[error] = null
-                    it[finishedAt] = null
-                    it[updatedAt] = clock.instant()
-                }
-            } else {
-                checkQuota()
-                val now = clock.instant()
-                AiJobs.insert {
-                    it[id] = req.jobId
-                    it[AiJobs.roomId] = roomId
-                    it[requestedBy] = userId
-                    it[kind] = AiJobKind.ChatAnswer.wireName
-                    it[status] = AiJobStatus.Queued.wireName
-                    it[request] = buildJsonObject {
-                        put("prompt", prompt)
-                        req.sourceMessageId?.let { id -> put("sourceMessageId", id.toString()) }
-                    }
-                    it[inputTokens] = 0
-                    it[outputTokens] = 0
-                    it[createdAt] = now
-                    it[updatedAt] = now
+            startJob(roomId, userId, req.jobId, AiJobKind.ChatAnswer, JOB_CHAT) {
+                buildJsonObject {
+                    put("prompt", prompt)
+                    req.sourceMessageId?.let { id -> put("sourceMessageId", id.toString()) }
                 }
             }
-            queue.enqueue(this, JOB_CHAT, buildJsonObject { put("aiJobId", req.jobId.toString()) }, maxAttempts = CHAT_ATTEMPTS)
-            AiJobAccepted(req.jobId, AiJobStatus.Queued)
         }
     }
 
@@ -202,49 +198,23 @@ class AiService(
             rooms.requireMember(roomId, userId)
             if (gateway == null) throw unavailable()
             RoomRepository.lockRoom(roomId)
-            val existing = AiJobs.selectAll().where { AiJobs.id eq req.jobId }.singleOrNull()
-            if (existing != null) {
-                if (existing[AiJobs.roomId] != roomId || existing[AiJobs.requestedBy] != userId ||
-                    existing[AiJobs.kind] != AiJobKind.QuestionSuggest.wireName) {
-                    throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
-                }
-                val status = fromWire<AiJobStatus>(existing[AiJobs.status])
-                if (status != AiJobStatus.Failed) return@tx AiJobAccepted(req.jobId, status)
-                checkQuota()
-                AiJobs.update({ AiJobs.id eq req.jobId }) {
-                    it[AiJobs.status] = AiJobStatus.Queued.wireName
-                    it[error] = null
-                    it[finishedAt] = null
-                    it[updatedAt] = clock.instant()
-                }
-            } else {
-                checkQuota()
-                val now = clock.instant()
-                AiJobs.insert {
-                    it[id] = req.jobId
-                    it[AiJobs.roomId] = roomId
-                    it[requestedBy] = userId
-                    it[kind] = AiJobKind.QuestionSuggest.wireName
-                    it[status] = AiJobStatus.Queued.wireName
-                    it[request] = buildJsonObject { }
-                    it[inputTokens] = 0
-                    it[outputTokens] = 0
-                    it[createdAt] = now
-                    it[updatedAt] = now
-                }
-            }
-            queue.enqueue(this, JOB_QUESTION, buildJsonObject { put("aiJobId", req.jobId.toString()) }, maxAttempts = CHAT_ATTEMPTS)
-            AiJobAccepted(req.jobId, AiJobStatus.Queued)
+            startJob(roomId, userId, req.jobId, AiJobKind.QuestionSuggest, JOB_QUESTION) { buildJsonObject { } }
         }
     }
 
-    /** 阅读里选中一段请 AI 解释或对比（P6-05）。同一 jobId 再次请求：失败的重新排队，其余返回当前状态。 */
+    /**
+     * 阅读里选中一段请 AI 解释、对比（P6-05），或按自己写的要求（P14-05）。同一 jobId 再次请求：失败的重新排队，其余返回当前状态。
+     */
     suspend fun readExplain(userId: UUID, roomId: UUID, req: AiReadExplainRequest): AiJobAccepted {
         val text = req.text.trim()
+        val instruction = req.instruction?.trim().orEmpty()
         validate {
             check(text.length in 1..READ_TEXT_MAX, "text", "选中的文字 1–$READ_TEXT_MAX 字")
             check(req.locator.length in 1..Limits.LOCATOR_MAX, "locator", "定位信息不对")
             check(req.before.length <= READ_CONTEXT_MAX && req.after.length <= READ_CONTEXT_MAX, "before", "上下文太长")
+            if (req.mode == ReadExplainMode.Custom) {
+                check(instruction.length in Limits.READING_PROMPT_INSTRUCTION_LENGTH, "instruction", "要求 1–300 个字")
+            }
         }
         return db.tx {
             rooms.requireMember(roomId, userId)
@@ -252,45 +222,17 @@ class AiService(
             RoomRepository.lockRoom(roomId)
             val bookOk = Books.select(Books.id).where { (Books.id eq req.bookId) and (Books.roomId eq roomId) and Books.deletedAt.isNull() }.any()
             if (!bookOk) notFound()
-            val existing = AiJobs.selectAll().where { AiJobs.id eq req.jobId }.singleOrNull()
-            if (existing != null) {
-                if (existing[AiJobs.roomId] != roomId || existing[AiJobs.requestedBy] != userId || existing[AiJobs.kind] != AiJobKind.ReadExplain.wireName) {
-                    throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
-                }
-                val status = fromWire<AiJobStatus>(existing[AiJobs.status])
-                if (status != AiJobStatus.Failed) return@tx AiJobAccepted(req.jobId, status)
-                checkQuota()
-                AiJobs.update({ AiJobs.id eq req.jobId }) {
-                    it[AiJobs.status] = AiJobStatus.Queued.wireName
-                    it[error] = null
-                    it[finishedAt] = null
-                    it[updatedAt] = clock.instant()
-                }
-            } else {
-                checkQuota()
-                val now = clock.instant()
-                AiJobs.insert {
-                    it[id] = req.jobId
-                    it[AiJobs.roomId] = roomId
-                    it[requestedBy] = userId
-                    it[kind] = AiJobKind.ReadExplain.wireName
-                    it[status] = AiJobStatus.Queued.wireName
-                    it[request] = buildJsonObject {
-                        put("bookId", req.bookId.toString())
-                        put("mode", req.mode.wireName)
-                        put("text", text)
-                        put("locator", req.locator)
-                        put("before", req.before)
-                        put("after", req.after)
-                    }
-                    it[inputTokens] = 0
-                    it[outputTokens] = 0
-                    it[createdAt] = now
-                    it[updatedAt] = now
+            startJob(roomId, userId, req.jobId, AiJobKind.ReadExplain, JOB_READ) {
+                buildJsonObject {
+                    put("bookId", req.bookId.toString())
+                    put("mode", req.mode.wireName)
+                    put("text", text)
+                    put("locator", req.locator)
+                    put("before", req.before)
+                    put("after", req.after)
+                    if (req.mode == ReadExplainMode.Custom) put("instruction", instruction)
                 }
             }
-            queue.enqueue(this, JOB_READ, buildJsonObject { put("aiJobId", req.jobId.toString()) }, maxAttempts = CHAT_ATTEMPTS)
-            AiJobAccepted(req.jobId, AiJobStatus.Queued)
         }
     }
 
@@ -307,20 +249,30 @@ class AiService(
         markRunning(jobId)
         val gateway = gateway ?: return fail(jobId, roomId, "AI 服务没有开启")
 
-        val (book, notes) = db.tx(readOnly = true) {
+        val now = clock.instant()
+        val (book, notes, tools) = db.tx(readOnly = true) {
             val b = Books.select(Books.title, Books.author).where { Books.id eq bookId }.singleOrNull()
             val names = RoomRepository.activeMembers(roomId).associate { it.userId to it.displayName }
-            // 对比时只用提问的人看得到的：自己的全部，加上对方共享的
+            // 要联系到他们自己时能查房间资料（P14-04），和问 AI 一样守「AI 能看什么」
+            val lookup = if (config.tools) RoomTools(roomId, now, roomZone(roomId), names, roomPrefs(roomId), SourceBook(), openReaders(roomId))
+                .takeIf { it.definitions.isNotEmpty() } else null
+            // 对比、按要求问时参考的标注：只用提问的人看得到的（自己的全部，加上对方共享的），结果也只有他看得到
             val list = Highlights.selectAll().where { (Highlights.bookId eq bookId) and Highlights.deletedAt.isNull() }
                 .map { it.toHighlight() }
-                .filter { it.visibleTo(askerId) && (it.kind == HighlightKind.Highlight || it.kind == HighlightKind.Excerpt) }
+                .filter { Visibility.highlight(it, askerId) && (it.kind == HighlightKind.Highlight || it.kind == HighlightKind.Excerpt) }
                 .sortedBy { it.createdAt }.takeLast(COMPARE_NOTES)
                 .joinToString("\n") { h -> "${names[h.userId] ?: "其中一人"}：${h.text.take(CONTEXT_LINE_MAX)}" + (h.note?.let { " —— ${it.take(CONTEXT_LINE_MAX)}" } ?: "") }
-            b to list
+            Triple(b, list, lookup)
         }
         if (book == null) return fail(jobId, roomId, "书已经不在书架上了")
+        val template = when (mode) {
+            ReadExplainMode.Explain -> "read_explain"
+            ReadExplainMode.Compare -> "read_compare"
+            ReadExplainMode.Custom -> "read_custom"
+        }
+        val instruction = field("instruction")
         val rendered = prompts.render(
-            if (mode == ReadExplainMode.Compare) "read_compare" else "read_explain",
+            template,
             mapOf(
                 "title" to book[Books.title],
                 "author" to (book[Books.author]?.let { "（$it）" } ?: ""),
@@ -328,15 +280,20 @@ class AiService(
                 "before" to field("before").ifEmpty { "（无）" },
                 "after" to field("after").ifEmpty { "（无）" },
                 "notes" to notes.ifEmpty { "（还没有标注和摘录）" },
+                "instruction" to instruction,
+                "lookup" to if (tools != null) prompts.render("read_lookup", mapOf("rounds" to TOOL_ROUNDS.toString())).user + "\n" else "",
             ),
         )
         val result = try {
-            gateway.complete(AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)), maxTokens = CHAT_MAX_TOKENS))
+            completeLookingUp(gateway, rendered.system, rendered.user, CHAT_MAX_TOKENS, tools, "阅读 AI")
         } catch (e: AiProviderException) {
             log.warn("阅读 AI 失败（第 {} 次）：{}", job.attempts, e.message)
             if (e.retryable && !job.isLastAttempt) throw e
             return fail(jobId, roomId, "没有得到回答")
         }
+        // 查过资料的回答也不标编号（存成标记旁边的一段话，点不开来源）；一直只想查、一个字没写时算没得到回答
+        val answer = result.text.replace(CITATION, "").trim()
+        if (answer.isEmpty()) return fail(jobId, roomId, "没有得到回答")
         db.tx {
             val now = clock.instant()
             val seq = writer.change(this, roomId, EntityType.Highlight, jobId, askerId, now)
@@ -351,7 +308,8 @@ class AiService(
                 it[kind] = HighlightKind.Ai.wireName
                 it[locator] = field("locator")
                 it[text] = field("text").take(Limits.HIGHLIGHT_TEXT_MAX)
-                it[note] = result.text.trim().take(Limits.HIGHLIGHT_NOTE_MAX)
+                // 按自己的要求问的：开头写上问了什么，回头看时知道这段解释是怎么来的
+                it[note] = (if (mode == ReadExplainMode.Custom) "问：$instruction\n\n$answer" else answer).take(Limits.HIGHLIGHT_NOTE_MAX)
                 it[shared] = false
             }
             AiJobs.update({ AiJobs.id eq jobId }) {
@@ -381,41 +339,12 @@ class AiService(
             .where { (ReviewVersions.id eq req.versionId) and (ReviewVersions.documentId eq req.documentId) }.singleOrNull()?.get(ReviewVersions.previewStatus)
         if (!docOk || status == null) notFound()
         validate { check(status == PreviewStatus.Ready.wireName, "versionId", "预览还没生成好") }
-        val existing = AiJobs.selectAll().where { AiJobs.id eq req.jobId }.singleOrNull()
-        if (existing != null) {
-            if (existing[AiJobs.roomId] != roomId || existing[AiJobs.requestedBy] != userId || existing[AiJobs.kind] != AiJobKind.ReviewFindings.wireName) {
-                throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
-            }
-            val current = fromWire<AiJobStatus>(existing[AiJobs.status])
-            if (current != AiJobStatus.Failed) return@tx AiJobAccepted(req.jobId, current)
-            checkQuota()
-            AiJobs.update({ AiJobs.id eq req.jobId }) {
-                it[AiJobs.status] = AiJobStatus.Queued.wireName
-                it[error] = null
-                it[finishedAt] = null
-                it[updatedAt] = clock.instant()
-            }
-        } else {
-            checkQuota()
-            val now = clock.instant()
-            AiJobs.insert {
-                it[id] = req.jobId
-                it[AiJobs.roomId] = roomId
-                it[requestedBy] = userId
-                it[kind] = AiJobKind.ReviewFindings.wireName
-                it[AiJobs.status] = AiJobStatus.Queued.wireName
-                it[request] = buildJsonObject {
-                    put("documentId", req.documentId.toString())
-                    put("versionId", req.versionId.toString())
-                }
-                it[inputTokens] = 0
-                it[outputTokens] = 0
-                it[createdAt] = now
-                it[updatedAt] = now
+        startJob(roomId, userId, req.jobId, AiJobKind.ReviewFindings, JOB_REVIEW) {
+            buildJsonObject {
+                put("documentId", req.documentId.toString())
+                put("versionId", req.versionId.toString())
             }
         }
-        queue.enqueue(this, JOB_REVIEW, buildJsonObject { put("aiJobId", req.jobId.toString()) }, maxAttempts = CHAT_ATTEMPTS)
-        AiJobAccepted(req.jobId, AiJobStatus.Queued)
     }
 
     private suspend fun reviewFindings(job: QueuedJob) {
@@ -535,42 +464,53 @@ class AiService(
                 SummaryKind.Month -> anchor.withDayOfMonth(1).let { it to it.plusMonths(1).minusDays(1) }
                 else -> req.rangeStart!! to req.rangeEnd!!
             }
-            val existing = AiJobs.selectAll().where { AiJobs.id eq req.jobId }.singleOrNull()
-            if (existing != null) {
-                if (existing[AiJobs.roomId] != roomId || existing[AiJobs.requestedBy] != userId || existing[AiJobs.kind] != AiJobKind.Summary.wireName) {
-                    throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
-                }
-                val status = fromWire<AiJobStatus>(existing[AiJobs.status])
-                if (status != AiJobStatus.Failed) return@tx AiJobAccepted(req.jobId, status)
-                checkQuota()
-                AiJobs.update({ AiJobs.id eq req.jobId }) {
-                    it[AiJobs.status] = AiJobStatus.Queued.wireName
-                    it[error] = null
-                    it[finishedAt] = null
-                    it[updatedAt] = clock.instant()
-                }
-            } else {
-                checkQuota()
-                insertSummaryJob(req.jobId, roomId, userId, AiJobKind.Summary, req.kind, start, end)
-            }
-            queue.enqueue(this, JOB_SUMMARY, buildJsonObject { put("aiJobId", req.jobId.toString()) }, maxAttempts = CHAT_ATTEMPTS)
-            AiJobAccepted(req.jobId, AiJobStatus.Queued)
+            startJob(roomId, userId, req.jobId, AiJobKind.Summary, JOB_SUMMARY) { summaryRequest(req.kind, start, end) }
         }
     }
 
-    private fun insertSummaryJob(jobId: UUID, roomId: UUID, userId: UUID?, jobKind: AiJobKind, kind: SummaryKind, start: LocalDate, end: LocalDate) {
+    private fun summaryRequest(kind: SummaryKind, start: LocalDate, end: LocalDate) = buildJsonObject {
+        put("kind", kind.wireName)
+        put("start", start.toString())
+        put("end", end.toString())
+    }
+
+    /**
+     * 发起 AI 任务的固定流程（P13-14），在调用方的事务里、房间已锁：
+     * - 同一个 jobId 再来一次：不是这个人、这个房间、这种任务 → 409；还没失败 → 返回现在的状态；失败了 → 重新排队
+     * - 新任务：检查本月额度，写 ai_jobs，排进队列
+     */
+    private fun Tx.startJob(roomId: UUID, userId: UUID, jobId: UUID, jobKind: AiJobKind, queueKind: String, payload: () -> JsonObject): AiJobAccepted {
+        val existing = AiJobs.selectAll().where { AiJobs.id eq jobId }.singleOrNull()
+        if (existing != null) {
+            if (existing[AiJobs.roomId] != roomId || existing[AiJobs.requestedBy] != userId || existing[AiJobs.kind] != jobKind.wireName) {
+                throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
+            }
+            val status = fromWire<AiJobStatus>(existing[AiJobs.status])
+            if (status != AiJobStatus.Failed) return AiJobAccepted(jobId, status)
+            checkQuota()
+            AiJobs.update({ AiJobs.id eq jobId }) {
+                it[AiJobs.status] = AiJobStatus.Queued.wireName
+                it[error] = null
+                it[finishedAt] = null
+                it[updatedAt] = clock.instant()
+            }
+        } else {
+            checkQuota()
+            insertJob(jobId, roomId, userId, jobKind, payload())
+        }
+        queue.enqueue(this, queueKind, buildJsonObject { put("aiJobId", jobId.toString()) }, maxAttempts = CHAT_ATTEMPTS)
+        return AiJobAccepted(jobId, AiJobStatus.Queued)
+    }
+
+    private fun insertJob(jobId: UUID, roomId: UUID, userId: UUID?, jobKind: AiJobKind, payload: JsonObject) {
         val now = clock.instant()
         AiJobs.insert {
             it[id] = jobId
             it[AiJobs.roomId] = roomId
             it[requestedBy] = userId
-            it[AiJobs.kind] = jobKind.wireName
+            it[kind] = jobKind.wireName
             it[status] = AiJobStatus.Queued.wireName
-            it[request] = buildJsonObject {
-                put("kind", kind.wireName)
-                put("start", start.toString())
-                put("end", end.toString())
-            }
+            it[request] = payload
             it[inputTokens] = 0
             it[outputTokens] = 0
             it[createdAt] = now
@@ -678,7 +618,7 @@ class AiService(
                         if (AiJobs.select(AiJobs.id).where { AiJobs.id eq jobId }.any()) continue
                         val names = RoomRepository.activeMembers(roomId).associate { it.userId to it.displayName }
                         if (SummaryData.gather(roomId, start, end, zone, names).isEmpty()) continue
-                        insertSummaryJob(jobId, roomId, null, AiJobKind.YearlyReview, SummaryKind.Year, start, end)
+                        insertJob(jobId, roomId, null, AiJobKind.YearlyReview, summaryRequest(SummaryKind.Year, start, end))
                         queue.enqueue(this, JOB_SUMMARY, buildJsonObject { put("aiJobId", jobId.toString()) }, maxAttempts = 3)
                     }
                 }
@@ -776,27 +716,9 @@ class AiService(
                 if (!ok) notFound()
             }
             RoomRepository.lockRoom(roomId)
-            val existing = AiJobs.selectAll().where { AiJobs.id eq req.jobId }.singleOrNull()
-            if (existing != null) {
-                if (existing[AiJobs.roomId] != roomId || existing[AiJobs.requestedBy] != userId) throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
-                return@tx AiJobAccepted(req.jobId, fromWire(existing[AiJobs.status]))
+            startJob(roomId, userId, req.jobId, AiJobKind.WriteAssist, JOB_WRITE) {
+                QichiJson.encodeToJsonElement(AiWriteRequest.serializer(), req.copy(text = text.take(Limits.WRITE_TITLES_TEXT_MAX))).jsonObject
             }
-            checkQuota()
-            val now = clock.instant()
-            AiJobs.insert {
-                it[id] = req.jobId
-                it[AiJobs.roomId] = roomId
-                it[requestedBy] = userId
-                it[kind] = AiJobKind.WriteAssist.wireName
-                it[status] = AiJobStatus.Queued.wireName
-                it[request] = QichiJson.encodeToJsonElement(AiWriteRequest.serializer(), req.copy(text = text.take(Limits.WRITE_TITLES_TEXT_MAX))).jsonObject
-                it[inputTokens] = 0
-                it[outputTokens] = 0
-                it[createdAt] = now
-                it[updatedAt] = now
-            }
-            queue.enqueue(this, JOB_WRITE, buildJsonObject { put("aiJobId", req.jobId.toString()) }, maxAttempts = CHAT_ATTEMPTS)
-            AiJobAccepted(req.jobId, AiJobStatus.Queued)
         }
     }
 
@@ -810,6 +732,8 @@ class AiService(
         markRunning(jobId)
         val gateway = gateway ?: return fail(jobId, roomId, "AI 服务没有开启")
 
+        // 起草时能自己查房间资料（P14-04），和问 AI 一样守「AI 能看什么」；润色、改错字这类只看选中的文字，不用查
+        var tools: RoomTools? = null
         val (name, vars) = db.tx(readOnly = true) {
             val title = req.documentId?.let { d -> Documents.select(Documents.title).where { Documents.id eq d }.singleOrNull()?.get(Documents.title) }
             when (req.mode) {
@@ -823,6 +747,8 @@ class AiService(
                     val start = req.rangeStart!!
                     val end = req.rangeEnd!!
                     val lines = SummaryData.gather(roomId, start, end, zone, names, roomPrefs(roomId))
+                    tools = if (config.tools) RoomTools(roomId, clock.instant(), zone, names, roomPrefs(roomId), SourceBook(), openReaders(roomId))
+                        .takeIf { it.definitions.isNotEmpty() } else null
                     "write_draft" to mapOf(
                         "now" to RoomContext.now(clock.instant(), zone, names, askerId),
                         "genre" to when (req.genre!!) {
@@ -832,22 +758,23 @@ class AiService(
                         },
                         "range" to "${start.monthValue}月${start.dayOfMonth}日—${end.monthValue}月${end.dayOfMonth}日",
                         "sources" to lines.joinToString("\n") { it.line }.ifEmpty { "（这段时间没有记下什么）" },
+                        "lookup" to if (tools != null) prompts.render("write_lookup", mapOf("rounds" to TOOL_ROUNDS.toString())).user + "\n" else "",
                     )
                 }
             }
         }
         val rendered = prompts.render(name, vars)
         val result = try {
-            gateway.complete(
-                AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)),
-                    maxTokens = if (req.mode == WriteAssistMode.Draft) DRAFT_MAX_TOKENS else WRITE_MAX_TOKENS),
+            completeLookingUp(
+                gateway, rendered.system, rendered.user,
+                if (req.mode == WriteAssistMode.Draft) DRAFT_MAX_TOKENS else WRITE_MAX_TOKENS, tools, "写作助手",
             )
         } catch (e: AiProviderException) {
             log.warn("写作助手失败（第 {} 次）：{}", job.attempts, e.message)
             if (e.retryable && !job.isLastAttempt) throw e
             return fail(jobId, roomId, "没有得到结果")
         }
-        val text = result.text.trim().removePrefix("```markdown").removePrefix("```").removeSuffix("```").trim()
+        val text = result.text.replace(CITATION, "").trim().removePrefix("```markdown").removePrefix("```").removeSuffix("```").trim()
         if (text.isEmpty()) return fail(jobId, roomId, "没有得到结果")
         db.tx {
             val now = clock.instant()
@@ -864,6 +791,45 @@ class AiService(
             }
         }
         realtime.aiDone(roomId, jobId, AiJobStatus.Done.wireName)
+    }
+
+    /**
+     * 不流式的「边查边答」（P14-04：阅读里请 AI、写作助手起草也能自己查房间资料）：模型要查就执行 [tools]、把结果交回去，
+     * 直到它直接回答；最多 [TOOL_ROUNDS] 轮，轮数或时间用完时不许再查（和问 AI 一样，见 answerInChat）。
+     * 没有 [tools] 就是一次普通的请求。返回最后一轮的结果，用量是几轮加起来的；最后还是只想查、一个字没写时文字是空的。
+     */
+    private suspend fun completeLookingUp(gateway: AiGateway, system: String, user: String, maxTokens: Int, tools: RoomTools?, what: String): AiResult {
+        if (tools == null) return gateway.complete(AiRequest(system, listOf(AiMessage(AiMessage.Role.User, user)), maxTokens = maxTokens))
+        val messages = mutableListOf(AiMessage(AiMessage.Role.User, user))
+        var tokensIn = 0
+        var tokensOut = 0
+        val deadline = System.currentTimeMillis() + CHAT_TIMEOUT_MS
+        for (round in 0..TOOL_ROUNDS) {
+            val remaining = deadline - System.currentTimeMillis()
+            val last = round == TOOL_ROUNDS || remaining < LAST_ROUND_MS
+            if (last && round > 0) messages += AiMessage(AiMessage.Role.User, prompts.render("chat_lookup_done", emptyMap()).user)
+            val r = gateway.complete(
+                AiRequest(system, messages.toList(), maxTokens = maxTokens, timeoutMillis = remaining.coerceAtLeast(MIN_ROUND_MS), tools = tools.definitions),
+            )
+            tokensIn += r.inputTokens
+            tokensOut += r.outputTokens
+            if (r.toolCalls.isEmpty() || last) return r.copy(text = if (r.toolCalls.isEmpty()) r.text else "", inputTokens = tokensIn, outputTokens = tokensOut)
+            messages += AiMessage(AiMessage.Role.Assistant, r.text, toolCalls = r.toolCalls)
+            // 每次查询各用一个事务：一次出错不影响别的，把「没查成」告诉模型让它继续
+            val outputs = r.toolCalls.map { c ->
+                try {
+                    db.tx(readOnly = true) { tools.run(c) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    log.warn("{}的查询 {} 出错", what, c.name, e)
+                    "这次没查成，换个条件再试，或者先用已有的资料回答。"
+                }
+            }
+            r.toolCalls.zip(outputs).forEach { (c, out) -> messages += AiMessage(AiMessage.Role.Tool, out, toolCallId = c.id) }
+            log.info("{}第 {} 轮查了：{}", what, round + 1, r.toolCalls.joinToString { it.name })
+        }
+        error("最后一轮总会返回")
     }
 
     /** 「我发起的 AI 使用」：某个月（UTC）我发起的调用，以及本月整个服务的用量与上限。 */
@@ -993,7 +959,7 @@ class AiService(
             val names = RoomRepository.activeMembers(roomId).associate { it.userId to it.displayName }
             val zone = roomZone(roomId)
             val focus = sourceId?.let { id ->
-                messageQuery().where { (Messages.id eq id) and Messages.retractedAt.isNull() }.singleOrNull()?.toMessage()
+                messageQuery().where { (Messages.id eq id) and Visibility.quotableMessage() }.singleOrNull()?.toMessage()
             }
             val query = listOfNotNull(prompt, focus?.body).joinToString(" ")
             val prefs = roomPrefs(roomId)
@@ -1002,12 +968,12 @@ class AiService(
             val plans = Plans.select(Plans.id, Plans.title)
                 .where { (Plans.roomId eq roomId) and Plans.deletedAt.isNull() and (Plans.status eq PlanStatus.Active.wireName) }
                 .associate { it[Plans.title] to it[Plans.id] }
-            ChatInputs(context, names, sources, zone, focus, plans, prefs)
+            ChatInputs(context, names, sources, zone, focus, plans, prefs, openReaders(roomId))
         }
         val (context, names, sources, zone) = input
         // 事先备料和工具查到的共用一套编号
         val book = SourceBook(sources)
-        val tools = if (config.tools) RoomTools(roomId, now, zone, names, input.prefs, book).takeIf { it.definitions.isNotEmpty() } else null
+        val tools = if (config.tools) RoomTools(roomId, now, zone, names, input.prefs, book, input.openReaders).takeIf { it.definitions.isNotEmpty() } else null
         val focusText = input.focus?.let { m ->
             val t = m.createdAt.atZone(zone)
             "要整理的消息（${m.authorId?.let(names::get) ?: "AI"}，${t.monthValue}月${t.dayOfMonth}日 %02d:%02d）：${m.body.take(CONTEXT_LINE_MAX * 3)}\n".format(t.hour, t.minute) +
@@ -1150,6 +1116,8 @@ class AiService(
         val plans: Map<String, UUID>,
         /** 两个人都允许 AI 看的类别 */
         val prefs: AiPrefs,
+        /** 打开了「我没公开的阅读记录」的人（P14-02） */
+        val openReaders: Set<UUID>,
     )
 
     /** 某人自己的「AI 能看什么」设置。 */
@@ -1160,17 +1128,22 @@ class AiService(
     private fun roomPrefs(roomId: UUID): AiPrefs =
         RoomRepository.activeMembers(roomId).map { prefsOf(it.userId) }.fold(AiPrefs()) { a, b -> a and b }
 
+    /** 打开了「我没公开的阅读记录」的人（P14-02：各管各的，不取交集；「阅读」这一类有人关掉时用不上）。 */
+    private fun openReaders(roomId: UUID): Set<UUID> =
+        RoomRepository.activeMembers(roomId).filter { prefsOf(it.userId).readingPrivate }.map { it.userId }.toSet()
+
     /** 最近 [CONTEXT_MESSAGES] 条没撤回、没删除的消息，从早到晚。 */
     private fun chatContext(roomId: UUID): List<ContextLine> =
         messageQuery()
-            .where { (Messages.roomId eq roomId) and Messages.deletedAt.isNull() and Messages.retractedAt.isNull() }
+            .where { (Messages.roomId eq roomId) and Visibility.quotableMessage() }
             .orderBy(Messages.createdSeq, SortOrder.DESC)
             .limit(CONTEXT_MESSAGES)
             .map { it.toMessage() }
             .reversed()
             .mapNotNull { m ->
-                val text = if (m.kind == MessageKind.Ai) m.body else MessageRules.replyExcerpt(m.kind, m.body, m.file?.fileName, false)
-                text?.takeIf { it.isNotBlank() }?.let { ContextLine(m.id, m.authorId, it.take(CONTEXT_LINE_MAX)) }
+                // 每条最多 [CONTEXT_LINE_MAX] 字；以前借用回复摘要的规则，每条只剩 60 字（Q18）
+                val text = if (m.kind == MessageKind.Ai) m.body.take(CONTEXT_LINE_MAX) else MessageRules.asLine(m.kind, m.body, m.file?.fileName, CONTEXT_LINE_MAX)
+                text?.takeIf { it.isNotBlank() }?.let { ContextLine(m.id, m.authorId, it) }
             }
 
     /** 把问 AI 标成进行中；任务已经结束（排队时被停下）时返回 false。 */
@@ -1266,6 +1239,9 @@ class AiService(
         private const val MIN_ROUND_MS = 15_000L
 
         const val GAVE_UP = "资料查了不少，还是没能整理出回答。换个具体点的问法再试试？"
+
+        /** 回答里的来源编号 [n]：阅读、写作的结果点不开来源，去掉（P14-04） */
+        private val CITATION = Regex("""\s?\[\d{1,4}]""")
         private const val CONTEXT_MESSAGES = 30
         private const val CONTEXT_LINE_MAX = 300
         private const val MESSAGE_MAX = 10_000

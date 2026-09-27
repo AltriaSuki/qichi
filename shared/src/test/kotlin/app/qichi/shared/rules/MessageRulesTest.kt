@@ -45,4 +45,13 @@ class MessageRulesTest {
         assertEquals(30, MessageRules.photoCaption(emoji).codePointCount(0, 60))
         assertEquals("", MessageRules.photoCaption("   "))
     }
+
+    @Test
+    fun `写成一行的消息：写法和回复摘要一样，长度由调用方定`() {
+        val long = "一".repeat(400)
+        assertEquals("一".repeat(300), MessageRules.asLine(MessageKind.Text, long, null, 300))
+        assertEquals("周末 去河边", MessageRules.asLine(MessageKind.Text, "  周末\n\n 去河边 ", null, 300))
+        assertEquals("[文件] 行程.pdf", MessageRules.asLine(MessageKind.File, " ", "行程.pdf", 300))
+        assertEquals(null, MessageRules.asLine(MessageKind.Text, "  ", null, 300))
+    }
 }

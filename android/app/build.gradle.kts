@@ -18,10 +18,16 @@ val localProperties = Properties().apply {
 // 打正式包时可以临时指定：./gradlew :app:assembleRelease -Pqichi.baseUrl=https://qichi1.duckdns.org
 val baseUrl: String = (findProperty("qichi.baseUrl") as String?) ?: localProperties.getProperty("qichi.baseUrl") ?: "http://127.0.0.1:8080"
 
-// 版本号跟着提交次数走：每次打包自动变大，内置更新据此判断新旧（不用手动改）
-val commitCount: Int = runCatching {
-    providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }.standardOutput.asText.get().trim().toInt()
-}.getOrDefault(1)
+// 版本号跟着提交次数走：每次打包自动变大，内置更新据此判断新旧（不用手动改）。
+// 浅克隆（只拉了最近几次提交）或不在 git 仓库里时数不准、会比线上的小：手机装不上，也不会提示更新。
+// 这时调试包照样打（版本号记作 1），正式包直接失败（见下面的 androidComponents，P13-06）
+val commitCount: Int? = runCatching {
+    val shallow = providers.exec { commandLine("git", "rev-parse", "--is-shallow-repository") }.standardOutput.asText.get().trim()
+    if (shallow == "true") null
+    else providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }.standardOutput.asText.get().trim().toInt()
+}.getOrNull()
+// 测试内置更新时可以临时指定：-Pqichi.versionCode=100
+val versionCodeOverride: Int? = (findProperty("qichi.versionCode") as String?)?.toInt()
 
 android {
     namespace = "app.qichi"
@@ -31,9 +37,8 @@ android {
         applicationId = "app.qichi"
         minSdk = 26
         targetSdk = 37
-        // 测试内置更新时可以临时指定：-Pqichi.versionCode=100
-        versionCode = (findProperty("qichi.versionCode") as String?)?.toInt() ?: commitCount
-        versionName = "0.2.$commitCount"
+        versionCode = versionCodeOverride ?: commitCount ?: 1
+        versionName = "0.2.${commitCount ?: "dev"}"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "BASE_URL", "\"${baseUrl.trimEnd('/')}\"")
     }
@@ -99,6 +104,23 @@ android {
     }
 }
 
+// 正式包的版本号必须可靠：取不到完整的提交数、又没有用 -Pqichi.versionCode 指定时，打正式包直接失败（P13-06）
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        val code = versionCodeOverride ?: commitCount
+        variant.outputs.forEach { output ->
+            output.versionCode.set(
+                providers.provider {
+                    code ?: throw GradleException(
+                        "取不到完整的 git 提交数（浅克隆或不在 git 仓库里），正式包的版本号会倒退。" +
+                            "先 git fetch --unshallow，或者用 -Pqichi.versionCode=N 指定",
+                    )
+                },
+            )
+        }
+    }
+}
+
 kotlin {
     jvmToolchain(21)
 }
@@ -159,6 +181,8 @@ dependencies {
     ksp(libs.androidx.hilt.compiler)
     implementation(libs.androidx.hilt.navigation.compose)
     implementation(libs.androidx.lifecycle.process)
+    // 桌面待办组件（P15-02）
+    implementation(libs.androidx.glance.appwidget)
 
     testImplementation(kotlin("test-junit"))
     testImplementation(libs.junit4)

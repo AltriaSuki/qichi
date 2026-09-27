@@ -10,6 +10,7 @@ import app.qichi.server.db.tx
 import app.qichi.server.plugins.Validator
 import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
+import app.qichi.server.plans.LinkedSteps
 import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomService
 import app.qichi.shared.api.CompleteTodoRequest
@@ -34,6 +35,7 @@ import java.util.UUID
 
 /**
  * 待办（P2-02）：新建、修改、完成（重复待办按 nextId 生成下一次）、取消完成、删除；子任务只有一层。
+ * 是某个计划的下一步时（P14-03），改动跟着写到那个计划上（[LinkedSteps]）。
  */
 class TodoService(
     private val db: QichiDatabase,
@@ -77,6 +79,7 @@ class TodoService(
 
     suspend fun update(userId: UUID, roomId: UUID, id: UUID, req: UpdateTodoRequest): Todo = db.tx {
         rooms.requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId) // 先锁再读：读到的是最新的，两人同时改不会互相覆盖（Q9）
         val current = existingInRoom(roomId, id)
         val title = (req.title as? Patch.Value)?.value?.trim() ?: current.title
         val note = if (req.note.isPresent) req.note.orNull()?.trim()?.takeIf { it.isNotEmpty() } else current.note
@@ -101,7 +104,7 @@ class TodoService(
             it[Todos.recurrence] = recurrence?.let { r -> Recurrence.parse(r)!!.format() }
             req.planId.ifPresent { p -> it[Todos.planId] = p }
         }
-        todo(id)!!
+        todo(id)!!.also { LinkedSteps.follow(this, writes, userId, it) }
     }
 
     /**
@@ -124,6 +127,7 @@ class TodoService(
             it[Todos.doneBy] = userId
         }
         val next = if (rule != null) createNext(this, roomId, userId, current, rule, req.nextId!!) else null
+        LinkedSteps.end(this, writes, roomId, userId, id)
         CompleteTodoResponse(todo(id)!!, next)
     }
 
@@ -146,6 +150,7 @@ class TodoService(
                     app.qichi.server.db.ChangeLog.select(app.qichi.server.db.ChangeLog.seq).where { app.qichi.server.db.ChangeLog.entityId eq n.id }.count() == 1L &&
                     Todos.select(Todos.id).where { Todos.parentId eq n.id }.empty()
             }?.let { n ->
+                LinkedSteps.end(this, writes, roomId, userId, n.id)
                 writes.hardDelete(this, roomId, userId, EntityType.Todo, n.id, Todos)
             }
         }
@@ -159,10 +164,14 @@ class TodoService(
         if (current.deletedAt == null) {
             val at = writes.now()
             writes.softDelete(this, roomId, userId, EntityType.Todo, id, Todos, at)
+            LinkedSteps.end(this, writes, roomId, userId, id)
             Todos.select(Todos.id)
                 .where { (Todos.parentId eq id) and Todos.deletedAt.isNull() }
                 .map { it[Todos.id] }
-                .forEach { child -> writes.softDelete(this, roomId, userId, EntityType.Todo, child, Todos, at) }
+                .forEach { child ->
+                    writes.softDelete(this, roomId, userId, EntityType.Todo, child, Todos, at)
+                    LinkedSteps.end(this, writes, roomId, userId, child)
+                }
         }
         todo(id)!!
     }

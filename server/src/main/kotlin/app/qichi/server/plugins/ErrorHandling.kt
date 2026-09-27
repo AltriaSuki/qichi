@@ -50,6 +50,7 @@ fun ProblemCode.defaultStatus(): HttpStatusCode = when (this) {
     ProblemCode.UnsupportedMediaType -> HttpStatusCode.UnsupportedMediaType
     ProblemCode.RateLimited, ProblemCode.AiQuotaExceeded -> HttpStatusCode.TooManyRequests
     ProblemCode.AiUnavailable -> HttpStatusCode.ServiceUnavailable
+    ProblemCode.UpgradeRequired -> HttpStatusCode.UpgradeRequired
     ProblemCode.InternalError -> HttpStatusCode.InternalServerError
 }
 

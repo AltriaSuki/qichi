@@ -8,6 +8,7 @@ import app.qichi.server.db.Messages
 import app.qichi.server.db.Moods
 import app.qichi.server.db.Plans
 import app.qichi.server.db.Summaries
+import app.qichi.server.sync.Visibility
 import app.qichi.shared.api.AiPrefs
 import app.qichi.shared.api.Summary
 import app.qichi.shared.api.SummarySource
@@ -63,7 +64,7 @@ object SummaryData {
         val raw = mutableListOf<Raw>()
 
         val messages = Messages.selectAll().where {
-            (Messages.roomId eq roomId) and Messages.deletedAt.isNull() and Messages.retractedAt.isNull() and Messages.authorId.isNotNull() and
+            (Messages.roomId eq roomId) and Visibility.quotableMessage() and Messages.authorId.isNotNull() and
                 (Messages.kind inList listOf(MessageKind.Text.wireName, MessageKind.Image.wireName)) and (Messages.body neq "") and
                 (Messages.createdAt greaterEq from) and (Messages.createdAt less until)
         }.map { Raw(EntityType.Message, it[Messages.id], it[Messages.createdAt], it[Messages.authorId], "聊天", it[Messages.body]) }.sortedBy { it.at }

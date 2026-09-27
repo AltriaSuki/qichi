@@ -1,5 +1,6 @@
 package app.qichi.server.documents
 
+import app.qichi.server.db.ilike
 import app.qichi.shared.model.wireName
 import app.qichi.shared.model.fromWire
 import app.qichi.shared.model.DocCategory
@@ -13,6 +14,7 @@ import app.qichi.server.db.tx
 import app.qichi.server.plugins.ApiException
 import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
+import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomService
 import app.qichi.shared.api.CreateDocumentRequest
 import app.qichi.shared.api.Document
@@ -25,12 +27,14 @@ import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.ProblemCode
 import app.qichi.shared.rules.Limits
 import app.qichi.shared.util.CjkText
+import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.andWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.select
@@ -126,6 +130,7 @@ class DocumentService(
         val title = (req.title as? Patch.Value)?.value?.let(::checkTitle)
         return db.tx {
             rooms.requireMember(roomId, userId)
+            RoomRepository.lockRoom(roomId)
             val current = liveDocument(roomId, id)
             val pinned = req.pinned.orNull() ?: current.pinned
             val category = if (req.category.isPresent) req.category.orNull() else current.category
@@ -149,18 +154,23 @@ class DocumentService(
         validate { check(q.length in 1..100, "q", "搜索词 1–100 个字") }
         return db.tx(readOnly = true) {
             rooms.requireMember(roomId, userId)
-            val docs = Documents.selectAll().where { (Documents.roomId eq roomId) and Documents.deletedAt.isNull() }
-                .orderBy(Documents.updatedAt, SortOrder.DESC).map { it.toDocument() }
-            docs.asSequence().mapNotNull { d ->
-                val body = if (d.latestVersion == 0) "" else DocumentVersions.select(DocumentVersions.body)
-                    .where { (DocumentVersions.documentId eq d.id) and (DocumentVersions.version eq d.latestVersion) }.single()[DocumentVersions.body]
-                val at = body.indexOf(q, ignoreCase = true)
-                when {
-                    at >= 0 -> DocumentSearchHit(d.id, snippet(body, at, q.length))
-                    d.title.contains(q, ignoreCase = true) -> DocumentSearchHit(d.id, snippet(body, 0, 0))
-                    else -> null
+            // 在数据库里一次查完（P13-16）：标题或最新一版正文里有这个词的，最近更新的在前，只取前 [SEARCH_MAX] 篇
+            val pattern = "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            Documents.join(DocumentVersions, JoinType.LEFT, Documents.id, DocumentVersions.documentId)
+                .select(Documents.id, DocumentVersions.body)
+                .where {
+                    (Documents.roomId eq roomId) and Documents.deletedAt.isNull() and
+                        // 只连最新一版；还没存过的文稿没有版本，只看标题
+                        ((DocumentVersions.version eq Documents.latestVersion) or DocumentVersions.documentId.isNull()) and
+                        ((Documents.title ilike pattern) or (DocumentVersions.body ilike pattern))
                 }
-            }.take(SEARCH_MAX).toList()
+                .orderBy(Documents.updatedAt, SortOrder.DESC)
+                .limit(SEARCH_MAX)
+                .map { row ->
+                    val body = row.getOrNull(DocumentVersions.body).orEmpty()
+                    val at = body.indexOf(q, ignoreCase = true)
+                    DocumentSearchHit(row[Documents.id], if (at >= 0) snippet(body, at, q.length) else snippet(body, 0, 0))
+                }
         }
     }
 

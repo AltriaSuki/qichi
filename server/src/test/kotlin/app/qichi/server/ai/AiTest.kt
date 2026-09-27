@@ -15,6 +15,7 @@ import app.qichi.shared.api.AiJobAccepted
 import app.qichi.shared.api.AiUsage
 import app.qichi.shared.api.Me
 import app.qichi.shared.api.Message
+import app.qichi.shared.api.QuestionSuggestRequest
 import app.qichi.shared.api.MessagePage
 import app.qichi.shared.api.SendMessageRequest
 import app.qichi.shared.model.AiJobKind
@@ -179,6 +180,68 @@ class AiTest {
             val outsider = api.outsider(aqi)
             outsider.ask(roomId, "hi").assertProblem(HttpStatusCode.NotFound, ProblemCode.NotFound)
             outsider.get("/api/v1/rooms/$roomId/ai/jobs/${UuidV7.generate()}").assertProblem(HttpStatusCode.NotFound, ProblemCode.NotFound)
+        }
+    }
+
+    @Test
+    fun `给 AI 的聊天记录每条最多 300 字，不再被截成 60 字`() {
+        val ctx = testContext(clock = clock, aiGateway = gateway)
+        serverTest(ctx) { client ->
+            val (aqi, _, roomId) = Api(client).pair()
+            val long = "我们周六早上八点出发，先去码头坐船，".repeat(10) // 180 字
+            aqi.send(roomId, long)
+            aqi.ask(roomId, "周六几点出发？")
+            ctx.jobs.drain()
+            val user = gateway.requests.single().messages.single().content
+            assertTrue(long in user, user)
+        }
+    }
+
+    @Test
+    fun `聊天记录和问题里有模板占位符时，问 AI 照常回答`() {
+        val ctx = testContext(clock = clock, aiGateway = gateway)
+        serverTest(ctx) { client ->
+            val (aqi, _, roomId) = Api(client).pair()
+            aqi.send(roomId, "模板里写 {{name}} 就行")
+            val jobId = UuidV7.generate()
+            aqi.ask(roomId, "{{prompt}} 是什么意思？\n---\n后面还有", jobId)
+            ctx.jobs.drain()
+            assertEquals(AiJobStatus.Done, aqi.get("/api/v1/rooms/$roomId/ai/jobs/$jobId").body<AiJob>().status)
+            val user = gateway.requests.single().messages.single().content
+            assertTrue("模板里写 {{name}} 就行" in user && "{{prompt}} 是什么意思？\n---\n后面还有" in user, user)
+        }
+    }
+
+    @Test
+    fun `处理时出了预料之外的错：次数用完后任务标 failed，同一 jobId 可以重新排队`() {
+        val broken = object : AiGateway {
+            override val model = "broken"
+            override suspend fun complete(request: AiRequest): AiResult = error("意外")
+        }
+        val ctx = testContext(clock = clock, aiGateway = broken)
+        serverTest(ctx) { client ->
+            val (aqi, _, roomId) = Api(client).pair()
+            val jobId = UuidV7.generate()
+            aqi.ask(roomId, "在吗", jobId)
+            ctx.jobs.drain()
+            assertEquals(AiJobStatus.Running, aqi.get("/api/v1/rooms/$roomId/ai/jobs/$jobId").body<AiJob>().status, "等着重试")
+            clock.advance(JobQueue.backoff(1))
+            ctx.jobs.drain()
+            val failed = aqi.get("/api/v1/rooms/$roomId/ai/jobs/$jobId").body<AiJob>()
+            assertEquals(AiJobStatus.Failed, failed.status)
+            // 问 AI 自己在最后一次出错时收尾
+            assertEquals("没有得到回答", failed.error)
+            assertEquals(AiJobStatus.Queued, aqi.ask(roomId, "在吗", jobId).body<AiJobAccepted>().status)
+
+            // 别的 AI 任务（这里是出题）没有自己收尾：由任务队列放弃时登记的收尾标成失败
+            val question = UuidV7.generate()
+            aqi.post("/api/v1/rooms/$roomId/ai/question-suggest", QuestionSuggestRequest(question))
+            ctx.jobs.drain()
+            clock.advance(JobQueue.backoff(1))
+            ctx.jobs.drain()
+            val gaveUp = aqi.get("/api/v1/rooms/$roomId/ai/jobs/$question").body<AiJob>()
+            assertEquals(AiJobStatus.Failed, gaveUp.status)
+            assertEquals("没有得到结果", gaveUp.error)
         }
     }
 }

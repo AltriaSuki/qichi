@@ -13,6 +13,7 @@ import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
 import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomService
+import app.qichi.server.sync.Visibility
 import app.qichi.shared.api.Book
 import app.qichi.shared.api.CreateBookRequest
 import app.qichi.shared.api.CreateHighlightRequest
@@ -65,9 +66,6 @@ fun ResultRow.toHighlight() = Highlight(
     bookId = this[Highlights.bookId], userId = this[Highlights.userId], kind = fromWire<HighlightKind>(this[Highlights.kind]),
     locator = this[Highlights.locator], text = this[Highlights.text], note = this[Highlights.note], shared = this[Highlights.shared],
 )
-
-/** 对方的标记只有共享了才看得到（同步、快照都按这个过滤）。 */
-fun Highlight.visibleTo(userId: UUID): Boolean = this.userId == userId || shared
 
 /**
  * 阅读（P6-04）：书架、各自进度（每人每本一条）、书签 / 标注 / 摘录（只能改删自己的，共享后对方可见）、共读计划。
@@ -124,6 +122,7 @@ class ReadingService(
         val note = (req.planNote as? Patch.Value)?.let { cleanOptional(it.value, Limits.BOOK_PLAN_NOTE_MAX, "planNote") }
         return db.tx {
             rooms.requireMember(roomId, userId)
+            RoomRepository.lockRoom(roomId)
             val current = liveBook(roomId, id)
             val target = (req.planTargetDate as? Patch.Value)?.value
             val changes = listOf(
@@ -213,7 +212,7 @@ class ReadingService(
     }
 
     private fun ownHighlight(roomId: UUID, bookId: UUID, id: UUID, userId: UUID): Highlight {
-        val h = highlight(id)?.takeIf { it.roomId == roomId && it.bookId == bookId && it.deletedAt == null && it.visibleTo(userId) } ?: notFound()
+        val h = highlight(id)?.takeIf { it.roomId == roomId && it.bookId == bookId && it.deletedAt == null && Visibility.highlight(it, userId) } ?: notFound()
         if (h.userId != userId) forbidden("只能改自己的标记")
         return h
     }
@@ -222,6 +221,7 @@ class ReadingService(
         val note = (req.note as? Patch.Value)?.let { cleanOptional(it.value, Limits.HIGHLIGHT_NOTE_MAX, "note") }
         return db.tx {
             rooms.requireMember(roomId, userId)
+            RoomRepository.lockRoom(roomId)
             val current = ownHighlight(roomId, bookId, id, userId)
             val shared = (req.shared as? Patch.Value)?.value
             val noteChanged = req.note is Patch.Value && note != current.note

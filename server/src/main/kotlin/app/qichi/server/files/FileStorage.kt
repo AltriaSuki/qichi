@@ -8,13 +8,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.OutputStream
 import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.time.Instant
 import java.util.HexFormat
+import java.util.UUID
 
 /** 已写到临时位置、还没归档的上传内容。 */
 class StagedFile(val temp: Path, val size: Long, val sha256: String)
+
+/** 磁盘上的一个文件：相对根目录的路径（和 files.storage_path 同样的写法）、最后修改时间。 */
+class StoredEntry(val path: String, val modified: Instant)
 
 /**
  * 文件存放（docs/02-architecture.md「文件存储」）。路径一律相对根目录，
@@ -36,6 +43,20 @@ interface FileStorage {
     fun resolve(relativePath: String): Path
 
     fun delete(relativePath: String)
+
+    // ── 回收没有记录的文件（每天的清理用） ──
+
+    /** 按房间存放的顶层目录（名字是房间 id）。临时目录、不是按房间存放的目录（如 app-releases）不在里面。 */
+    fun roomDirs(): List<UUID>
+
+    /** 房间目录下的所有文件（含缩略图）。 */
+    fun filesIn(roomId: UUID): List<StoredEntry>
+
+    /** 删掉房间目录下已经空了的月、年目录和房间目录本身。 */
+    fun pruneEmpty(roomId: UUID)
+
+    /** 删掉临时目录里最后修改早于 [before] 的文件（上传到一半进程没了留下的），返回删了几个。 */
+    fun cleanTemp(before: Instant): Int
 }
 
 fun payloadTooLarge(maxBytes: Long): Nothing = throw ApiException(
@@ -86,8 +107,16 @@ class LocalFileStorage(root: Path) : FileStorage {
 
     override fun commit(staged: StagedFile, relativePath: String) {
         val target = resolve(relativePath)
-        Files.createDirectories(target.parent)
-        Files.move(staged.temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        // 空目录会被每天的清理删掉：刚建好就被删了的话，再建一次
+        for (attempt in 1..2) {
+            Files.createDirectories(target.parent)
+            try {
+                Files.move(staged.temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+                return
+            } catch (e: NoSuchFileException) {
+                if (attempt == 2 || !Files.exists(staged.temp)) throw e
+            }
+        }
     }
 
     override fun discard(staged: StagedFile) {
@@ -102,5 +131,40 @@ class LocalFileStorage(root: Path) : FileStorage {
 
     override fun delete(relativePath: String) {
         Files.deleteIfExists(resolve(relativePath))
+    }
+
+    override fun roomDirs(): List<UUID> = Files.list(root).use { entries ->
+        entries.filter { Files.isDirectory(it, LinkOption.NOFOLLOW_LINKS) }.toList().mapNotNull { dir ->
+            val name = dir.fileName.toString()
+            runCatching { UUID.fromString(name) }.getOrNull()?.takeIf { it.toString() == name }
+        }
+    }
+
+    override fun filesIn(roomId: UUID): List<StoredEntry> {
+        val dir = root.resolve(roomId.toString())
+        if (!Files.isDirectory(dir, LinkOption.NOFOLLOW_LINKS)) return emptyList()
+        return Files.walk(dir).use { paths ->
+            paths.filter { Files.isRegularFile(it, LinkOption.NOFOLLOW_LINKS) }.toList().map {
+                StoredEntry(root.relativize(it).joinToString("/"), Files.getLastModifiedTime(it, LinkOption.NOFOLLOW_LINKS).toInstant())
+            }
+        }
+    }
+
+    override fun pruneEmpty(roomId: UUID) {
+        val dir = root.resolve(roomId.toString())
+        if (!Files.isDirectory(dir, LinkOption.NOFOLLOW_LINKS)) return
+        // 从最深的开始：月、年、房间目录
+        val dirs = Files.walk(dir).use { paths -> paths.filter { Files.isDirectory(it, LinkOption.NOFOLLOW_LINKS) }.toList() }
+        for (d in dirs.sortedByDescending { it.nameCount }) {
+            val empty = Files.newDirectoryStream(d).use { !it.iterator().hasNext() }
+            // 刚好有文件放进来（上传）就不删了
+            if (empty) runCatching { Files.deleteIfExists(d) }
+        }
+    }
+
+    override fun cleanTemp(before: Instant): Int = Files.list(tmpDir).use { entries ->
+        entries.filter { Files.isRegularFile(it, LinkOption.NOFOLLOW_LINKS) }.toList().count { path ->
+            Files.getLastModifiedTime(path).toInstant().isBefore(before) && Files.deleteIfExists(path)
+        }
     }
 }

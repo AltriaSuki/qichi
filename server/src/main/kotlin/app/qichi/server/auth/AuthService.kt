@@ -17,6 +17,10 @@ import app.qichi.shared.api.RegisterRequest
 import app.qichi.shared.model.ProblemCode
 import app.qichi.shared.rules.Limits
 import app.qichi.shared.util.UuidV7
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
@@ -31,6 +35,7 @@ import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
 import java.time.Clock
+import java.time.Duration
 import app.qichi.server.plugins.notFound
 import java.util.UUID
 
@@ -46,13 +51,23 @@ class AuthService(
     private val tokens: TokenService,
     private val rooms: RoomService,
     private val clock: Clock,
+    /** 这几次登录被作废之后（事务已提交）调用：断开它们的实时连接（P13-09） */
+    private val onRevoked: suspend (userId: UUID, familyIds: Set<UUID>) -> Unit = { _, _ -> },
 ) {
     private val log = LoggerFactory.getLogger(AuthService::class.java)
 
-    /** 登录按用户名限流；改密码按用户限流；邀请码按 IP 限流。 */
+    /**
+     * 登录按用户名限流，另按 IP 限流（换着用户名猜也绕不过，P13-02）；改密码按用户限流；邀请码按 IP 限流。
+     */
     val loginThrottle = FailureThrottle(clock)
+    val loginIpThrottle = FailureThrottle(clock, maxFailures = LOGIN_IP_MAX_FAILURES)
     val passwordThrottle = FailureThrottle(clock)
     val inviteThrottle = FailureThrottle(clock, maxFailures = 10)
+
+    /** 密码哈希（Argon2id，每次约 19MB 内存）：同时最多算这么多个，并且不占处理请求的线程。 */
+    private val hashPermits = Semaphore(HASH_CONCURRENCY)
+
+    private suspend fun <T> hashing(block: () -> T): T = hashPermits.withPermit { withContext(Dispatchers.Default) { block() } }
 
     data class Registered(val userId: UUID, val tokens: AuthTokens)
 
@@ -67,19 +82,16 @@ class AuthService(
             check((req.deviceName?.length ?: 0) <= Limits.DEVICE_NAME_MAX, "deviceName", "设备名太长")
         }
         if (inviteCode != null) inviteThrottle.check("invite:$clientIp")
-        val passwordHash = hasher.hash(req.password)
-
         return try {
+            // 先用便宜的查询挡掉注定失败的注册，再算密码哈希：Argon2 很贵，不能让任何人随便刷（P13-02）。
+            // 这里不加锁，下面的事务里在锁内还会再判断一次。
+            db.tx(readOnly = true) { checkCanRegister(username, inviteCode, precheckInvite = true) }
+            val passwordHash = hashing { hasher.hash(req.password) }
             db.tx {
                 // 串行化注册：保证「系统里还没有用户」的判断不会被两个并发请求同时通过
                 jdbc.exec("SELECT pg_advisory_xact_lock($REGISTER_LOCK_KEY)")
-                val hasUsers = Users.select(Users.id).limit(1).any()
-                if (hasUsers && inviteCode == null) {
-                    throw ApiException(ProblemCode.RegistrationClosed, "注册需要邀请码")
-                }
-                if (Users.select(Users.id).where { Users.username eq username }.any()) {
-                    throw ApiException(ProblemCode.UsernameTaken, "这个用户名已经有人用了")
-                }
+                // 邀请码由下面的 redeem 在锁内完整校验
+                checkCanRegister(username, inviteCode, precheckInvite = false)
                 val now = clock.instant()
                 val userId = UuidV7.generate()
                 Users.insert {
@@ -100,22 +112,41 @@ class AuthService(
         }
     }
 
-    suspend fun login(req: LoginRequest): AuthTokens {
+    /**
+     * 注册资格：系统里已有用户时必须带邀请码；用户名不能重复。
+     * [precheckInvite] 为 true 时顺带（不加锁地）看一眼邀请码能不能用，免得为注定失败的注册算哈希。
+     */
+    private fun checkCanRegister(username: String, inviteCode: String?, precheckInvite: Boolean) {
+        if (inviteCode == null && Users.select(Users.id).limit(1).any()) {
+            throw ApiException(ProblemCode.RegistrationClosed, "注册需要邀请码")
+        }
+        if (Users.select(Users.id).where { Users.username eq username }.any()) {
+            throw ApiException(ProblemCode.UsernameTaken, "这个用户名已经有人用了")
+        }
+        if (inviteCode != null && precheckInvite) rooms.checkInvite(inviteCode)
+    }
+
+    suspend fun login(req: LoginRequest, clientIp: String): AuthTokens {
         val username = req.username.trim().lowercase()
         val key = "login:$username"
+        val ipKey = "login-ip:$clientIp"
         loginThrottle.check(key)
+        loginIpThrottle.check(ipKey)
 
         val user = db.tx {
             Users.select(Users.id, Users.passwordHash).where { Users.username eq username }.singleOrNull()
         }
-        val ok = if (user == null) {
-            hasher.dummyVerify(req.password)
-            false
-        } else {
-            hasher.verify(req.password, user[Users.passwordHash])
+        val ok = hashing {
+            if (user == null) {
+                hasher.dummyVerify(req.password)
+                false
+            } else {
+                hasher.verify(req.password, user[Users.passwordHash])
+            }
         }
         if (!ok) {
             loginThrottle.recordFailure(key)
+            loginIpThrottle.recordFailure(ipKey)
             throw ApiException(ProblemCode.Unauthorized, "用户名或密码不正确")
         }
         loginThrottle.reset(key)
@@ -125,6 +156,10 @@ class AuthService(
 
     /**
      * 刷新：换一对新令牌，旧的立即作废。已作废的刷新令牌被再次使用 → 这次登录的所有令牌全部作废。
+     *
+     * 例外（5 分钟宽限，P13-08）：弱网下常见「服务端已经换了新令牌、回应没送到手机」，手机只能拿旧令牌再试。
+     * 被换掉的旧令牌 [REFRESH_GRACE] 内再出现、且换出来的新令牌还没被用过，就当作回应丢了：
+     * 作废没送到的那对，再换发一对，并让旧令牌指向新发的这对（回应再丢一次也还能再试）。
      */
     suspend fun refresh(refreshToken: String): AuthTokens {
         val hash = TokenService.hashRefresh(refreshToken)
@@ -136,8 +171,28 @@ class AuthService(
             val familyId = row[RefreshTokens.familyId]
             when {
                 row[RefreshTokens.revokedAt] != null -> {
-                    revokeFamily(familyId)
-                    RefreshOutcome.Reused(row[RefreshTokens.userId], familyId)
+                    val successor = row[RefreshTokens.replacedBy]?.let { id ->
+                        RefreshTokens.selectAll().where { RefreshTokens.id eq id }.forUpdate(ForUpdateOption.ForUpdate).singleOrNull()
+                    }
+                    val lostResponse = successor != null &&
+                        successor[RefreshTokens.revokedAt] == null &&
+                        successor[RefreshTokens.expiresAt].isAfter(now) &&
+                        !row[RefreshTokens.revokedAt]!!.plus(REFRESH_GRACE).isBefore(now)
+                    if (lostResponse) {
+                        val session = createSession(row[RefreshTokens.userId], familyId, row[RefreshTokens.deviceName])
+                        RefreshTokens.update({ RefreshTokens.id eq successor!![RefreshTokens.id] }) {
+                            it[revokedAt] = now
+                            it[replacedBy] = session.refreshTokenId
+                        }
+                        RefreshTokens.update({ RefreshTokens.id eq row[RefreshTokens.id] }) {
+                            it[replacedBy] = session.refreshTokenId
+                            it[lastUsedAt] = now
+                        }
+                        RefreshOutcome.Ok(session.tokens)
+                    } else {
+                        revokeFamily(familyId)
+                        RefreshOutcome.Reused(row[RefreshTokens.userId], familyId)
+                    }
                 }
                 !row[RefreshTokens.expiresAt].isAfter(now) -> RefreshOutcome.Invalid
                 else -> {
@@ -156,6 +211,7 @@ class AuthService(
             is RefreshOutcome.Ok -> outcome.tokens
             is RefreshOutcome.Reused -> {
                 log.warn("刷新令牌被重复使用，已作废该登录的全部令牌：user={} family={}", outcome.userId, outcome.familyId)
+                onRevoked(outcome.userId, setOf(outcome.familyId))
                 throw ApiException(ProblemCode.Unauthorized, "登录已失效，请重新登录")
             }
             RefreshOutcome.Invalid -> throw ApiException(ProblemCode.Unauthorized, "登录已失效，请重新登录")
@@ -173,6 +229,7 @@ class AuthService(
         db.tx {
             revokeFamily(principal.familyId)
         }
+        onRevoked(principal.userId, setOf(principal.familyId))
     }
 
     /** 改密码：作废其它所有登录；当前设备拿到一对新令牌。 */
@@ -185,14 +242,18 @@ class AuthService(
         val current = db.tx {
             Users.select(Users.passwordHash).where { Users.id eq principal.userId }.single()[Users.passwordHash]
         }
-        if (!hasher.verify(req.currentPassword, current)) {
+        if (!hashing { hasher.verify(req.currentPassword, current) }) {
             passwordThrottle.recordFailure(key)
             throw ApiException(ProblemCode.Unauthorized, "当前密码不正确")
         }
         passwordThrottle.reset(key)
-        val newHash = hasher.hash(req.newPassword)
-        return db.tx {
+        val newHash = hashing { hasher.hash(req.newPassword) }
+        var others: Set<UUID> = emptySet()
+        val fresh = db.tx {
             val now = clock.instant()
+            others = RefreshTokens.select(RefreshTokens.familyId)
+                .where { (RefreshTokens.userId eq principal.userId) and RefreshTokens.revokedAt.isNull() }
+                .map { it[RefreshTokens.familyId] }.toSet() - principal.familyId
             Users.update({ Users.id eq principal.userId }) {
                 it[passwordHash] = newHash
                 it[passwordChangedAt] = now
@@ -209,6 +270,8 @@ class AuthService(
             }
             newSession(principal.userId, principal.familyId, deviceName)
         }
+        onRevoked(principal.userId, others)
+        return fresh
     }
 
     /** 「安全」页：我的有效登录（每次登录一行），最近用过的在前。 */
@@ -230,12 +293,15 @@ class AuthService(
     }
 
     /** 让某台设备退出登录（可以是自己这台，等于登出）；不是自己的登录一律 404。 */
-    suspend fun revokeSession(principal: UserPrincipal, familyId: UUID) = db.tx {
-        val mine = RefreshTokens.select(RefreshTokens.id).where {
-            (RefreshTokens.familyId eq familyId) and (RefreshTokens.userId eq principal.userId) and RefreshTokens.revokedAt.isNull()
-        }.limit(1).any()
-        if (!mine) notFound()
-        revokeFamily(familyId)
+    suspend fun revokeSession(principal: UserPrincipal, familyId: UUID) {
+        db.tx {
+            val mine = RefreshTokens.select(RefreshTokens.id).where {
+                (RefreshTokens.familyId eq familyId) and (RefreshTokens.userId eq principal.userId) and RefreshTokens.revokedAt.isNull()
+            }.limit(1).any()
+            if (!mine) notFound()
+            revokeFamily(familyId)
+        }
+        onRevoked(principal.userId, setOf(familyId))
     }
 
     /** 访问令牌所属的登录是否仍然有效（登出、改密码、重复使用检测后立即失效）。 */
@@ -280,5 +346,14 @@ class AuthService(
     private companion object {
         /** pg_advisory_xact_lock 的固定键：注册串行化 */
         const val REGISTER_LOCK_KEY = 7_140_001L
+
+        /** 同一个 IP 15 分钟内最多输错这么多次（不管是哪个用户名） */
+        const val LOGIN_IP_MAX_FAILURES = 20
+
+        /** 同时计算的密码哈希个数上限（1GB 的服务器、256MB 的堆） */
+        const val HASH_CONCURRENCY = 2
+
+        /** 刷新回应丢失的宽限：被换掉的旧刷新令牌这么久之内再出现、新令牌还没被用过，就再换发一对（人类 2026-09-26 选定） */
+        val REFRESH_GRACE: Duration = Duration.ofMinutes(5)
     }
 }

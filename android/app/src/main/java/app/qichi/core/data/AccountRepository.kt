@@ -13,14 +13,15 @@ import app.qichi.shared.api.LoginSession
 import app.qichi.shared.api.AiPrefs
 import app.qichi.shared.api.NotificationPrefs
 import app.qichi.shared.api.Patch
+import app.qichi.shared.api.ReadingPrompt
 import app.qichi.shared.api.UpdateMeRequest
 import io.ktor.http.HttpMethod
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
 /**
- * 「我的」里账号相关的：我写下的内容（本机归总）、登录设备、改密码、通知偏好。
- * 登录设备、改密码、通知偏好都要联网（不进发件箱）。
+ * 「我的」里账号相关的：我写下的内容（本机归总）、登录设备、改密码、通知偏好、AI 能看什么、阅读的常用提示词。
+ * 除了本机归总，都要联网（不进发件箱）。
  */
 class AccountRepository(
     private val db: QichiDatabase,
@@ -52,5 +53,10 @@ class AccountRepository(
 
     suspend fun updateAiPrefs(prefs: AiPrefs) {
         rooms.updateMe(UpdateMeRequest(aiPrefs = Patch.of(prefs.toJson())))
+    }
+
+    /** 阅读的常用提示词整套换成 [prompts]（P14-05；顺序即显示顺序）。 */
+    suspend fun updateReadingPrompts(prompts: List<ReadingPrompt>) {
+        rooms.updateMe(UpdateMeRequest(readingPrompts = Patch.of(prompts)))
     }
 }

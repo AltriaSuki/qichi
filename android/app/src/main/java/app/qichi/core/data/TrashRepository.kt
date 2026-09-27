@@ -10,10 +10,12 @@ import app.qichi.core.sync.SyncScheduler
 import app.qichi.shared.api.EntityCodec
 import app.qichi.shared.api.Event
 import app.qichi.shared.api.Message
+import app.qichi.shared.api.Annotation
 import app.qichi.shared.api.ArchiveItem
 import app.qichi.shared.api.BoardPost
 import app.qichi.shared.api.Book
 import app.qichi.shared.api.Decision
+import app.qichi.shared.api.DocComment
 import app.qichi.shared.api.Summary
 import app.qichi.shared.api.PlanStage
 import app.qichi.shared.api.Milestone
@@ -21,7 +23,9 @@ import app.qichi.shared.api.BoardTopic
 import app.qichi.shared.api.Document
 import app.qichi.shared.api.Idea
 import app.qichi.shared.api.Plan
+import app.qichi.shared.api.PlanLog
 import app.qichi.shared.api.Question
+import app.qichi.shared.api.ReviewDocument
 import app.qichi.shared.api.Mood
 import app.qichi.shared.api.SyncEntity
 import app.qichi.shared.api.Todo
@@ -47,7 +51,8 @@ data class TrashEntry(
 
 /**
  * 回收站：从本机数据库读（离线也能看），恢复与彻底删除先改本机、再经发件箱发出。
- * 规则同服务端：随父待办一起删掉的子任务不单独列出；心情只有作者能恢复或彻底删除，所以只列自己的。
+ * 规则同服务端：随父待办一起删掉的子任务不单独列出；心情、计划的进展记录、批注、文稿留言只有作者能恢复或彻底删除，
+ * 所以只列自己的。
  */
 class TrashRepository(
     private val db: QichiDatabase,
@@ -63,6 +68,8 @@ class TrashRepository(
             val entities = rows.map { LocalStore.toLocal<SyncEntity>(it).value }
             val deletedTodos = entities.filterIsInstance<Todo>().map { it.id }.toSet()
             val deletedPlans = entities.filterIsInstance<Plan>().map { it.id }.toSet()
+            val deletedReviews = entities.filterIsInstance<ReviewDocument>().map { it.id }.toSet()
+            val deletedDocuments = entities.filterIsInstance<Document>().map { it.id }.toSet()
             entities.mapNotNull { entity ->
                 when (entity) {
                     is Message -> TrashEntry(TrashType.Message, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
@@ -82,6 +89,15 @@ class TrashRepository(
                     // 计划也在回收站里时，阶段、里程碑随计划一起，不单独列出
                     is PlanStage -> if (entity.planId in deletedPlans) null else TrashEntry(TrashType.PlanStage, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     is Milestone -> if (entity.planId in deletedPlans) null else TrashEntry(TrashType.Milestone, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
+                    // 进展记录（P14-03）：同上；只有记的人能恢复，只列自己的
+                    is PlanLog -> if (entity.planId in deletedPlans || entity.authorId != me) null
+                        else TrashEntry(TrashType.PlanLog, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
+                    is ReviewDocument -> TrashEntry(TrashType.ReviewDocument, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
+                    // 批注、文稿留言（P15-03）：只有写的人能恢复，只列自己的；审稿文件、文稿也在回收站里时随它一起，不单独列
+                    is Annotation -> if (entity.documentId in deletedReviews || entity.authorId != me) null
+                        else TrashEntry(TrashType.Annotation, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
+                    is DocComment -> if (entity.documentId in deletedDocuments || entity.authorId != me) null
+                        else TrashEntry(TrashType.DocComment, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     else -> null
                 }
             }.sortedByDescending { it.deletedAt }
@@ -122,6 +138,10 @@ class TrashRepository(
             is Summary -> e.copy(deletedAt = null, deletedBy = null)
             is PlanStage -> e.copy(deletedAt = null, deletedBy = null)
             is Milestone -> e.copy(deletedAt = null, deletedBy = null)
+            is PlanLog -> e.copy(deletedAt = null, deletedBy = null)
+            is ReviewDocument -> e.copy(deletedAt = null, deletedBy = null)
+            is Annotation -> e.copy(deletedAt = null, deletedBy = null)
+            is DocComment -> e.copy(deletedAt = null, deletedBy = null)
             else -> return
         }
         db.transaction {
@@ -134,7 +154,7 @@ class TrashRepository(
         scheduler.kickOutbox()
     }
 
-    /** 彻底删除：本机马上删掉（连同子任务、心情的回应），再告诉服务端。 */
+    /** 彻底删除：本机马上删掉（连同子任务、心情的回应、审稿文件的版本和批注、留言的回复），再告诉服务端。 */
     suspend fun purge(roomId: UUID, entry: TrashEntry) {
         db.transaction {
             val entity = entry.entity
@@ -152,10 +172,31 @@ class TrashRepository(
                         .forEach { store.deleteLocal(type, UUID.fromString(it.id)) }
                 }
             }
+            // 审稿文件（P15-03）：版本、AI 发现、批注连同批注下的讨论
+            if (entity is ReviewDocument) {
+                db.entities().children(roomId.toString(), EntityType.Annotation.wireName, entity.id.toString()).forEach { annotation ->
+                    deleteChildren(roomId, EntityType.AnnotationReply, annotation.id)
+                    store.deleteLocal(EntityType.Annotation, UUID.fromString(annotation.id))
+                }
+                deleteChildren(roomId, EntityType.ReviewVersion, entity.id.toString())
+                deleteChildren(roomId, EntityType.AiFinding, entity.id.toString())
+            }
+            if (entity is Annotation) deleteChildren(roomId, EntityType.AnnotationReply, entity.id.toString())
+            // 文稿留言挂在文稿下：讨论的回复是同一篇文稿下 parentId 指向它的那些；文稿删掉时留言都删
+            if (entity is DocComment || entity is Document) {
+                db.entities().children(roomId.toString(), EntityType.DocComment.wireName, (if (entity is DocComment) entity.documentId else entity.id).toString())
+                    .map { LocalStore.toLocal<DocComment>(it).value }
+                    .filter { entity is Document || it.parentId == entity.id }
+                    .forEach { store.deleteLocal(EntityType.DocComment, it.id) }
+            }
             store.deleteLocal(entry.type.entityType, entry.id)
             store.enqueue(roomId, entry.type.entityType, entry.id, OutboxOp.delete(path(roomId, entry), kind = OutboxOp.KIND_NO_CONTENT))
         }
         scheduler.kickOutbox()
+    }
+
+    private suspend fun deleteChildren(roomId: UUID, type: EntityType, parentId: String) {
+        db.entities().children(roomId.toString(), type.wireName, parentId).forEach { store.deleteLocal(type, UUID.fromString(it.id)) }
     }
 
     private suspend fun childrenDeletedWith(roomId: UUID, parent: Todo): List<Todo> =
@@ -192,4 +233,5 @@ val TrashType.entityType: EntityType
         TrashType.ReviewDocument -> EntityType.ReviewDocument
         TrashType.Annotation -> EntityType.Annotation
         TrashType.DocComment -> EntityType.DocComment
+        TrashType.PlanLog -> EntityType.PlanLog
     }

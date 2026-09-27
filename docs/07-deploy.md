@@ -76,7 +76,7 @@ curl https://qichi.你的域名.com/api/v1/health
 ## 5. 第一个账号
 
 1. 编译正式版 App：`cd android && ./gradlew :app:assembleRelease -Pqichi.baseUrl=https://qichi.你的域名.com`，
-   APK 在 `android/app/build/outputs/apk/release/`。正式版签名用 `android/local.properties` 里的 `qichi.release.storeFile / password / alias`
+   APK 在 `android/app/build/outputs/apk/release/`。版本号按 git 提交次数算，要在完整的仓库里打：浅克隆（`git clone --depth …`）时正式包直接失败，先 `git fetch --unshallow`。正式版签名用 `android/local.properties` 里的 `qichi.release.storeFile / password / alias`
    （钥匙文件放在仓库外，**务必另外备份**：丢了以后就不能覆盖安装新版本，只能卸载重装）
 2. 打开 App 注册：系统里还没有用户时，第一个人不需要邀请码
 3. 建房间 → 在「我的 → 成员与邀请」生成邀请码 → 发给对方
@@ -94,25 +94,60 @@ docker compose logs -f server
 
 更新前先手动跑一次备份（见下一节）。
 
-## 7. 备份与恢复
+## 7. 备份、告警与恢复
 
 ### 每日自动备份
 
 ```bash
 sudo mkdir -p /var/backups/qichi
 crontab -e
-# 加一行：每天凌晨 4 点
-0 4 * * * /home/<你的用户名>/qichi/deploy/backup.sh >> /var/log/qichi-backup.log 2>&1
+# 加两行（部署目录按实际改）：每天凌晨 4 点备份；每半小时查一次磁盘
+0 4 * * * /opt/qichi/deploy/backup.sh >> /var/log/qichi-backup.log 2>&1
+*/30 * * * * /opt/qichi/deploy/check_disk.sh >> /var/log/qichi-backup.log 2>&1
 ```
 
-备份在 `/var/backups/qichi/`：`db-时间.dump`（数据库）和 `files-时间.tar.gz`（图片、文件、书）。默认保留 14 天。
+`backup.sh` 每天备份数据库和文件（图片、文件、书），出错时告警（见下面「告警」）：
 
-**只放在同一台 VPS 上的备份不算备份。** 至少再做一份异地副本，例如用 `rclone` 或 `restic` 每天同步到另一台机器、网盘或对象存储。
+| | 没配 restic（默认） | 配了 restic（推荐） |
+|---|---|---|
+| 数据库 | `/var/backups/qichi/db-时间.dump`，留 14 天（很小） | 同左，另外放进 restic 快照 |
+| 文件 | 每天整包一份 `files-时间.tar.gz`，留 14 天：文件有 N GB 就占 14×N GB；备份目录放不下时这次跳过并告警 | 去重增量：每天只多存变了的部分；留 14 天每天一份、8 周每周一份、12 个月每月一份；每周日回收空间、检查仓库 |
+
+**只放在同一台 VPS 上的备份不算备份。** 机器坏了或被删了，备份跟着没。用 restic 并把仓库放在别处（另一台机器、对象存储），就有了异地副本。
+
+### 用 restic（去重增量，可以放异地）
+
+restic 在容器里运行（`docker-compose.yml` 里的 `restic` 服务，平时不启动），服务器上不用另外安装。
+
+1. 选仓库放在哪里（**需要你决定**）：
+   - 另一台机器（家里电脑、另一台 VPS）：`sftp:用户@地址:/srv/qichi-restic`。先让这台服务器的 root 能用 SSH 密钥免密登录过去
+   - 对象存储（Backblaze B2、Cloudflare R2、各家云的 S3 兼容存储；几 GB 一般免费或一个月几块钱）：`s3:https://<地址>/<桶名>` 或 `b2:<桶名>:qichi`，`.env` 里填对应的密钥
+   - 先放本机也行：`/var/backups/qichi/restic`。只解决占空间，不算异地
+2. `.env` 里填 `RESTIC_REPOSITORY`、`RESTIC_PASSWORD`（用 `openssl rand -base64 32` 生成）。**密码另外抄一份放在服务器以外**（密码管理器或纸上）：服务器没了、密码也没了，备份就打不开
+3. 手动跑一次 `/opt/qichi/deploy/backup.sh`：第一次会自动建仓库，看到「备份完成：…已存入 restic 仓库」就好了
+4. 确认正常后，旧的 `files-*.tar.gz` 可以删掉（不删 14 天后也会自动删）
+
+查看有哪些快照：`cd /opt/qichi/deploy && docker compose run --rm restic snapshots`
+
+### 告警（备份失败、磁盘快满）
+
+备份失败、或者系统盘 / Docker 数据目录 / 备份目录所在的盘用量超过 80%（`.env` 里 `DISK_ALERT_PERCENT` 可改）时，推送到手机。同一块盘 12 小时内只报一次。
+
+1. 起一个别人猜不到的主题名：`echo qichi-alert-$(openssl rand -hex 8)`
+2. `.env` 里填 `ALERT_NTFY_URL=https://push.你的域名/上一步的主题名`（用自建的 ntfy；不想用自建的，也可以用公共的 `https://ntfy.sh/主题名`）
+3. 手机装 ntfy App（F-Droid 或 GitHub 下载），订阅同一个服务器上的这个主题
+4. 试一下：`/opt/qichi/deploy/alert.sh "测试告警" "能收到就好"`
+
+没填 `ALERT_NTFY_URL` 时，告警只写进 `/var/log/qichi-backup.log`。
+
+磁盘快满时先看是谁占的：`docker system df`（镜像、容器日志）、`du -sh /var/backups/qichi/*`（备份）；`docker image prune -f` 删掉不用的旧镜像。各服务的日志已经限制为每个最多 3×10MB（`docker-compose.yml` 里的 `x-logging`）。服务端每天自己清理一次：上传 30 天后仍没有任何地方在用的文件、磁盘上没有记录的文件、过期很久的登录令牌和旧的任务记录（服务端日志里「每日清理」一行记着清了多少）。
 
 ### 恢复（建议每季度演练一次）
 
+从每天的 `db-时间.dump` 和 `files-时间.tar.gz`：
+
 ```bash
-cd ~/qichi/deploy
+cd /opt/qichi/deploy
 docker compose stop server
 # 数据库
 docker compose exec -T db pg_restore -U qichi -d qichi --clean --if-exists < /var/backups/qichi/db-时间.dump
@@ -122,13 +157,30 @@ docker run --rm -v qichi_files:/data -v /var/backups/qichi:/backup alpine \
 docker compose start server
 ```
 
+从 restic（一个快照里同时有当时的数据库和文件，两者对得上）：
+
+```bash
+cd /opt/qichi/deploy
+docker compose run --rm restic snapshots        # 挑一个快照；要最新的就用 latest
+mkdir -p /var/backups/qichi/restore
+docker compose run --rm -v /var/backups/qichi/restore:/restore restic restore latest --target /restore
+docker compose stop server
+docker compose exec -T db pg_restore -U qichi -d qichi --clean --if-exists < /var/backups/qichi/restore/data/db.dump
+docker run --rm -v qichi_files:/data -v /var/backups/qichi/restore/data/files:/src:ro alpine \
+  sh -c "rm -rf /data/* && cp -a /src/. /data/"
+docker compose start server
+rm -rf /var/backups/qichi/restore
+```
+
+服务器整个没了：在新机器上按第 3、4 节装好（`.env` 里填同样的 `RESTIC_*`），`docker compose up -d` 起来后，按上面从 restic 恢复。
+
 ### 演练记录
 
 | 日期 | 在哪里 | 做法 | 结果 |
 |---|---|---|---|
 | 2026-09-23 | 开发电脑（本机开发库） | 按上面的命令形式备份（`pg_dump --format=custom` + 打包文件目录）；恢复到一个全新的 Postgres 容器，解压文件，另起一个服务端连上去 | 登录正常；房间快照里各类内容数量与原库完全一致（最后序号 3213）；书的文件逐字节一致 |
-
 | 2026-09-24 | VPS（qichi1.duckdns.org，首次部署当天） | 用 backup.sh 备份；恢复到一个临时 Postgres 容器（不动线上库），比对后删除临时库 | 表 45 张、迁移版本 17 与线上一致；那时还没有账号，只验证了结构完整。有了真实数据后再按内容比对演练一次 |
+| 2026-09-26 | AI 的云端沙箱（没有 Docker：docker 命令换成模拟挂载的替身，本机 PostgreSQL 16，restic 0.19.1） | 按新 `backup.sh` 用 restic 备份两次，按上面「从 restic」恢复；再试密码不对、数据库导出失败、备份目录放不下、磁盘超过 80% | 文件逐字节一致；数据库 5001 行一致；第二次备份仓库只多 24KB；四种故障都收到告警。**还没在真的 Docker 上跑过**：配好 restic 后在 VPS 上手动跑一次并演练恢复 |
 
 ## 8. AI 配置（第 4 阶段起）
 
@@ -164,6 +216,29 @@ docker compose start server
 
 检查：`curl -d hi https://push.qichi1.duckdns.org/test` 后，在 ntfy App 里订阅 `test` 能收到。
 
+#### 只让栖迟往 ntfy 上发消息（建议，Q4）
+
+默认谁都能往这台 ntfy 发消息（别人可以拿它当免费的推送服务，或者往猜得到的主题发垃圾消息）。改成「手机照常收、只有带令牌的才能发」：
+
+```bash
+cd ~/qichi/deploy   # 部署目录按实际改
+# ① 建一个专门发推送的账号（会让你输两次密码：随便设一个长的，之后用不到）
+docker compose exec ntfy ntfy user add qichi-sender
+# ② 它能往推送主题（up 开头）和告警主题（qichi-alert- 开头）发，别的不行
+docker compose exec ntfy ntfy access qichi-sender 'up*' write-only
+docker compose exec ntfy ntfy access qichi-sender 'qichi-alert-*' write-only
+# ③ 给它发一个令牌，显示 tk_ 开头的一串
+docker compose exec ntfy ntfy token add qichi-sender
+```
+
+④ 把令牌填进 `.env`：`UNIFIEDPUSH_TOKEN=tk_…`；告警主题也在这台 ntfy 上时再填 `ALERT_NTFY_TOKEN=tk_…`（同一个）；再把 `NTFY_DEFAULT_ACCESS=read-write` 改成 `read-only`。
+⑤ `docker compose up -d` 让它生效。
+
+检查：`curl -d hi https://push.qichi1.duckdns.org/test` 现在返回 403；把栖迟放到后台、让对方发一条消息，手机照常弹通知；`./alert.sh 测试 告警能发出去`，订阅了告警主题的手机也能收到。
+令牌只在 `.env` 里，不进仓库；服务端只把它带给 `PUSH_DOMAIN`，别处拿不到。
+
+（2026-09-27 在 AI 的云端沙箱里用 ntfy 2.15.0 按上面的命令试过：改之前匿名能发；改之后匿名发 403、带令牌能发推送和告警主题、带令牌也发不了别的主题、手机匿名照常能收。**还没在 VPS 上做过。**）
+
 ## 10. 审稿的文档转换
 
 `docker-compose.yml` 里的 `converter`（Gotenberg，内含 LibreOffice）负责把 Word、Excel、PowerPoint、OpenDocument、RTF、纯文本、CSV 转成 PDF，服务端再按页生成预览图和文字层。PDF 不经过它。
@@ -177,6 +252,7 @@ docker compose start server
 ```bash
 docker compose ps                    # 五个服务（caddy、server、db、ntfy、converter）都应是 running
 docker compose logs --since 1h server
-df -h                                # 磁盘空间
-ls -lh /var/backups/qichi | tail     # 最近的备份
+df -h                                # 磁盘空间（超过 80% 会自动告警，见第 7 节）
+ls -lh /var/backups/qichi | tail     # 最近的备份；配了 restic 时再看 docker compose run --rm restic snapshots
+tail /var/log/qichi-backup.log       # 备份与告警记录
 ```

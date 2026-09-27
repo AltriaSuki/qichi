@@ -7,7 +7,9 @@ import app.qichi.core.sync.SyncFixtures.me
 import app.qichi.core.sync.SyncFixtures.pendingMessage
 import app.qichi.core.sync.SyncFixtures.roomId
 import app.qichi.core.sync.SyncFixtures.todo
+import app.qichi.shared.api.CreateMoodReplyRequest
 import app.qichi.shared.api.Message
+import app.qichi.shared.api.MoodReply
 import app.qichi.shared.api.Patch
 import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.SendMessageRequest
@@ -15,11 +17,18 @@ import app.qichi.shared.api.Todo
 import app.qichi.shared.api.UpdateReadMarkerRequest
 import app.qichi.shared.api.UpdateTodoRequest
 import app.qichi.shared.model.EntityType
+import app.qichi.shared.model.MoodReplyKind
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
+import java.io.IOException
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -91,6 +100,112 @@ class OutboxProcessorTest {
         val local = ids.map { store.get<Message>(EntityType.Message, it)!! }
         assertTrue(local.all { it.syncState == SyncState.SYNCED })
         assertEquals(listOf(1L, 2L, 3L), local.map { it.value.createdSeq })
+    }
+
+    @Test
+    fun `服务端要求先更新 App（426）：停下，排队的都留着、不算失败，装了新版照常发出`() = runTest {
+        val first = sendLocally("第一条")
+        val second = sendLocally("第二条")
+        server.custom = {
+            respond("""{"type":"x","title":"App 版本太旧","status":426,"code":"upgrade_required"}""", HttpStatusCode.UpgradeRequired, problemHeaders)
+        }
+        assertEquals(OutboxProcessor.Result.Stop, processor.drain())
+        assertEquals(2, db.outbox().all().size)
+        assertTrue(db.outbox().all().all { it.state == OutboxState.PENDING })
+        assertTrue(store.get<Message>(EntityType.Message, first)!!.isPending)
+        assertTrue(store.get<Message>(EntityType.Message, second)!!.isPending)
+
+        server.custom = null
+        assertIs<OutboxProcessor.Result.Done>(processor.drain())
+        assertTrue(db.outbox().all().isEmpty())
+    }
+
+    @Test
+    fun `服务端收下了、但回应这个版本解不开：不再重发，后面的照常`() = runTest {
+        val strange = sendLocally("对方新版才懂的回应")
+        val normal = sendLocally("普通的一条")
+        var answered = false
+        server.custom = { request ->
+            if (!answered && request.url.encodedPath.endsWith("/messages")) {
+                answered = true
+                val message = pendingMessage("对方新版才懂的回应", strange).copy(seq = 1, createdSeq = 1)
+                val body = JsonObject(QichiJson.encodeToJsonElement(Message.serializer(), message).jsonObject + ("kind" to JsonPrimitive("poll")))
+                respond(body.toString(), HttpStatusCode.Created, headersOf(HttpHeaders.ContentType, "application/json"))
+            } else {
+                null
+            }
+        }
+        assertEquals(OutboxProcessor.Result.Done(setOf(roomId)), processor.drain())
+        assertTrue(db.outbox().all().isEmpty())
+        assertEquals(2, server.requests.count { it.startsWith("POST ") && it.endsWith("/messages") }, "每条只发一次")
+        assertEquals(SyncState.SYNCED, store.get<Message>(EntityType.Message, normal)!!.syncState)
+    }
+
+    private val serverError = """{"type":"x","title":"服务器出错了","status":500,"code":"internal_error"}"""
+    private val hour = 3_600_000L
+
+    @Test
+    fun `一条一直 500：从第一次出错算起 24 小时后标发送失败，后面的照常发出`() = runTest {
+        var clock = 0L
+        val processor = OutboxProcessor(SyncFixtures.api(server.engine), db, store, now = { clock })
+        val poisoned = sendLocally("服务器收不下的一条")
+        val next = sendLocally("后面的一条")
+        server.custom = { request ->
+            if (request.bodyText().contains(poisoned.toString())) respond(serverError, HttpStatusCode.InternalServerError, problemHeaders) else null
+        }
+        assertIs<OutboxProcessor.Result.Retry>(processor.drain())
+        clock += 12 * hour
+        assertIs<OutboxProcessor.Result.Retry>(processor.drain())
+        assertTrue(store.get<Message>(EntityType.Message, poisoned)!!.isPending)
+        assertTrue(store.get<Message>(EntityType.Message, next)!!.isPending, "24 小时内后面的还在等")
+
+        clock += 13 * hour
+        assertEquals(OutboxProcessor.Result.Done(setOf(roomId)), processor.drain())
+        assertEquals(SyncState.FAILED, store.get<Message>(EntityType.Message, poisoned)!!.syncState)
+        assertEquals(SyncState.SYNCED, store.get<Message>(EntityType.Message, next)!!.syncState)
+    }
+
+    @Test
+    fun `断网的那段不算进 24 小时`() = runTest {
+        var clock = 0L
+        val processor = OutboxProcessor(SyncFixtures.api(server.engine), db, store, now = { clock })
+        val id = sendLocally("一直 500")
+        server.custom = { respond(serverError, HttpStatusCode.InternalServerError, problemHeaders) }
+        assertIs<OutboxProcessor.Result.Retry>(processor.drain())
+        clock += 20 * hour
+        server.online = false
+        assertIs<OutboxProcessor.Result.Retry>(processor.drain())
+        clock += 20 * hour
+        server.online = true
+        assertIs<OutboxProcessor.Result.Retry>(processor.drain())
+        clock += 20 * hour
+        assertIs<OutboxProcessor.Result.Retry>(processor.drain())
+        assertTrue(store.get<Message>(EntityType.Message, id)!!.isPending, "断网之后重新算，才 20 小时")
+
+        clock += 5 * hour
+        processor.drain()
+        assertEquals(SyncState.FAILED, store.get<Message>(EntityType.Message, id)!!.syncState)
+    }
+
+    @Test
+    fun `访问令牌过期、刷新又超时：不标失败，文稿保存留着稍后再发`() = runTest {
+        val docId = UUID.randomUUID()
+        store.enqueue(
+            roomId, EntityType.Document, docId,
+            OutboxOp.post("rooms/$roomId/documents/$docId/versions", buildJsonObject { put("body", "第二稿") }, kind = OutboxOp.KIND_DOC_VERSION),
+        )
+        server.custom = { request ->
+            when {
+                request.url.encodedPath.endsWith("/auth/refresh") -> throw IOException("timeout")
+                request.url.encodedPath.endsWith("/versions") ->
+                    respond("""{"type":"x","title":"请先登录","status":401,"code":"unauthorized"}""", HttpStatusCode.Unauthorized, problemHeaders)
+                else -> null
+            }
+        }
+        assertIs<OutboxProcessor.Result.Retry>(processor.drain())
+        val row = db.outbox().all().single()
+        assertEquals(OutboxState.PENDING, row.state)
+        assertEquals(1, row.attempts)
     }
 
     @Test
@@ -179,6 +294,28 @@ class OutboxProcessorTest {
         val local = store.get<Todo>(EntityType.Todo, existing.id)!!
         assertEquals("服务端的标题", local.value.title)
         assertEquals(SyncState.SYNCED, local.syncState)
+    }
+
+    @Test
+    fun `同一种心情回应服务端已经有了：本机先建的那行删掉，不会一直待发送（Q11）`() = runTest {
+        val moodId = UUID.randomUUID()
+        val existing = MoodReply(UUID.randomUUID(), roomId, 7, SyncFixtures.t0, SyncFixtures.t0, null, null, moodId, me, MoodReplyKind.Hug)
+        // 服务端：这个人对这条心情已经有一个「抱抱」，回那一条（200），不新建
+        server.custom = { request ->
+            if (request.method.value == "POST" && request.url.encodedPath.endsWith("/moods/$moodId/responses")) {
+                respond(QichiJson.encodeToString(MoodReply.serializer(), existing), HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+            } else {
+                null
+            }
+        }
+        val local = existing.copy(id = UUID.randomUUID(), seq = 0)
+        store.writeLocal(roomId, local, OutboxOp.post("rooms/$roomId/moods/$moodId/responses", CreateMoodReplyRequest(local.id, MoodReplyKind.Hug)))
+
+        processor.drain()
+
+        assertNull(store.get<MoodReply>(EntityType.MoodResponse, local.id), "本机先建的那行服务端没有，不留着")
+        assertEquals(SyncState.SYNCED, store.get<MoodReply>(EntityType.MoodResponse, existing.id)!!.syncState)
+        assertTrue(db.outbox().all().isEmpty())
     }
 
     @Test
