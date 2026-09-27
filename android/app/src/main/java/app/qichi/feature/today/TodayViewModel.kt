@@ -126,20 +126,26 @@ class TodayViewModel @AssistedInject constructor(
         val ideas: List<Idea> = emptyList(),
     )
 
+    // 本机库里任何一行变了（比如来了一条消息），Room 会让下面每个列表都重读一遍；
+    // 内容没变的就停在这里（distinctUntilChanged），不重算整页（B1）
     private val more = combine(
-        combine(todos.observeTodos(roomId), events.observeEvents(roomId)) { t, e -> t to e },
-        qna.observeRounds(roomId),
-        qna.observeQuestions(roomId),
-        plans.observePlans(roomId),
-        combine(plans.observeStages(roomId), decisions.observeDecisions(roomId), ideas.observeIdeas(roomId)) { st, d, i -> Triple(st, d, i) },
+        combine(todos.observeTodos(roomId).distinctUntilChanged(), events.observeEvents(roomId).distinctUntilChanged()) { t, e -> t to e },
+        qna.observeRounds(roomId).distinctUntilChanged(),
+        qna.observeQuestions(roomId).distinctUntilChanged(),
+        plans.observePlans(roomId).distinctUntilChanged(),
+        combine(
+            plans.observeStages(roomId).distinctUntilChanged(),
+            decisions.observeDecisions(roomId).distinctUntilChanged(),
+            ideas.observeIdeas(roomId).distinctUntilChanged(),
+        ) { st, d, i -> Triple(st, d, i) },
     ) { (t, e), r, q, p, (st, d, i) -> More(t, e, r.map { it.value }, q.map { it.value }, p.map { it.value }, st.map { it.value }, d.map { it.value }, i.map { it.value }) }
 
     private val yearAgoPhotos = MutableStateFlow<Pair<LocalDate, List<DayPhoto>>?>(null)
 
     val state: StateFlow<TodayState> = combine(
-        people,
-        moods.observeMoods(roomId),
-        moods.observeReplies(roomId),
+        people.distinctUntilChanged(),
+        moods.observeMoods(roomId).distinctUntilChanged(),
+        moods.observeReplies(roomId).distinctUntilChanged(),
         combine(more, yearAgoPhotos) { m, ph -> m to ph },
         minuteTicker,
     ) { p, allMoods, replies, (more, photos), now ->

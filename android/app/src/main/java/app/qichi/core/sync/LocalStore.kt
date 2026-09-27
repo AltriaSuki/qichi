@@ -338,8 +338,26 @@ class LocalStore(
         fun encode(type: EntityType, entity: SyncEntity): String =
             QichiJson.encodeToString(JsonElement.serializer(), EntityCodec.encode(type, entity))
 
-        fun decode(type: EntityType, json: String): SyncEntity =
-            EntityCodec.decode(type, QichiJson.parseToJsonElement(json)) as SyncEntity
+        /**
+         * 解析一行的 JSON。解过的按「类型 + 内容」记住（B1）：Room 按整张表通知变化，表里任何一行变了，
+         * 每个页面都会把自己那些行重读一遍；内容没变的行直接拿上次解好的对象（实体都是不可变的数据类，可以共用），
+         * 不再重新解析。按最近用过的留 [DECODE_CACHE_MAX] 条。
+         */
+        fun decode(type: EntityType, json: String): SyncEntity {
+            val key = DecodeKey(type, json)
+            synchronized(decoded) { decoded[key] }?.let { return it }
+            val entity = EntityCodec.decode(type, QichiJson.parseToJsonElement(json)) as SyncEntity
+            synchronized(decoded) { decoded[key] = entity }
+            return entity
+        }
+
+        private data class DecodeKey(val type: EntityType, val json: String)
+
+        const val DECODE_CACHE_MAX = 2_000
+
+        private val decoded = object : LinkedHashMap<DecodeKey, SyncEntity>(256, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<DecodeKey, SyncEntity>?): Boolean = size > DECODE_CACHE_MAX
+        }
 
         @Suppress("UNCHECKED_CAST")
         fun <T : SyncEntity> toLocal(row: EntityRow): Local<T> =
