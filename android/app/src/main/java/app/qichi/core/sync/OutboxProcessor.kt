@@ -171,6 +171,8 @@ class OutboxProcessor(
                 val type = fromWire<EntityType>(row.entityType)
                 val entity = EntityCodec.decode(type, QichiJson.parseToJsonElement(body)) as SyncEntity
                 store.applyResponse(entity)
+                // 服务端把这次创建并到了已有的一条上：本机先建的那行不留着（Q11）
+                if (row.method == HttpMethod.Post.value) store.dropMerged(type, UUID.fromString(row.entityId), entity.id)
             }
         }
     }

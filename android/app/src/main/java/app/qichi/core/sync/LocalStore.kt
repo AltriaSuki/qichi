@@ -166,6 +166,19 @@ class LocalStore(
     }
 
     /**
+     * 创建请求成功了，服务端却回了另一条（[serverId]）：它把这次创建并到了已有的一条上，例如同一种心情回应已经有了（Q11）。
+     * 本机先建的那行（[localId]）服务端从来没有，删掉，连同还排在后面、针对它的操作；否则它一直「待发送」。
+     * 本机那行和服务端对上过（有 serverJson）就不是这种情况，不动。
+     */
+    suspend fun dropMerged(type: EntityType, localId: UUID, serverId: UUID) {
+        if (localId == serverId) return
+        val local = entities.get(type.wireName, localId.toString()) ?: return
+        if (local.serverJson != null) return
+        entities.delete(type.wireName, localId.toString())
+        outbox.deleteAllFor(type.wireName, localId.toString())
+    }
+
+    /**
      * 推进未读位置的响应：存服务端的那一行，并删掉本机先建的临时行
      * （第一次推进时本机不知道服务端会用哪个 id）。
      */

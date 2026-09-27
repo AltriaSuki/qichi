@@ -7,7 +7,9 @@ import app.qichi.core.sync.SyncFixtures.me
 import app.qichi.core.sync.SyncFixtures.pendingMessage
 import app.qichi.core.sync.SyncFixtures.roomId
 import app.qichi.core.sync.SyncFixtures.todo
+import app.qichi.shared.api.CreateMoodReplyRequest
 import app.qichi.shared.api.Message
+import app.qichi.shared.api.MoodReply
 import app.qichi.shared.api.Patch
 import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.SendMessageRequest
@@ -15,6 +17,7 @@ import app.qichi.shared.api.Todo
 import app.qichi.shared.api.UpdateReadMarkerRequest
 import app.qichi.shared.api.UpdateTodoRequest
 import app.qichi.shared.model.EntityType
+import app.qichi.shared.model.MoodReplyKind
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -291,6 +294,28 @@ class OutboxProcessorTest {
         val local = store.get<Todo>(EntityType.Todo, existing.id)!!
         assertEquals("服务端的标题", local.value.title)
         assertEquals(SyncState.SYNCED, local.syncState)
+    }
+
+    @Test
+    fun `同一种心情回应服务端已经有了：本机先建的那行删掉，不会一直待发送（Q11）`() = runTest {
+        val moodId = UUID.randomUUID()
+        val existing = MoodReply(UUID.randomUUID(), roomId, 7, SyncFixtures.t0, SyncFixtures.t0, null, null, moodId, me, MoodReplyKind.Hug)
+        // 服务端：这个人对这条心情已经有一个「抱抱」，回那一条（200），不新建
+        server.custom = { request ->
+            if (request.method.value == "POST" && request.url.encodedPath.endsWith("/moods/$moodId/responses")) {
+                respond(QichiJson.encodeToString(MoodReply.serializer(), existing), HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+            } else {
+                null
+            }
+        }
+        val local = existing.copy(id = UUID.randomUUID(), seq = 0)
+        store.writeLocal(roomId, local, OutboxOp.post("rooms/$roomId/moods/$moodId/responses", CreateMoodReplyRequest(local.id, MoodReplyKind.Hug)))
+
+        processor.drain()
+
+        assertNull(store.get<MoodReply>(EntityType.MoodResponse, local.id), "本机先建的那行服务端没有，不留着")
+        assertEquals(SyncState.SYNCED, store.get<MoodReply>(EntityType.MoodResponse, existing.id)!!.syncState)
+        assertTrue(db.outbox().all().isEmpty())
     }
 
     @Test
