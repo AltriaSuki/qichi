@@ -102,7 +102,7 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/health` | 健康检查，返回版本号 |
+| GET | `/health` | 健康检查，返回版本号；数据库连不上时 500 `internal_error` |
 | POST | `/auth/register` | 注册。没有任何用户时可直接注册（第一个账号）；否则必须带有效 `inviteCode`，注册后自动加入该房间 |
 | POST | `/auth/login` | 登录 |
 | POST | `/auth/refresh` | 刷新令牌 |

@@ -87,6 +87,7 @@ paths:
       tags: [system]
       operationId: getHealth
       summary: 健康检查
+      description: 服务在、数据库也能用才返回 200（最多等 2 秒查一次数据库）。
       security: []
       responses:
         '200':
@@ -94,6 +95,11 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Health' }
+        '500':
+          description: 数据库连不上（`internal_error`）
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   # ───────────────────────── 账号 ─────────────────────────
   /auth/register:
