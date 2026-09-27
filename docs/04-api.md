@@ -108,7 +108,7 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | POST | `/auth/refresh` | 刷新令牌 |
 | POST | `/auth/logout` | 作废当前刷新令牌 |
 | GET | `/me` | 当前用户与所在房间列表 |
-| PATCH | `/me` | 改显示名、头像、通知偏好（`notificationPrefs` 的键见 `shared/api/NotificationPrefs.kt`：各类开关与免打扰时段） |
+| PATCH | `/me` | 改显示名、头像、通知偏好（`notificationPrefs` 的键见 `shared/api/NotificationPrefs.kt`：各类开关与免打扰时段）、AI 能看什么（`aiPrefs`）、阅读的常用提示词（`readingPrompts`，整套替换，最多 20 条，id 不能重复） |
 | POST | `/me/password` | 改密码（作废其它设备的登录） |
 | GET | `/me/sessions` · DELETE `/me/sessions/{id}` | 登录设备管理（P7，「安全」页）：每次登录一行，标出当前设备；删除 = 让那台设备退出登录 |
 
@@ -223,7 +223,7 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | PATCH · DELETE | `/rooms/{roomId}/books/{id}` | 改书名、作者、共读计划 / 拿下书架（进回收站） |
 | PUT | `/rooms/{roomId}/books/{bookId}/progress` | 我的进度（每人每本一条） |
 | POST · PATCH · DELETE | `/rooms/{roomId}/books/{bookId}/highlights[/{id}]` | 书签、摘录、标注、感想（只能改删自己的；对方没共享的不会同步给你） |
-| POST | `/rooms/{roomId}/ai/read-explain` | 选中段落请 AI 解释（`mode = explain`）或和两人在这本书里的标注、摘录对照（`compare`）→ 202；结果是一条 `kind = ai` 的标记，只有自己看得到 |
+| POST | `/rooms/{roomId}/ai/read-explain` | 选中段落请 AI 解释（`mode = explain`）、和两人在这本书里的标注、摘录对照（`compare`），或按自己写的要求来（`custom`，要求放在 `instruction`，1–300 字，P14-05）→ 202；结果是一条 `kind = ai` 的标记，只有自己看得到 |
 | GET · POST · DELETE | `/rooms/{roomId}/summaries[/{id}]` | 总结列表 / 生成周、月、自定义范围（→ 202，结果是 id = jobId 的总结，正文用 [n] 引用来源）/ 删除（年度回顾锁定，403）；年度回顾由服务端的「年度检查」任务每 6 小时检查一次，过了 1 月 1 日自动生成上一年的 |
 
 ### 导出（P7）

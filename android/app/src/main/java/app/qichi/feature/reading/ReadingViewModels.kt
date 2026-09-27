@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.qichi.core.auth.SessionManager
+import app.qichi.core.data.AccountRepository
 import app.qichi.core.data.BookCache
 import app.qichi.core.data.People
 import app.qichi.core.data.ReadingRepository
@@ -18,10 +19,12 @@ import app.qichi.core.ui.zoneOf
 import app.qichi.shared.api.Book
 import app.qichi.shared.api.Highlight
 import app.qichi.shared.api.ReadingProgress
+import app.qichi.shared.api.ReadingPrompt
 import app.qichi.shared.model.AiJobStatus
 import app.qichi.shared.model.HighlightKind
 import app.qichi.shared.model.ReadExplainMode
 import app.qichi.shared.model.wireName
+import app.qichi.shared.rules.Limits
 import app.qichi.shared.util.UuidV7
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
@@ -41,6 +44,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -170,7 +174,14 @@ data class ReaderState(
     val aiFailed: Boolean = false,
 )
 
-private data class AiAsk(val pending: UUID? = null, val failed: Boolean = false, val lastMode: ReadExplainMode? = null, val lastLocator: Locator? = null)
+private data class AiAsk(
+    val pending: UUID? = null,
+    val failed: Boolean = false,
+    val lastMode: ReadExplainMode? = null,
+    val lastLocator: Locator? = null,
+    /** 按自己的要求问时的要求（P14-05），重试时照旧带上 */
+    val lastInstruction: String? = null,
+)
 
 private data class Opened(
     val ready: Boolean = false,
@@ -188,6 +199,7 @@ class ReaderViewModel @AssistedInject constructor(
     private val reading: ReadingRepository,
     private val cache: BookCache,
     private val epubs: EpubOpener,
+    private val account: AccountRepository,
     rooms: RoomRepository,
     network: NetworkMonitor,
     realtime: RealtimeClient,
@@ -201,6 +213,14 @@ class ReaderViewModel @AssistedInject constructor(
     private val _openHighlight = MutableSharedFlow<UUID>(extraBufferCapacity = 1)
     /** AI 的回答同步回来了：页面打开这条标记 */
     val openHighlight: SharedFlow<UUID> = _openHighlight
+
+    /** 我的常用提示词（P14-05），顺序即显示顺序 */
+    val prompts: StateFlow<List<ReadingPrompt>> = rooms.me.map { it?.user?.readingPrompts.orEmpty() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _message = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    /** 给人看的一句提示（比如没能保存常用提示词） */
+    val message: SharedFlow<String> = _message
 
     /** 打开的书；页面拿它创建 Readium 的阅读页 */
     var publication: Publication? = null
@@ -315,22 +335,23 @@ class ReaderViewModel @AssistedInject constructor(
         }
     }
 
-    /** 请 AI 解释或对比选中的段落（需要联网、AI 已开启）。返回不能请求的原因，能请求时为空。 */
-    fun askAi(mode: ReadExplainMode, locator: Locator): String? {
+    /**
+     * 请 AI 解释、对比选中的段落，或按 [instruction] 这句要求来（[ReadExplainMode.Custom]，P14-05）。
+     * 需要联网、AI 已开启。返回不能请求的原因，能请求时为空。
+     */
+    fun askAi(mode: ReadExplainMode, locator: Locator, instruction: String? = null): String? {
         val s = state.value
         val book = s.book ?: return null
-        when {
-            !s.online -> return "需要联网"
-            !s.aiEnabled -> return "AI 还没有开启"
-            s.aiPending != null -> return "AI 还在看上一段"
-        }
+        val wish = instruction?.trim()?.take(Limits.READING_PROMPT_INSTRUCTION_LENGTH.last)
+        aiBlockedReason()?.let { return it }
+        if (mode == ReadExplainMode.Custom && wish.isNullOrEmpty()) return "先写一句要求"
         val text = locator.text.highlight?.trim().orEmpty()
         if (text.isEmpty()) return "先选中一段文字"
         val jobId = UuidV7.generate()
-        ai.value = AiAsk(pending = jobId, lastMode = mode, lastLocator = locator)
+        ai.value = AiAsk(pending = jobId, lastMode = mode, lastLocator = locator, lastInstruction = wish)
         viewModelScope.launch {
             try {
-                reading.askAi(book, jobId, mode, locator.toJSON().toString(), text, locator.text.before.orEmpty(), locator.text.after.orEmpty())
+                reading.askAi(book, jobId, mode, locator.toJSON().toString(), text, locator.text.before.orEmpty(), locator.text.after.orEmpty(), wish)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -340,12 +361,34 @@ class ReaderViewModel @AssistedInject constructor(
         return null
     }
 
+    /** 现在不能请 AI 的原因（离线、AI 没开、上一段还没回来）；能请时为空。 */
+    fun aiBlockedReason(): String? {
+        val s = state.value
+        return when {
+            !s.online -> "需要联网"
+            !s.aiEnabled -> "AI 还没有开启"
+            s.aiPending != null -> "AI 还在看上一段"
+            else -> null
+        }
+    }
+
     fun retryAi() {
         val a = ai.value
         val mode = a.lastMode ?: return
         val locator = a.lastLocator ?: return
         ai.update { it.copy(failed = false) }
-        askAi(mode, locator)
+        askAi(mode, locator, a.lastInstruction)
+    }
+
+    /** 常用提示词整套换成 [list]（要联网，存在账号上，换手机还在）。 */
+    fun savePrompts(list: List<ReadingPrompt>) = viewModelScope.launch {
+        try {
+            account.updateReadingPrompts(list)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            _message.tryEmit("没能保存常用提示词，需要联网")
+        }
     }
 
     fun dismissAi() = ai.update { AiAsk() }
