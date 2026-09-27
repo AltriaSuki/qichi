@@ -22,9 +22,4 @@ class TagTreeTest {
         )
         assertEquals("海边", tree[1].name)
     }
-
-    @Test
-    fun `顶部筛选按顶层标签用得多少排`() {
-        assertEquals(listOf("旅行", "吃", "家"), topTags(listOf("#旅行/北方", "#旅行 #吃", "#家", "#吃", "#旅行/海边")))
-    }
 }

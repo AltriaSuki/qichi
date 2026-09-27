@@ -79,6 +79,7 @@ import app.qichi.core.ui.DiffView
 import app.qichi.core.ui.aiAnswerTitle
 import app.qichi.core.ui.plainAiAnswer
 import app.qichi.core.ui.relativeDay
+import app.qichi.core.ui.topTags
 import app.qichi.shared.api.ArchiveItem
 import app.qichi.shared.api.ArchiveRevision
 import app.qichi.shared.api.Message
@@ -136,7 +137,7 @@ fun ArchiveListScreen(
                 actions = listOf(BarAction("标签", QichiIcons.Tag, onOpenTags)),
                 menu = listOf(MenuAction("所有种类", { vm.filter(null) })) + ArchiveKind.entries.map { k -> MenuAction("只看「${k.label}」", { vm.filter(k) }) },
             )
-            val tags = remember(state.shown) { app.qichi.feature.ideas.topTags(state.shown.map { it.value.title + "\n" + it.value.body }) }
+            val tags = remember(state.shown) { topTags(state.shown.map { it.value.title + "\n" + it.value.body }) }
             if (tags.isNotEmpty()) TagFilterRow(tags, tag, { tag = it })
             state.filter?.let { k ->
                 Row(Modifier.padding(horizontal = Spacing.page), verticalAlignment = Alignment.CenterVertically) {
