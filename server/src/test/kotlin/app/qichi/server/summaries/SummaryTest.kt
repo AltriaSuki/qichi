@@ -5,15 +5,22 @@ import app.qichi.server.MutableClock
 import app.qichi.server.TestDatabase
 import app.qichi.server.ai.FakeGateway
 import app.qichi.server.assertProblem
+import app.qichi.server.messages.MessageService
 import app.qichi.server.serverTest
+import app.qichi.server.testConfig
 import app.qichi.server.testContext
+import app.qichi.shared.api.AiChatRequest
 import app.qichi.shared.api.AiJobAccepted
 import app.qichi.shared.api.CreateIdeaRequest
 import app.qichi.shared.api.CreateSummaryRequest
+import app.qichi.shared.api.Message
+import app.qichi.shared.api.MessagePage
 import app.qichi.shared.api.SendMessageRequest
 import app.qichi.shared.api.Summary
+import app.qichi.shared.api.SyncResponse
 import app.qichi.shared.api.TrashPage
 import app.qichi.shared.model.AiJobStatus
+import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.ProblemCode
 import app.qichi.shared.model.SummaryKind
 import app.qichi.shared.model.TrashType
@@ -68,6 +75,46 @@ class SummaryTest {
             // 普通总结可以删，进回收站
             chi.delete("/api/v1/rooms/$room/summaries/${summary.id}")
             assertEquals(listOf(TrashType.Summary), aqi.get("/api/v1/rooms/$room/trash").body<TrashPage>().items.map { it.type })
+        }
+    }
+
+    @Test fun `撤回一条消息：总结和 AI 回答的来源里不再留着它的原文（Q10）`() {
+        // 问 AI 时用事先备料（关掉 AI 自己查），来源编号才固定
+        val config = testConfig().let { it.copy(ai = it.ai.copy(tools = false)) }
+        val ctx = testContext(config = config, clock = clock, aiGateway = gateway)
+        serverTest(ctx) { client ->
+            val (aqi, chi, room) = Api(client).pair()
+            aqi.post("/api/v1/rooms/$room/ideas", CreateIdeaRequest(UuidV7.generate(), "阳台种一棵柠檬树"))
+            clock.advance(Duration.ofMinutes(1))
+            val secret = chi.post("/api/v1/rooms/$room/messages", SendMessageRequest(UuidV7.generate(), "text", "那就定了，周六去海边")).body<Message>()
+            // 总结里 [2] 是这条消息
+            aqi.post("/api/v1/rooms/$room/summaries", CreateSummaryRequest(UuidV7.generate(), SummaryKind.Week))
+            ctx.jobs.drain()
+            // 问 AI：这条消息被挤出最近的聊天、按问题找回来，编成来源
+            repeat(30) { aqi.post("/api/v1/rooms/$room/messages", SendMessageRequest(UuidV7.generate(), "text", "闲聊 $it")) }
+            gateway.answer = "你们说好了 [1] [2] [3] [4] [5] [6]"
+            val answerId = UuidV7.generate()
+            aqi.post("/api/v1/rooms/$room/ai/chat", AiChatRequest(answerId, "周六去海边定了吗？"))
+            ctx.jobs.drain()
+            val answerBefore = chi.get("/api/v1/rooms/$room/messages").body<MessagePage>().messages.single { it.id == answerId }
+            assertTrue(answerBefore.aiSources.any { it.type == "message" && it.id == secret.id && it.label.contains("周六去海边") }, answerBefore.aiSources.toString())
+            val summaryBefore = chi.get("/api/v1/rooms/$room/summaries").body<List<Summary>>().single()
+            assertTrue(summaryBefore.sources.any { it.id == secret.id && it.label.contains("周六去海边") })
+
+            val since = chi.get("/api/v1/rooms/$room/sync?since=0").body<SyncResponse>().toSeq
+            assertEquals(HttpStatusCode.OK, chi.post("/api/v1/rooms/$room/messages/${secret.id}/retract").status)
+
+            val answer = chi.get("/api/v1/rooms/$room/messages").body<MessagePage>().messages.single { it.id == answerId }
+            val summary = chi.get("/api/v1/rooms/$room/summaries").body<List<Summary>>().single()
+            for (sources in listOf(answer.aiSources, summary.sources)) {
+                val cited = sources.single { it.id == secret.id }
+                assertEquals(MessageService.RETRACTED_SOURCE, cited.label)
+                assertTrue(sources.filter { it.id != secret.id }.none { it.label == MessageService.RETRACTED_SOURCE }, "别的来源不动")
+            }
+            // 两台手机都会收到这两处的变化
+            val changed = aqi.get("/api/v1/rooms/$room/sync?since=$since").body<SyncResponse>().changes.map { it.type to it.id }
+            assertTrue(EntityType.Message to answerId in changed, changed.toString())
+            assertTrue(EntityType.Summary to summary.id in changed, changed.toString())
         }
     }
 

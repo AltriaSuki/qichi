@@ -20,3 +20,16 @@ infix fun Expression<String>.ilike(pattern: String): Op<Boolean> {
 /** 把用户输入变成 ILIKE 的「包含」模式：转义 \\ % _。 */
 fun containsPattern(query: String): String =
     "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+/** PostgreSQL 的 jsonb 包含（`@>`）：[json] 是一段 JSON 文本，例如 `[{"type":"message","id":"…"}]`。 */
+infix fun Expression<*>.jsonbContains(json: String): Op<Boolean> {
+    val column = this
+    return object : Op<Boolean>() {
+        override fun toQueryBuilder(queryBuilder: QueryBuilder) = queryBuilder {
+            append(column)
+            append(" @> ")
+            append(stringParam(json))
+            append("::jsonb")
+        }
+    }
+}

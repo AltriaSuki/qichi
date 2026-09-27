@@ -7,6 +7,9 @@ import app.qichi.server.db.ilike
 import app.qichi.server.db.ReadMarkers
 import app.qichi.server.db.QichiDatabase
 import app.qichi.server.db.RoomWriter
+import app.qichi.server.db.Summaries
+import app.qichi.server.db.Tx
+import app.qichi.server.db.jsonbContains
 import app.qichi.server.db.tx
 import app.qichi.server.files.FileService
 import app.qichi.server.plugins.ApiException
@@ -21,6 +24,7 @@ import app.qichi.shared.api.MessagePage
 import app.qichi.shared.api.MessageSearchPage
 import app.qichi.shared.api.ReadMarker
 import app.qichi.shared.api.SendMessageRequest
+import app.qichi.shared.api.SummarySource
 import app.qichi.shared.api.UpdateReadMarkerRequest
 import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.FileKind
@@ -32,9 +36,6 @@ import app.qichi.shared.model.wireName
 import app.qichi.shared.rules.Limits
 import app.qichi.shared.rules.MessageRules
 import app.qichi.shared.util.UuidV7
-import org.jetbrains.exposed.v1.core.Expression
-import org.jetbrains.exposed.v1.core.Op
-import org.jetbrains.exposed.v1.core.QueryBuilder
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
@@ -42,7 +43,6 @@ import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.max
 import org.jetbrains.exposed.v1.core.neq
-import org.jetbrains.exposed.v1.core.stringParam
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -187,12 +187,36 @@ class MessageService(
                     it[Messages.replyExcerpt] = null
                 }
             }
+            hideInSources(roomId, userId, id)
             current.file?.let { file -> files.releaseIfUnused(file.id)?.let(orphanPaths::add) }
             message(id)!!
         }
         // 事务提交后再删磁盘上的文件（连同缩略图）
         files.deleteStored(orphanPaths)
         return result
+    }
+
+    /**
+     * 撤回后，AI 回答的参考资料、总结的来源里引用这条消息的地方不再留着原文摘录（Q10）：换成「这条消息已撤回」，
+     * 并各自产生一次变化，手机上跟着更新。AI 回答、总结正文里转述的话是 AI 写的，不改。
+     * （删除进回收站不算：来源里的摘录本来就是为了原记录删掉后还能看出是什么。）
+     */
+    private fun Tx.hideInSources(roomId: UUID, userId: UUID, messageId: UUID) {
+        val cited = """[{"type":"${EntityType.Message.wireName}","id":"$messageId"}]"""
+        fun hide(sources: List<SummarySource>) =
+            sources.map { if (it.type == EntityType.Message.wireName && it.id == messageId) it.copy(label = RETRACTED_SOURCE) else it }
+        Messages.select(Messages.id, Messages.aiSources)
+            .where { (Messages.roomId eq roomId) and (Messages.aiSources jsonbContains cited) }
+            .toList()
+            .forEach { row ->
+                writes.update(this, roomId, userId, EntityType.Message, row[Messages.id], Messages) { it[Messages.aiSources] = hide(row[Messages.aiSources]) }
+            }
+        Summaries.select(Summaries.id, Summaries.sources)
+            .where { (Summaries.roomId eq roomId) and (Summaries.sources jsonbContains cited) }
+            .toList()
+            .forEach { row ->
+                writes.update(this, roomId, userId, EntityType.Summary, row[Summaries.id], Summaries) { it[Summaries.sources] = hide(row[Summaries.sources]) }
+            }
     }
 
     /** 删除进回收站：两位成员都可以删任何消息。已删除的直接返回。 */
@@ -265,5 +289,10 @@ class MessageService(
             val page = rows.take(limit)
             MessageSearchPage(messages = page, nextCursor = if (rows.size > limit) page.last().createdSeq.toString() else null)
         }
+    }
+
+    companion object {
+        /** 撤回的消息在 AI 回答、总结的来源里显示成这样（Q10） */
+        const val RETRACTED_SOURCE = "这条消息已撤回"
     }
 }
