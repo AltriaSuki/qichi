@@ -12,9 +12,13 @@
 		-Server
 	}
 
+	# 访问日志不记查询串（搜索词）和日历订阅地址里的令牌（Q5）；登录令牌 Caddy 本来就遮掉了
 	log {
 		output stdout
-		format console
+		format filter {
+			request>uri regexp (/api/v1/ics/)[^?]*|\?.* ${1}
+			wrap console
+		}
 	}
 }
 
@@ -22,8 +26,12 @@
 {$PUSH_DOMAIN} {
 	reverse_proxy ntfy:80
 
+	# 网址里就是推送主题（知道它就能收那台手机的推送），不记
 	log {
 		output stdout
-		format console
+		format filter {
+			request>uri delete
+			wrap console
+		}
 	}
 }
