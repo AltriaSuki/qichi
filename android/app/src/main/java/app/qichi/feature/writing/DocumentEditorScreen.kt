@@ -46,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -111,10 +112,13 @@ import app.qichi.core.ui.MarkdownView
 import app.qichi.shared.model.WriteAssistMode
 import app.qichi.shared.rules.DocumentImages
 import app.qichi.shared.rules.Limits
-import app.qichi.shared.util.Authorship
 import coil3.compose.AsyncImage
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class EditorMode { Edit, History, Rebase }
 
@@ -228,19 +232,28 @@ fun DocumentEditorScreen(
             historyTick++
         }
     }
-    // 署名（P10-08）：存过的版本算出的底子，再接上编辑框里还没存的改动（算我的）
+    // 署名（P10-08）：存过的版本算出的底子，再接上编辑框里还没存的改动（算我的）。
+    // 逐字比较放到后台、停手片刻再算（P13-19）；还没算好时按这次改动把对方的底色挪一挪
     val authorBase by vm.authorship.collectAsStateWithLifecycle()
     LaunchedEffect(state.settings.showAuthorship, state.latestVersion) { if (state.settings.showAuthorship) vm.loadAuthorship() }
     val me = state.people.myUserId
-    val liveRuns = remember(authorBase, field.text, me) {
+    var liveAuthorship by remember { mutableStateOf(LiveAuthorship.Empty) }
+    LaunchedEffect(authorBase, me, state.settings.showAuthorship) {
         val base = authorBase
-        if (base == null || base.failed || me == null) emptyList() else Authorship.extend(base.runs, field.text, me)
+        if (!state.settings.showAuthorship || base == null || base.failed || me == null) {
+            liveAuthorship = LiveAuthorship.Empty
+            return@LaunchedEffect
+        }
+        var first = true
+        snapshotFlow { field.text }.collectLatest { text ->
+            // 第一次马上算；之后每按一个键重新计时，停手了才算
+            if (!first) delay(AUTHORSHIP_PAUSE_MS)
+            first = false
+            liveAuthorship = withContext(Dispatchers.Default) { LiveAuthorship.compute(base.runs, text, me) }
+        }
     }
-    val authorCounts = remember(liveRuns) { Authorship.counts(liveRuns) }
-    val partnerRanges = remember(liveRuns, me) {
-        var at = 0
-        liveRuns.mapNotNull { r -> val range = at until at + r.text.length; at += r.text.length; range.takeIf { r.authorId != me } }
-    }
+    val authorCounts = liveAuthorship.counts
+    val partnerRanges = remember(liveAuthorship, field.text) { liveAuthorship.rangesFor(field.text) }
     val scroll = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -596,6 +609,9 @@ fun DocumentEditorScreen(
 
 @OptIn(ExperimentalLayoutApi::class)
 private const val ALL_COMMENTS = -1
+
+/** 署名：停手多久再重新比较（毫秒） */
+private const val AUTHORSHIP_PAUSE_MS = 400L
 
 /** 文稿预览里的一张照片：按宽度铺满，点开看大图。 */
 @Composable
