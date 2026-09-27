@@ -17,7 +17,7 @@ me/ShowcaseScreen.kt	5
 me/TrashScreen.kt	4
 mood/MoodScreen.kt	12
 plan/PlanEditors.kt	1
-plan/PlanScreens.kt	24
+plan/PlanScreens.kt	23
 qna/QnaScreen.kt	21
 reading/ReaderScreen.kt	3
 reading/ShelfScreen.kt	6

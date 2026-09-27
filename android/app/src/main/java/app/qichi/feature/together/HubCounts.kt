@@ -63,7 +63,7 @@ fun hubCounts(d: HubData): Map<Page, String> {
     val counts = mapOf(
         Page.Mood to d.moods.count { it.createdAt.atZone(d.zone).toLocalDate() == today },
         Page.Qna to if (d.rounds.any { it.roundDate == today && d.me != null && d.me !in it.confirmedBy }) 1 else 0,
-        Page.Plan to d.plans.count { it.status != PlanStatus.Done },
+        Page.Plan to d.plans.count { it.status == PlanStatus.Active },
         Page.Todo to d.todos.count { it.parentId == null && it.doneAt == null && dueOf(it)?.let { due -> !due.isAfter(today) } == true },
         Page.Ideas to d.ideas.size,
         Page.Decisions to d.decisions.count { it.finalChoice == null || it.reviewDate?.let { r -> !r.isAfter(today) } == true },

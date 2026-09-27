@@ -175,7 +175,8 @@ class TodayViewModel @AssistedInject constructor(
                 .sortedWith(compareBy<Local<Event>>({ !it.value.allDay }, { it.value.startsAt ?: Instant.MIN })),
             round = more.rounds.firstOrNull { it.roundDate == today },
             question = more.rounds.firstOrNull { it.roundDate == today }?.let { r -> more.questions.firstOrNull { it.id == r.questionId } },
-            plans = more.plans.filter { it.status != PlanStatus.Done }
+            // 进行中的计划（先放一放的不上今天页，P14-03）
+            plans = more.plans.filter { it.status == PlanStatus.Active }
                 .sortedWith(compareBy({ it.targetDate == null }, { it.targetDate }, { it.createdAt }))
                 .take(3)
                 .map { plan -> TodayPlan(plan, more.stages.filter { it.planId == plan.id }.sortedWith(compareBy({ it.sortOrder }, { it.createdAt }))) },

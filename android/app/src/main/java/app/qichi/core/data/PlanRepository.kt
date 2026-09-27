@@ -16,7 +16,9 @@ import app.qichi.shared.api.Patch
 import app.qichi.shared.api.Plan
 import app.qichi.shared.api.PlanLog
 import app.qichi.shared.api.PlanStage
+import app.qichi.shared.api.Todo
 import app.qichi.shared.api.UpdateMilestoneRequest
+import app.qichi.shared.api.UpdatePlanLogRequest
 import app.qichi.shared.api.UpdatePlanRequest
 import app.qichi.shared.api.UpdatePlanStageRequest
 import app.qichi.shared.model.EntityType
@@ -27,6 +29,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.Clock
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.UUID
 
 /**
@@ -64,7 +67,10 @@ class PlanRepository(
         return plan
     }
 
-    /** 修改：本机按改动字段更新，PATCH 只含改动的字段。 */
+    /**
+     * 修改：本机按改动字段更新，PATCH 只含改动的字段。
+     * 直接改下一步的文字、谁来做或截止时，下一步不再跟着待办（和服务端一样，P14-03）。
+     */
     suspend fun update(plan: Plan, change: UpdatePlanRequest) {
         var p = plan.copy(updatedAt = clock.instant())
         (change.title as? Patch.Value)?.let { p = p.copy(title = it.value.trim()) }
@@ -75,7 +81,33 @@ class PlanRepository(
         (change.nextStepOwnerId as? Patch.Value)?.let { p = p.copy(nextStepOwnerId = it.value) }
         (change.nextStepDue as? Patch.Value)?.let { p = p.copy(nextStepDue = it.value) }
         (change.coverFileId as? Patch.Value)?.let { p = p.copy(coverFileId = it.value) }
+        (change.nextStepTodoId as? Patch.Value)?.let { p = p.copy(nextStepTodoId = it.value) }
+        if (!change.nextStepTodoId.isPresent && listOf(change.nextStep, change.nextStepOwnerId, change.nextStepDue).any { it.isPresent }) {
+            p = p.copy(nextStepTodoId = null)
+        }
         store.writeLocal(plan.roomId, p, OutboxOp.patch("rooms/${plan.roomId}/plans/${plan.id}", change))
+        scheduler.kickOutbox()
+    }
+
+    /** 先放一放、接着做、重新打开（P14-03）。重新打开时完成时间清掉，完成记录留着。完成要用 [complete]。 */
+    suspend fun setStatus(plan: Plan, status: PlanStatus) {
+        if (status == plan.status || status == PlanStatus.Done) return
+        val p = plan.copy(status = status, completedAt = if (plan.status == PlanStatus.Done) null else plan.completedAt, updatedAt = clock.instant())
+        store.writeLocal(plan.roomId, p, OutboxOp.patch("rooms/${plan.roomId}/plans/${plan.id}", UpdatePlanRequest(status = Patch.of(status))))
+        scheduler.kickOutbox()
+    }
+
+    /**
+     * 下一步用计划里的一件待办（P14-03）：本机照那件待办填（只有时刻的截止按房间时区 [zone] 算日期），
+     * 服务端也照它填，之后跟着它变；它做完或删掉时下一步结束。
+     */
+    suspend fun linkNextStep(plan: Plan, todo: Todo, zone: ZoneId) {
+        val p = plan.copy(
+            nextStep = todo.title, nextStepOwnerId = todo.assigneeId,
+            nextStepDue = todo.dueDate ?: todo.dueAt?.atZone(zone)?.toLocalDate(),
+            nextStepTodoId = todo.id, updatedAt = clock.instant(),
+        )
+        store.writeLocal(plan.roomId, p, OutboxOp.patch("rooms/${plan.roomId}/plans/${plan.id}", UpdatePlanRequest(nextStepTodoId = Patch.of(todo.id))))
         scheduler.kickOutbox()
     }
 
@@ -127,6 +159,22 @@ class PlanRepository(
         scheduler.kickOutbox()
     }
 
+    /** 阶段换顺序（P14-03）：按 [ordered] 的先后重新编号 0、1、2……，只发编号变了的。 */
+    suspend fun reorderStages(ordered: List<PlanStage>) {
+        val now = clock.instant()
+        db.transaction {
+            ordered.forEachIndexed { i, stage ->
+                if (stage.sortOrder != i) {
+                    store.writeLocal(
+                        stage.roomId, stage.copy(sortOrder = i, updatedAt = now),
+                        OutboxOp.patch("rooms/${stage.roomId}/plans/${stage.planId}/stages/${stage.id}", UpdatePlanStageRequest(sortOrder = Patch.of(i))),
+                    )
+                }
+            }
+        }
+        scheduler.kickOutbox()
+    }
+
     suspend fun deleteStage(stage: PlanStage) {
         val now = clock.instant()
         store.writeLocal(stage.roomId, stage.copy(deletedAt = now, deletedBy = me), OutboxOp.delete("rooms/${stage.roomId}/plans/${stage.planId}/stages/${stage.id}"))
@@ -155,13 +203,28 @@ class PlanRepository(
         scheduler.kickOutbox()
     }
 
+    /** 里程碑改名、改日期（P14-03）；只发改动的字段。 */
+    suspend fun updateMilestone(m: Milestone, title: String, targetDate: LocalDate?) {
+        val t = title.trim()
+        val change = UpdateMilestoneRequest(
+            title = if (t != m.title) Patch.of(t) else Patch.Absent,
+            targetDate = if (targetDate != m.targetDate) Patch.of(targetDate) else Patch.Absent,
+        )
+        if (change == UpdateMilestoneRequest()) return
+        store.writeLocal(
+            m.roomId, m.copy(title = t, targetDate = targetDate, updatedAt = clock.instant()),
+            OutboxOp.patch("rooms/${m.roomId}/plans/${m.planId}/milestones/${m.id}", change),
+        )
+        scheduler.kickOutbox()
+    }
+
     suspend fun deleteMilestone(m: Milestone) {
         val now = clock.instant()
         store.writeLocal(m.roomId, m.copy(deletedAt = now, deletedBy = me), OutboxOp.delete("rooms/${m.roomId}/plans/${m.planId}/milestones/${m.id}"))
         scheduler.kickOutbox()
     }
 
-    // ── 过程记录（写下后不可修改）──
+    // ── 进展记录（记的人可以改、可以删，P14-03）──
 
     suspend fun addLog(plan: Plan, body: String) {
         val now = clock.instant()
@@ -170,6 +233,24 @@ class PlanRepository(
             planId = plan.id, authorId = me, body = body.trim(),
         )
         store.writeLocal(plan.roomId, log, OutboxOp.post("rooms/${plan.roomId}/plans/${plan.id}/logs", CreatePlanLogRequest(log.id, log.body)))
+        scheduler.kickOutbox()
+    }
+
+    /** 改自己记的一条进展。 */
+    suspend fun updateLog(log: PlanLog, body: String) {
+        val text = body.trim()
+        if (text == log.body) return
+        store.writeLocal(
+            log.roomId, log.copy(body = text, updatedAt = clock.instant()),
+            OutboxOp.patch("rooms/${log.roomId}/plans/${log.planId}/logs/${log.id}", UpdatePlanLogRequest(text)),
+        )
+        scheduler.kickOutbox()
+    }
+
+    /** 删自己记的一条进展（进回收站）。 */
+    suspend fun deleteLog(log: PlanLog) {
+        val now = clock.instant()
+        store.writeLocal(log.roomId, log.copy(deletedAt = now, deletedBy = me), OutboxOp.delete("rooms/${log.roomId}/plans/${log.planId}/logs/${log.id}"))
         scheduler.kickOutbox()
     }
 }
