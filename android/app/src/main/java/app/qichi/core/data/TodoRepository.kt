@@ -43,6 +43,9 @@ class TodoRepository(
         db.entities().observeByType(roomId.toString(), EntityType.Todo.wireName)
             .map { rows -> rows.map { LocalStore.toLocal<Todo>(it) } }
 
+    /** 按 id 取一条（桌面组件上勾掉、撤回时用，P15-02）；本机没有时为 null。 */
+    suspend fun find(id: UUID): Todo? = store.get<Todo>(EntityType.Todo, id)?.value
+
     /** 某天截止的待办；定时截止按房间时区折算，计划下的待办也显示。 */
     fun observeTodosForDate(roomId: UUID, date: LocalDate, zone: ZoneId): Flow<List<Local<Todo>>> =
         observeTodos(roomId).map { todos ->

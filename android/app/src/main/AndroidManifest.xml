@@ -68,6 +68,19 @@
             android:name=".core.push.ReplyReceiver"
             android:exported="false" />
 
+        <!-- 桌面待办组件（P15-02，Glance）：系统要能把放置、刷新的广播发给它，所以要导出 -->
+        <receiver
+            android:name=".feature.widget.TodoWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_todo_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/todo_widget_info" />
+        </receiver>
+
         <!-- WorkManager 由 QichiApplication 提供配置（Hilt 注入 Worker），去掉默认的自动初始化 -->
         <provider
             android:name="androidx.startup.InitializationProvider"

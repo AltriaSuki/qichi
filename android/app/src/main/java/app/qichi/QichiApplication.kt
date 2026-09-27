@@ -24,6 +24,7 @@ import app.qichi.core.sync.RealtimeClient
 import app.qichi.core.sync.SyncEngine
 import app.qichi.core.sync.SyncScheduler
 import app.qichi.di.ApplicationScope
+import app.qichi.feature.widget.TodoWidgetUpdater
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -52,6 +53,7 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
     @Inject lateinit var push: PushRegistrar
     @Inject lateinit var updater: app.qichi.core.update.AppUpdater
     @Inject lateinit var unknownContent: app.qichi.core.sync.UnknownContent
+    @Inject lateinit var todoWidget: TodoWidgetUpdater
     @Inject @ApplicationScope lateinit var appScope: CoroutineScope
 
     override val workManagerConfiguration: Configuration
@@ -129,6 +131,9 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
                 if (online && session.currentUserId != null) scheduler.kickOutbox(now = true)
             }
         }
+
+        // 桌面待办组件：本机的待办一变（自己改的、同步来的）就跟着刷新（P15-02）
+        todoWidget.start(appScope)
     }
 
     private fun onForegroundLoggedIn() {
