@@ -21,6 +21,8 @@ data class AppConfig(
     val pushProviders: Set<PushProvider>,
     /** UnifiedPush 只往这些主机发（例如自建的 push.qichi1.duckdns.org）；为空时任何 https 地址都可以 */
     val unifiedPushAllowedHosts: Set<String> = emptySet(),
+    /** 自建 ntfy 开了访问控制时发推送用的令牌（Q4）；只带给上面这些主机 */
+    val unifiedPushToken: String? = null,
     /** 审稿文档转换服务（Gotenberg，内含 LibreOffice）；没配时只能预览 PDF */
     val converterUrl: String? = null,
     /** App 最低版本（versionCode）；更旧的 App 收到 426 upgrade_required。0 = 不限制（P13-07） */
@@ -112,6 +114,7 @@ data class AppConfig(
                 ai = ai,
                 pushProviders = pushProviders,
                 unifiedPushAllowedHosts = get("UNIFIEDPUSH_ALLOWED_HOSTS").orEmpty().split(',').map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet(),
+                unifiedPushToken = get("UNIFIEDPUSH_TOKEN"),
                 converterUrl = get("CONVERTER_URL")?.trim()?.trimEnd('/')?.ifEmpty { null },
                 minAndroidVersionCode = minAndroidVersionCode,
             )

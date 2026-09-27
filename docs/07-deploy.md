@@ -216,6 +216,29 @@ rm -rf /var/backups/qichi/restore
 
 检查：`curl -d hi https://push.qichi1.duckdns.org/test` 后，在 ntfy App 里订阅 `test` 能收到。
 
+#### 只让栖迟往 ntfy 上发消息（建议，Q4）
+
+默认谁都能往这台 ntfy 发消息（别人可以拿它当免费的推送服务，或者往猜得到的主题发垃圾消息）。改成「手机照常收、只有带令牌的才能发」：
+
+```bash
+cd ~/qichi/deploy   # 部署目录按实际改
+# ① 建一个专门发推送的账号（会让你输两次密码：随便设一个长的，之后用不到）
+docker compose exec ntfy ntfy user add qichi-sender
+# ② 它能往推送主题（up 开头）和告警主题（qichi-alert- 开头）发，别的不行
+docker compose exec ntfy ntfy access qichi-sender 'up*' write-only
+docker compose exec ntfy ntfy access qichi-sender 'qichi-alert-*' write-only
+# ③ 给它发一个令牌，显示 tk_ 开头的一串
+docker compose exec ntfy ntfy token add qichi-sender
+```
+
+④ 把令牌填进 `.env`：`UNIFIEDPUSH_TOKEN=tk_…`；告警主题也在这台 ntfy 上时再填 `ALERT_NTFY_TOKEN=tk_…`（同一个）；再把 `NTFY_DEFAULT_ACCESS=read-write` 改成 `read-only`。
+⑤ `docker compose up -d` 让它生效。
+
+检查：`curl -d hi https://push.qichi1.duckdns.org/test` 现在返回 403；把栖迟放到后台、让对方发一条消息，手机照常弹通知；`./alert.sh 测试 告警能发出去`，订阅了告警主题的手机也能收到。
+令牌只在 `.env` 里，不进仓库；服务端只把它带给 `PUSH_DOMAIN`，别处拿不到。
+
+（2026-09-27 在 AI 的云端沙箱里用 ntfy 2.15.0 按上面的命令试过：改之前匿名能发；改之后匿名发 403、带令牌能发推送和告警主题、带令牌也发不了别的主题、手机匿名照常能收。**还没在 VPS 上做过。**）
+
 ## 10. 审稿的文档转换
 
 `docker-compose.yml` 里的 `converter`（Gotenberg，内含 LibreOffice）负责把 Word、Excel、PowerPoint、OpenDocument、RTF、纯文本、CSV 转成 PDF，服务端再按页生成预览图和文字层。PDF 不经过它。

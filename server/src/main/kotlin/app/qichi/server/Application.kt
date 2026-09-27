@@ -184,7 +184,7 @@ class AppContext(
     /** 默认按配置创建；测试里换成假的网关 */
     aiGateway: AiGateway? = AiGateway.fromConfig(config.ai),
     /** 默认按 PUSH_PROVIDERS 创建；测试里换成假的 */
-    pushSender: PushSender? = if (PushProvider.UnifiedPush in config.pushProviders) UnifiedPushSender(config.unifiedPushAllowedHosts) else null,
+    pushSender: PushSender? = if (PushProvider.UnifiedPush in config.pushProviders) UnifiedPushSender(config.unifiedPushAllowedHosts, config.unifiedPushToken) else null,
     /** 默认按 CONVERTER_URL 创建；测试里换成假的 */
     converter: DocumentConverter? = config.converterUrl?.let(::GotenbergConverter),
 ) {

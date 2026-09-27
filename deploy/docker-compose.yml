@@ -49,6 +49,9 @@ services:
       NTFY_BEHIND_PROXY: "true"
       NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
       NTFY_CACHE_DURATION: 24h
+      # 访问控制（Q4）：账号和令牌存在这里；NTFY_DEFAULT_ACCESS 改成 read-only 后只有带令牌的才能发（docs/07-deploy.md 第 9 节）
+      NTFY_AUTH_FILE: /var/cache/ntfy/user.db
+      NTFY_AUTH_DEFAULT_ACCESS: ${NTFY_DEFAULT_ACCESS:-read-write}
     volumes:
       - ntfy:/var/cache/ntfy
 
@@ -96,6 +99,8 @@ services:
       PUSH_PROVIDERS: ${PUSH_PROVIDERS:-unifiedpush}
       # 只往自建的 ntfy 发推送
       UNIFIEDPUSH_ALLOWED_HOSTS: ${PUSH_DOMAIN:?请在 .env 里填写 PUSH_DOMAIN}
+      # ntfy 开了访问控制时发推送用的令牌（只带给 PUSH_DOMAIN）
+      UNIFIEDPUSH_TOKEN: ${UNIFIEDPUSH_TOKEN:-}
       # 审稿：Word、Excel、PowerPoint 先转成 PDF 再生成预览（开了 converter 才填 http://converter:3000）
       CONVERTER_URL: ${CONVERTER_URL:-}
       DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-5}

@@ -30,8 +30,12 @@ import app.qichi.shared.model.ProblemCode
 import app.qichi.shared.model.PushProvider
 import app.qichi.shared.util.UuidV7
 import io.ktor.client.call.body
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respondOk
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import java.time.Instant
 import java.util.UUID
@@ -158,6 +162,23 @@ class PushTest {
             chi.post("/api/v1/rooms/$room/messages", SendMessageRequest(UuidV7.generate(), "text", "晚安2"))
             assertTrue(next() is WsEvent.Changed)
         }
+    }
+
+    @Test fun `开了访问控制的自建 ntfy：发推送带令牌，令牌只给允许的主机（Q4）`() = runBlocking {
+        val seen = mutableMapOf<String, String?>()
+        val engine = MockEngine { request ->
+            seen[request.url.host] = request.headers[HttpHeaders.Authorization]
+            respondOk()
+        }
+        val sender = UnifiedPushSender(setOf("push.qichi1.duckdns.org"), token = "tk_secret", engine = engine)
+        assertEquals(SendResult.Ok, sender.send("https://push.qichi1.duckdns.org/upAbc?up=1", "{}"))
+        assertEquals("Bearer tk_secret", seen["push.qichi1.duckdns.org"])
+
+        // 没配允许的主机（任何 https 地址都发）：令牌谁也不给
+        val open = UnifiedPushSender(emptySet(), token = "tk_secret", engine = engine)
+        assertEquals(SendResult.Ok, open.send("https://elsewhere.example.com/up1", "{}"))
+        assertEquals(null, seen["elsewhere.example.com"])
+        assertTrue("elsewhere.example.com" in seen)
     }
 
     @Test fun `只往允许的主机发`() {
