@@ -237,6 +237,8 @@ object Plans : SyncedTable("plans") {
     val completedAt = timestamp("completed_at").nullable()
     val completionNote = text("completion_note").nullable()
     val coverFileId = javaUUID("cover_file_id").nullable()
+    /** 下一步连着的待办（P14-03） */
+    val nextStepTodoId = javaUUID("next_step_todo_id").nullable()
 }
 
 object PlanStages : SyncedTable("plan_stages") {

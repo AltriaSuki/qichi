@@ -2367,6 +2367,12 @@ paths:
     patch:
       tags: [plans]
       operationId: updatePlan
+      description: |
+        只改发来的字段。状态（P14-03）：进行中 ↔ 先放一放（`archived`）；已完成的发 `active` 是重新打开——完成时间清掉，
+        完成记录留着（再完成时换成新的）；已完成的不能直接放一放；完成要用 `…/complete`。
+        下一步连着待办（P14-03）：发 `nextStepTodoId` = 这个计划里一件没做完、没删的待办，下一步的内容、谁来做、截止都跟着那件待办
+        （同一次请求里不能再写 `nextStep`、`nextStepOwnerId`、`nextStepDue`）；之后那件待办改名字、改交给谁、改截止，下一步跟着变；
+        做完或删掉时下一步结束（这几个字段都清空）；移出这个计划时只断开，下一步的文字留着。直接改下一步的文字、谁来做或截止，也会断开。
       requestBody:
         required: true
         content:
@@ -2374,6 +2380,7 @@ paths:
             schema: { $ref: '#/components/schemas/UpdatePlanRequest' }
       responses:
         '200': { description: 修改后计划, content: { application/json: { schema: { $ref: '#/components/schemas/Plan' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [plans]
@@ -2472,6 +2479,33 @@ paths:
       responses:
         '200': { description: 同 id 已存在, content: { application/json: { schema: { $ref: '#/components/schemas/PlanLog' } } } }
         '201': { description: 已创建, content: { application/json: { schema: { $ref: '#/components/schemas/PlanLog' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /rooms/{roomId}/plans/{planId}/logs/{id}:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/PlanId'
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [plans]
+      operationId: updatePlanLog
+      summary: 改一条进展记录（P14-03，只有记的人能改）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdatePlanLogRequest' }
+      responses:
+        '200': { description: 修改后的记录, content: { application/json: { schema: { $ref: '#/components/schemas/PlanLog' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [plans]
+      operationId: deletePlanLog
+      summary: 删一条进展记录进回收站（P14-03，只有记的人能删、能恢复）
+      responses:
+        '200': { description: 已移入回收站, content: { application/json: { schema: { $ref: '#/components/schemas/PlanLog' } } } }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
   /rooms/{roomId}/plans/{planId}/complete:
     parameters:
@@ -3522,6 +3556,9 @@ components:
             coverFileId:
               $ref: '#/components/schemas/NullableUuid'
               description: 封面照片（房间里的一张图片）；为空时 App 按计划 id 固定选一幅插画（P10-06）
+            nextStepTodoId:
+              $ref: '#/components/schemas/NullableUuid'
+              description: 下一步连着的待办（P14-03）；连着时 nextStep、nextStepOwnerId、nextStepDue 跟着那件待办。旧服务端没有这个字段
     PlanStage:
       allOf:
         - $ref: '#/components/schemas/SyncFields'
@@ -3543,7 +3580,7 @@ components:
             targetDate: { $ref: '#/components/schemas/NullableLocalDate' }
             doneAt: { $ref: '#/components/schemas/NullableInstant' }
     PlanLog:
-      description: 创建后不可修改的过程记录
+      description: 进展记录。记的人可以改、可以删（进回收站，P14-03）
       allOf:
         - $ref: '#/components/schemas/SyncFields'
         - type: object
@@ -4090,6 +4127,9 @@ components:
         coverFileId:
           $ref: '#/components/schemas/NullableUuid'
           description: 换封面：先上传图片（kind = image）再带上文件 id；null 改回插画。必须是这个房间里的图片，否则 400
+        nextStepTodoId:
+          $ref: '#/components/schemas/NullableUuid'
+          description: 下一步用这个计划里的一件待办（P14-03，见 PATCH 说明）；null 断开
     CreatePlanStageRequest:
       type: object
       required: [id, title, sortOrder]
@@ -4123,6 +4163,11 @@ components:
       required: [id, body]
       properties:
         id: { $ref: '#/components/schemas/Uuid' }
+        body: { type: string, minLength: 1, maxLength: 10000 }
+    UpdatePlanLogRequest:
+      type: object
+      required: [body]
+      properties:
         body: { type: string, minLength: 1, maxLength: 10000 }
     CompletePlanRequest:
       type: object
@@ -4596,7 +4641,7 @@ components:
     TrashType:
       type: string
       description: 第 3 阶段可恢复的类型，后续阶段追加
-      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post, archive_item, decision, book, summary, plan_stage, milestone, review_document, annotation, doc_comment]
+      enum: [message, mood, todo, event, question, plan, idea, document, board_topic, board_post, archive_item, decision, book, summary, plan_stage, milestone, review_document, annotation, doc_comment, plan_log]
     TrashItem:
       type: object
       required: [type, id, deletedAt, deletedBy, data]
@@ -4625,6 +4670,7 @@ components:
             - $ref: '#/components/schemas/Milestone'
             - $ref: '#/components/schemas/ReviewDocument'
             - $ref: '#/components/schemas/Annotation'
+            - $ref: '#/components/schemas/PlanLog'
     TrashPage:
       type: object
       required: [items, nextCursor]

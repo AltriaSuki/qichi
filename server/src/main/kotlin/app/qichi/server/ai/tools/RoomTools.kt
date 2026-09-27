@@ -4,6 +4,7 @@ import app.qichi.server.ai.AiTool
 import app.qichi.server.ai.AiToolCall
 import app.qichi.server.ai.MoodWords
 import app.qichi.server.ai.RoomContext
+import app.qichi.server.ai.planStatusLabel
 import app.qichi.server.db.AiFindings
 import app.qichi.server.db.AnnotationReplies
 import app.qichi.server.db.Annotations
@@ -140,7 +141,7 @@ class RoomTools(
         Spec(
             AiTool(
                 "plans", "不给 ref：列出计划；给 ref：看这个计划的阶段、里程碑、进展记录和挂在下面的待办。",
-                schema("status" to strParam("active 进行中（默认）、done 已结束、all 全部", listOf("active", "done", "all")), "ref" to refParam("计划")),
+                schema("status" to strParam("active 进行中（默认）、archived 先放一放、done 已完成、all 全部", listOf("active", "archived", "done", "all")), "ref" to refParam("计划")),
             ),
             prefs.plans, { a -> if (a.int("ref") != null) "计划详情" else "计划" }, ::plans,
         ),
@@ -284,12 +285,13 @@ class RoomTools(
     }
 
     private fun planLine(r: ResultRow): String {
-        val active = r[Plans.status] == PlanStatus.Active.wireName
-        return "计划 · ${r[Plans.title]}（${who(r[Plans.ownerId])}负责，" + (if (active) "进行中" else "已结束") + "）" +
+        val done = r[Plans.status] == PlanStatus.Done.wireName
+        return "计划 · ${r[Plans.title]}（${who(r[Plans.ownerId])}负责，${planStatusLabel(r[Plans.status])}）" +
             (r[Plans.targetDate]?.let { " · 目标 ${day(it)}" } ?: "") +
             (r[Plans.nextStep]?.let { ns -> " · 下一步：$ns" + (r[Plans.nextStepOwnerId]?.let { "（${who(it)}" + (r[Plans.nextStepDue]?.let { d -> "，${day(d)}前" } ?: "") + "）" } ?: "") } ?: "") +
             (r[Plans.completedAt]?.let { " · ${day(dateOf(it))}完成" } ?: "") +
-            (r[Plans.completionNote]?.let { " · 完成记录：${cut(it, 150)}" } ?: "")
+            // 重新打开的计划留着上次的完成记录（P14-03），那不算结果，不给
+            (r[Plans.completionNote]?.takeIf { done }?.let { " · 完成记录：${cut(it, 150)}" } ?: "")
     }
 
     private fun archiveKind(kind: String) = when (kind) {
@@ -524,9 +526,9 @@ class RoomTools(
         val id = ref(a, EntityType.Plan)
         val out = Out(book)
         if (id == null) {
-            val status = a.choice("status", listOf("active", "done", "all"), "active")
+            val status = a.choice("status", listOf("active", "archived", "done", "all"), "active")
             Plans.selectAll().where { (Plans.roomId eq roomId) and Plans.deletedAt.isNull() }.orderBy(Plans.updatedAt, SortOrder.DESC)
-                .filter { status == "all" || (it[Plans.status] == PlanStatus.Active.wireName) == (status == "active") }
+                .filter { status == "all" || it[Plans.status] == status }
                 .forEach { r -> out.item(EntityType.Plan, r[Plans.id], cut(r[Plans.title], 80), r[Plans.updatedAt], planLine(r)) }
             return out.result("没有符合条件的计划")
         }

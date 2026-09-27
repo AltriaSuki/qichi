@@ -15,16 +15,20 @@ import app.qichi.shared.api.CreateBookRequest
 import app.qichi.shared.api.CreateDocumentRequest
 import app.qichi.shared.api.CreateHighlightRequest
 import app.qichi.shared.api.CreateIdeaRequest
+import app.qichi.shared.api.CompletePlanRequest
 import app.qichi.shared.api.CreatePlanRequest
 import app.qichi.shared.api.Document
 import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
+import app.qichi.shared.api.Patch
 import app.qichi.shared.api.Plan
 import app.qichi.shared.api.QnaToday
 import app.qichi.shared.api.SaveDocumentVersionRequest
 import app.qichi.shared.api.SendMessageRequest
+import app.qichi.shared.api.UpdatePlanRequest
 import app.qichi.shared.api.WriteAnswerRequest
 import app.qichi.shared.model.HighlightKind
+import app.qichi.shared.model.PlanStatus
 import app.qichi.shared.model.ReadExplainMode
 import app.qichi.shared.util.UuidV7
 import io.ktor.client.call.body
@@ -166,6 +170,29 @@ class RoomToolsTest {
         assertTrue(tools.call("plans", """{"ref":$m}""").startsWith("参数不对：[$m] 是灵感"))
         assertTrue(tools.call("plans", """{"ref":99}""").startsWith("参数不对：没有编号 [99]"))
         assertTrue(tools.call("events", """{"from":"下周"}""").startsWith("参数不对"))
+    }
+
+    @Test fun `计划的状态（P14-03）：进行中、先放一放、已完成分开说；重新打开的计划不给上次的完成记录`() = serverTest { client ->
+        val (aqi, chi, roomId) = Api(client).pair()
+        val path = "/api/v1/rooms/$roomId/plans"
+        val paused = aqi.post(path, CreatePlanRequest(UuidV7.generate(), "学吉他", aqi.userId())).body<Plan>()
+        aqi.patch("$path/${paused.id}", UpdatePlanRequest(status = Patch.of(PlanStatus.Archived)))
+        val reopened = aqi.post(path, CreatePlanRequest(UuidV7.generate(), "秋天去海边", aqi.userId())).body<Plan>()
+        aqi.post("$path/${reopened.id}/complete", CompletePlanRequest("看到了海"))
+        aqi.patch("$path/${reopened.id}", UpdatePlanRequest(status = Patch.of(PlanStatus.Active)))
+        val done = aqi.post(path, CreatePlanRequest(UuidV7.generate(), "搬家", aqi.userId())).body<Plan>()
+        aqi.post("$path/${done.id}/complete", CompletePlanRequest("住进新家了"))
+
+        val tools = room(aqi, chi, roomId).tools()
+        val all = tools.call("plans", """{"status":"all"}""")
+        assertTrue(all.contains("学吉他（阿栖负责，先放一放）"), all)
+        assertTrue(all.contains("秋天去海边（阿栖负责，进行中）"), all)
+        assertFalse(all.contains("看到了海"), all)
+        assertTrue(all.contains("搬家（阿栖负责，已完成）") && all.contains("完成记录：住进新家了"), all)
+        val archived = tools.call("plans", """{"status":"archived"}""")
+        assertTrue(archived.contains("学吉他") && !archived.contains("搬家") && !archived.contains("秋天去海边"), archived)
+        val finished = tools.call("plans", """{"status":"done"}""")
+        assertTrue(finished.contains("搬家") && !finished.contains("学吉他"), finished)
     }
 
     @Test fun `日期段：日程和聊天按房间时区的日子算`() = serverTest { client ->

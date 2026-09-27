@@ -174,9 +174,9 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | POST | `/rooms/{roomId}/ai/question-suggest` | 让 AI 根据共同历史出题 → 202 |
 | POST | `/rooms/{roomId}/questions/{id}/adopt` | 采纳进题库 |
 | DELETE | `/rooms/{roomId}/questions/{id}` | 软删除题目，进入回收站 |
-| POST · PATCH · DELETE | `/rooms/{roomId}/plans[/{id}]` | 计划 |
+| POST · PATCH · DELETE | `/rooms/{roomId}/plans[/{id}]` | 计划。PATCH 的 `status`：进行中 ↔ 先放一放（`archived`），已完成的改回 `active` 是重新打开（清掉完成时间、留着完成记录）；`nextStepTodoId` 让下一步用计划里的一件待办（P14-03，规则见 openapi） |
 | POST · PATCH · DELETE | `/rooms/{roomId}/plans/{planId}/stages[/{id}]`、`…/milestones[/{id}]` | 阶段、里程碑 |
-| POST | `/rooms/{roomId}/plans/{planId}/logs` | 过程记录 |
+| POST · PATCH · DELETE | `/rooms/{roomId}/plans/{planId}/logs[/{id}]` | 进展记录；改和删只能记的人，删了进回收站（`plan_log`，只有记的人能恢复，P14-03） |
 | POST | `/rooms/{roomId}/plans/{planId}/complete` | 完成计划（带完成记录） |
 | POST | `/rooms/{roomId}/calendar/import` | 导入 .ics（multipart） |
 | GET | `/rooms/{roomId}/calendar/export.ics` | 导出 |

@@ -179,6 +179,7 @@ enum class TrashType {
     @SerialName("review_document") ReviewDocument,
     @SerialName("annotation") Annotation,
     @SerialName("doc_comment") DocComment,
+    @SerialName("plan_log") PlanLog,
 }
 
 @Serializable

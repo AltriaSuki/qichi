@@ -15,9 +15,12 @@ import app.qichi.core.sync.SyncFixtures.roomId
 import app.qichi.core.sync.SyncFixtures.t0
 import app.qichi.core.sync.SyncScheduler
 import app.qichi.shared.api.Mood
+import app.qichi.shared.api.Plan
+import app.qichi.shared.api.PlanLog
 import app.qichi.shared.api.Todo
 import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.MoodLabel
+import app.qichi.shared.model.PlanStatus
 import app.qichi.shared.model.TrashType
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -78,6 +81,30 @@ class TrashRepositoryTest {
         val entries = trash.observe(roomId).first()
         assertEquals(listOf(TrashType.Message, TrashType.Mood, TrashType.Todo), entries.map { it.type })
         assertEquals(listOf(message.id, myMood.id, parent.id), entries.map { it.id })
+    }
+
+    @Test
+    fun `计划的进展记录（P14-03）：只列自己记的；计划也删了时随计划一起不单独列；恢复发 restore`() = runTest {
+        val plan = Plan(
+            id = UUID.randomUUID(), roomId = roomId, seq = 1, createdAt = t0, updatedAt = t0, deletedAt = null, deletedBy = null,
+            title = "去海边", ownerId = me, status = PlanStatus.Active, targetDate = null, nextStep = null, nextStepOwnerId = null,
+            nextStepDue = null, completedAt = null, completionNote = null,
+        )
+        fun log(author: UUID, planId: UUID) = PlanLog(
+            id = UUID.randomUUID(), roomId = roomId, seq = 2, createdAt = t0, updatedAt = t0, deletedAt = t0.plusSeconds(60),
+            deletedBy = author, planId = planId, authorId = author, body = "进展",
+        )
+        val mine = log(me, plan.id)
+        val theirs = log(partner, plan.id)
+        val deletedPlan = plan.copy(id = UUID.randomUUID(), deletedAt = t0.plusSeconds(90), deletedBy = me)
+        val withPlan = log(me, deletedPlan.id)
+        listOf(plan, mine, theirs, deletedPlan, withPlan).forEach { store.applyServer(it) }
+
+        val entries = trash.observe(roomId).first()
+        assertEquals(listOf(deletedPlan.id, mine.id), entries.map { it.id })
+        trash.restore(roomId, entries.single { it.id == mine.id })
+        assertNull(store.get<PlanLog>(EntityType.PlanLog, mine.id)!!.value.deletedAt)
+        assertEquals("rooms/$roomId/trash/plan_log/${mine.id}/restore", db.outbox().all().single().path)
     }
 
     @Test

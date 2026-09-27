@@ -10,11 +10,14 @@ import app.qichi.server.db.PlanStages
 import app.qichi.server.db.Plans
 import app.qichi.server.db.QichiDatabase
 import app.qichi.server.db.tx
+import app.qichi.server.db.Todos
 import app.qichi.server.plugins.ApiException
+import app.qichi.server.plugins.forbidden
 import app.qichi.server.plugins.notFound
 import app.qichi.server.plugins.validate
 import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomService
+import app.qichi.server.todos.toTodo
 import app.qichi.shared.api.CompletePlanRequest
 import app.qichi.shared.api.CreateMilestoneRequest
 import app.qichi.shared.api.CreatePlanLogRequest
@@ -27,12 +30,14 @@ import app.qichi.shared.api.PlanDetail
 import app.qichi.shared.api.PlanLog
 import app.qichi.shared.api.PlanStage
 import app.qichi.shared.api.UpdateMilestoneRequest
+import app.qichi.shared.api.UpdatePlanLogRequest
 import app.qichi.shared.api.UpdatePlanRequest
 import app.qichi.shared.api.UpdatePlanStageRequest
 import app.qichi.shared.api.ifPresent
 import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.PlanStatus
 import app.qichi.shared.model.ProblemCode
+import app.qichi.shared.model.fromWire
 import app.qichi.shared.model.wireName
 import app.qichi.shared.rules.Limits
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -77,7 +82,7 @@ class PlanService(
                 .orderBy(PlanStages.sortOrder).map { it.toPlanStage() },
             Milestones.selectAll().where { (Milestones.planId eq id) and Milestones.deletedAt.isNull() }
                 .orderBy(Milestones.createdAt).map { it.toMilestone() },
-            PlanLogs.selectAll().where { PlanLogs.planId eq id }
+            PlanLogs.selectAll().where { (PlanLogs.planId eq id) and PlanLogs.deletedAt.isNull() }
                 .orderBy(PlanLogs.createdAt, SortOrder.DESC).map { it.toPlanLog() },
         )
     }
@@ -104,14 +109,24 @@ class PlanService(
         }
     }
 
+    /**
+     * 只改发来的字段。状态（P14-03）：进行中 ↔ 先放一放；已完成的改回进行中是重新打开——完成时间清掉，完成记录留着
+     * （再完成时换成新的）；已完成的不能直接放一放。
+     * 下一步连着待办（P14-03）：带 nextStepTodoId 时下一步的内容、谁来做、截止照那件待办填（之后跟着它变，见 [LinkedSteps]）；
+     * 直接改下一步的文字、谁来做或截止（旧版 App 也是这样改），就不再跟着待办。
+     */
     suspend fun update(userId: UUID, roomId: UUID, id: UUID, request: UpdatePlanRequest): Plan = db.tx {
         rooms.requireMember(roomId, userId)
         RoomRepository.lockRoom(roomId)
         val row = Plans.selectAll().where { (Plans.id eq id) and (Plans.roomId eq roomId) and Plans.deletedAt.isNull() }
             .singleOrNull() ?: notFound()
+        val status = fromWire<PlanStatus>(row[Plans.status])
+        val editsStep = listOf(request.nextStep, request.nextStepOwnerId, request.nextStepDue).any { it.isPresent }
+        val linkTo = (request.nextStepTodoId as? Patch.Value)?.value
+        val linkedTodo = linkTo?.let { todoId -> Todos.selectAll().where { (Todos.id eq todoId) and (Todos.roomId eq roomId) }.singleOrNull()?.toTodo() }
         validate {
             check(listOf(request.title, request.ownerId, request.status, request.targetDate, request.nextStep,
-                request.nextStepOwnerId, request.nextStepDue, request.coverFileId).any { it.isPresent }, "body", "至少修改一个字段")
+                request.nextStepOwnerId, request.nextStepDue, request.coverFileId, request.nextStepTodoId).any { it.isPresent }, "body", "至少修改一个字段")
             request.coverFileId.ifPresent { fileId ->
                 if (fileId != null) {
                     val kind = Files.select(Files.kind).where { (Files.id eq fileId) and (Files.roomId eq roomId) }.singleOrNull()?.get(Files.kind)
@@ -122,21 +137,56 @@ class PlanService(
             request.nextStepOwnerId.ifPresent { owner ->
                 check(owner == null || activeMember(roomId, owner), "nextStepOwnerId", "负责人必须是房间成员")
             }
-            request.status.ifPresent { check(it != PlanStatus.Done, "status", "请用完成计划操作") }
+            request.status.ifPresent {
+                check(it != PlanStatus.Done, "status", "请用完成计划操作")
+                check(!(it == PlanStatus.Archived && status == PlanStatus.Done), "status", "已完成的计划先重新打开")
+            }
+            if (linkTo != null) {
+                check(!editsStep, "nextStepTodoId", "连着待办时，下一步跟着那件待办，不用另外写")
+                check(
+                    linkedTodo != null && linkedTodo.deletedAt == null && linkedTodo.doneAt == null && linkedTodo.planId == id,
+                    "nextStepTodoId",
+                    "只能用这个计划里还没做完的待办",
+                )
+            }
         }
         val title = (request.title as? Patch.Value)?.value?.let(::checkTitle)
-        val step = if (request.nextStep.isPresent) checkStep(request.nextStep.orNull()) else row[Plans.nextStep]
-        val stepOwner = if (request.nextStepOwnerId.isPresent) request.nextStepOwnerId.orNull() else row[Plans.nextStepOwnerId]
-        val stepDue = if (request.nextStepDue.isPresent) request.nextStepDue.orNull() else row[Plans.nextStepDue]
+        val linked = linkedTodo?.let(LinkedSteps::stepOf)
+        val step = when {
+            linked != null -> linked.text
+            request.nextStep.isPresent -> checkStep(request.nextStep.orNull())
+            else -> row[Plans.nextStep]
+        }
+        val stepOwner = when {
+            linked != null -> linked.owner
+            request.nextStepOwnerId.isPresent -> request.nextStepOwnerId.orNull()
+            else -> row[Plans.nextStepOwnerId]
+        }
+        val stepDue = when {
+            linked != null -> linked.due
+            request.nextStepDue.isPresent -> request.nextStepDue.orNull()
+            else -> row[Plans.nextStepDue]
+        }
         validate { check(step != null || (stepOwner == null && stepDue == null), "nextStep", "先填写下一步") }
+        val todoLink = when {
+            request.nextStepTodoId.isPresent -> linkTo
+            editsStep -> null
+            else -> row[Plans.nextStepTodoId]
+        }
         writes.update(this, roomId, userId, EntityType.Plan, id, Plans) {
             if (title != null) it[Plans.title] = title
             request.ownerId.ifPresent { value -> it[Plans.ownerId] = value }
-            request.status.ifPresent { value -> it[Plans.status] = value.wireName }
+            request.status.ifPresent { value ->
+                it[Plans.status] = value.wireName
+                if (status == PlanStatus.Done && value != PlanStatus.Done) it[Plans.completedAt] = null
+            }
             request.targetDate.ifPresent { value -> it[Plans.targetDate] = value }
-            if (request.nextStep.isPresent) it[Plans.nextStep] = step
-            request.nextStepOwnerId.ifPresent { value -> it[Plans.nextStepOwnerId] = value }
-            request.nextStepDue.ifPresent { value -> it[Plans.nextStepDue] = value }
+            if (linked != null || editsStep) {
+                it[Plans.nextStep] = step
+                it[Plans.nextStepOwnerId] = stepOwner
+                it[Plans.nextStepDue] = stepDue
+            }
+            it[Plans.nextStepTodoId] = todoLink
             request.coverFileId.ifPresent { value -> it[Plans.coverFileId] = value }
         }
         Plans.selectAll().where { Plans.id eq id }.single().toPlan()
@@ -257,5 +307,28 @@ class PlanService(
         }
         if (result.first.planId != planId || result.first.authorId != userId) throw ApiException(ProblemCode.ConflictId, "这个 id 已被占用")
         result
+    }
+
+    /** 改一条进展记录（P14-03）：只有记的人能改。 */
+    suspend fun updateLog(userId: UUID, roomId: UUID, planId: UUID, id: UUID, request: UpdatePlanLogRequest): PlanLog = db.tx {
+        rooms.requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId)
+        val row = PlanLogs.selectAll().where { (PlanLogs.id eq id) and (PlanLogs.roomId eq roomId) and (PlanLogs.planId eq planId) and PlanLogs.deletedAt.isNull() }
+            .singleOrNull() ?: notFound()
+        if (row[PlanLogs.authorId] != userId) forbidden("只能改自己记的进展")
+        val body = request.body.trim()
+        validate { check(body.length in Limits.PLAN_LOG_LENGTH, "body", "记录 1–10000 字") }
+        if (body != row[PlanLogs.body]) writes.update(this, roomId, userId, EntityType.PlanLog, id, PlanLogs) { it[PlanLogs.body] = body }
+        PlanLogs.selectAll().where { PlanLogs.id eq id }.single().toPlanLog()
+    }
+
+    /** 删一条进展记录进回收站（P14-03）：只有记的人能删；恢复、彻底删除也只有记的人能做。 */
+    suspend fun deleteLog(userId: UUID, roomId: UUID, planId: UUID, id: UUID): PlanLog = db.tx {
+        rooms.requireMember(roomId, userId)
+        val row = PlanLogs.selectAll().where { (PlanLogs.id eq id) and (PlanLogs.roomId eq roomId) and (PlanLogs.planId eq planId) }
+            .singleOrNull() ?: notFound()
+        if (row[PlanLogs.authorId] != userId) forbidden("只能删自己记的进展")
+        if (row[PlanLogs.deletedAt] == null) writes.softDelete(this, roomId, userId, EntityType.PlanLog, id, PlanLogs)
+        PlanLogs.selectAll().where { PlanLogs.id eq id }.single().toPlanLog()
     }
 }

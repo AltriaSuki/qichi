@@ -58,6 +58,8 @@ import app.qichi.server.reading.toBook
 import app.qichi.server.plans.toPlan
 import app.qichi.server.plans.toPlanStage
 import app.qichi.server.plans.toMilestone
+import app.qichi.server.plans.toPlanLog
+import app.qichi.server.plans.LinkedSteps
 import app.qichi.server.qna.toQuestion
 import app.qichi.server.rooms.RoomService
 import app.qichi.server.sync.EntityRegistry
@@ -93,7 +95,7 @@ import java.util.UUID
 
 /**
  * 回收站（P3-03）：列表、恢复、彻底删除。第 3 阶段包括消息、心情、待办、日程。
- * 心情只有作者能删，所以也只有作者能恢复或彻底删除；其它类型两位成员都可以。
+ * 心情只有作者能删，所以也只有作者能恢复或彻底删除（批注、文稿留言、计划的进展记录也是）；其它类型两位成员都可以。
  */
 class TrashService(
     private val db: QichiDatabase,
@@ -201,6 +203,12 @@ class TrashService(
                         val m = row.toMilestone()
                         add(Candidate(TrashType.Milestone, m, m.deletedAt!!, m.deletedBy!!))
                     }
+                // 进展记录（P14-03）：同上，计划在回收站里时随它一起
+                PlanLogs.join(Plans, JoinType.INNER, PlanLogs.planId, Plans.id).select(PlanLogs.columns)
+                    .where { Plans.deletedAt.isNull() }.deleted(PlanLogs, roomId, cursor, take).forEach { row ->
+                        val l = row.toPlanLog()
+                        add(Candidate(TrashType.PlanLog, l, l.deletedAt!!, l.deletedBy!!))
+                    }
                 Summaries.selectAll().deleted(Summaries, roomId, cursor, take).forEach { row ->
                     val s = row.toSummary()
                     add(Candidate(TrashType.Summary, s, s.deletedAt!!, s.deletedBy!!))
@@ -285,6 +293,9 @@ class TrashService(
                     hardDelete(this, roomId, userId, EntityType.Mood, id, Moods, now)
                 }
                 TrashType.Todo -> {
+                    // 还连着计划下一步的（删除时已经断开，这里兜底）：下一步结束，免得外键悄悄置空、手机上收不到
+                    (Todos.select(Todos.id).where { Todos.parentId eq id }.map { it[Todos.id] } + id)
+                        .forEach { LinkedSteps.end(this, writes, roomId, userId, it) }
                     // 由它生成的下一次重复：来源置空
                     Todos.select(Todos.id).where { Todos.recurrencePrevId eq id }.map { it[Todos.id] }.forEach { next ->
                         writes.update(this, roomId, userId, EntityType.Todo, next, Todos) { it[Todos.recurrencePrevId] = null }
@@ -342,6 +353,7 @@ class TrashService(
                 TrashType.Summary -> hardDelete(this, roomId, userId, EntityType.Summary, id, Summaries, now)
                 TrashType.PlanStage -> hardDelete(this, roomId, userId, EntityType.PlanStage, id, PlanStages, now)
                 TrashType.Milestone -> hardDelete(this, roomId, userId, EntityType.Milestone, id, Milestones, now)
+                TrashType.PlanLog -> hardDelete(this, roomId, userId, EntityType.PlanLog, id, PlanLogs, now)
                 TrashType.ReviewDocument -> {
                         val fileIds = reviews.detachFiles(id)
                         AiFindings.select(AiFindings.id).where { AiFindings.documentId eq id }.map { it[AiFindings.id] }.sortedDescending()
@@ -396,6 +408,7 @@ class TrashService(
             } == true
             PlanStages -> planDeleted(row[PlanStages.planId])
             Milestones -> planDeleted(row[Milestones.planId])
+            PlanLogs -> planDeleted(row[PlanLogs.planId])
             Annotations -> ReviewDocuments.select(ReviewDocuments.deletedAt).where { ReviewDocuments.id eq row[Annotations.documentId] }
                 .singleOrNull()?.get(ReviewDocuments.deletedAt) != null
             DocComments -> Documents.select(Documents.deletedAt).where { Documents.id eq row[DocComments.documentId] }
@@ -418,6 +431,10 @@ class TrashService(
             TrashType.DocComment -> {
                 val author = DocComments.select(DocComments.authorId).where { DocComments.id eq id }.single()[DocComments.authorId]
                 if (author != userId) forbidden("只能处理自己的留言")
+            }
+            TrashType.PlanLog -> {
+                val author = PlanLogs.select(PlanLogs.authorId).where { PlanLogs.id eq id }.single()[PlanLogs.authorId]
+                if (author != userId) forbidden("只能处理自己记的进展")
             }
             else -> Unit
         }
@@ -472,6 +489,7 @@ val TrashType.entityType: EntityType
         TrashType.ReviewDocument -> EntityType.ReviewDocument
         TrashType.Annotation -> EntityType.Annotation
         TrashType.DocComment -> EntityType.DocComment
+        TrashType.PlanLog -> EntityType.PlanLog
     }
 
 private val TrashType.table: SyncedTable
@@ -495,4 +513,5 @@ private val TrashType.table: SyncedTable
         TrashType.ReviewDocument -> ReviewDocuments
         TrashType.Annotation -> Annotations
         TrashType.DocComment -> DocComments
+        TrashType.PlanLog -> PlanLogs
     }

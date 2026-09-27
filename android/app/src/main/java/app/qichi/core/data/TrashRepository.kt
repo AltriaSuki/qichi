@@ -21,6 +21,7 @@ import app.qichi.shared.api.BoardTopic
 import app.qichi.shared.api.Document
 import app.qichi.shared.api.Idea
 import app.qichi.shared.api.Plan
+import app.qichi.shared.api.PlanLog
 import app.qichi.shared.api.Question
 import app.qichi.shared.api.Mood
 import app.qichi.shared.api.SyncEntity
@@ -47,7 +48,7 @@ data class TrashEntry(
 
 /**
  * 回收站：从本机数据库读（离线也能看），恢复与彻底删除先改本机、再经发件箱发出。
- * 规则同服务端：随父待办一起删掉的子任务不单独列出；心情只有作者能恢复或彻底删除，所以只列自己的。
+ * 规则同服务端：随父待办一起删掉的子任务不单独列出；心情、计划的进展记录只有作者能恢复或彻底删除，所以只列自己的。
  */
 class TrashRepository(
     private val db: QichiDatabase,
@@ -82,6 +83,9 @@ class TrashRepository(
                     // 计划也在回收站里时，阶段、里程碑随计划一起，不单独列出
                     is PlanStage -> if (entity.planId in deletedPlans) null else TrashEntry(TrashType.PlanStage, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     is Milestone -> if (entity.planId in deletedPlans) null else TrashEntry(TrashType.Milestone, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
+                    // 进展记录（P14-03）：同上；只有记的人能恢复，只列自己的
+                    is PlanLog -> if (entity.planId in deletedPlans || entity.authorId != me) null
+                        else TrashEntry(TrashType.PlanLog, entity, entity.deletedAt ?: return@mapNotNull null, entity.deletedBy)
                     else -> null
                 }
             }.sortedByDescending { it.deletedAt }
@@ -122,6 +126,7 @@ class TrashRepository(
             is Summary -> e.copy(deletedAt = null, deletedBy = null)
             is PlanStage -> e.copy(deletedAt = null, deletedBy = null)
             is Milestone -> e.copy(deletedAt = null, deletedBy = null)
+            is PlanLog -> e.copy(deletedAt = null, deletedBy = null)
             else -> return
         }
         db.transaction {
@@ -192,4 +197,5 @@ val TrashType.entityType: EntityType
         TrashType.ReviewDocument -> EntityType.ReviewDocument
         TrashType.Annotation -> EntityType.Annotation
         TrashType.DocComment -> EntityType.DocComment
+        TrashType.PlanLog -> EntityType.PlanLog
     }

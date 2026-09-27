@@ -176,13 +176,15 @@ object RoomContext {
         if (prefs.plans) {
             Plans.selectAll().where { (Plans.roomId eq roomId) and Plans.deletedAt.isNull() }.forEach { r ->
                 val active = r[Plans.status] == PlanStatus.Active.wireName
-                val text = listOfNotNull(r[Plans.title], r[Plans.nextStep], r[Plans.completionNote]).joinToString(" ")
+                // 重新打开的计划留着上次的完成记录（P14-03），那不算结果，不给
+                val note = r[Plans.completionNote]?.takeIf { r[Plans.status] == PlanStatus.Done.wireName }
+                val text = listOfNotNull(r[Plans.title], r[Plans.nextStep], note).joinToString(" ")
                 val s = score(text, terms)
                 if (!active && s == 0) return@forEach
-                val line = "计划 · ${r[Plans.title]}（${who(r[Plans.ownerId])}负责" + (if (active) "，进行中" else "，已结束") + "）" +
+                val line = "计划 · ${r[Plans.title]}（${who(r[Plans.ownerId])}负责，${planStatusLabel(r[Plans.status])}）" +
                     (r[Plans.targetDate]?.let { " · 目标 ${day(it, today)}" } ?: "") +
                     (r[Plans.nextStep]?.let { ns -> " · 下一步：$ns" + (r[Plans.nextStepOwnerId]?.let { "（${who(it)}" + (r[Plans.nextStepDue]?.let { d -> "，${day(d, today)}前" } ?: "") + "）" } ?: "") } ?: "") +
-                    (r[Plans.completionNote]?.let { " · 完成记录：$it" } ?: "")
+                    (note?.let { " · 完成记录：$it" } ?: "")
                 hits += Hit(EntityType.Plan, r[Plans.id], r[Plans.updatedAt], cut(r[Plans.title], 80), line, (if (active) 1.5 else 0.0) + s)
             }
         }
@@ -283,4 +285,11 @@ object RoomContext {
         EntityType.Idea -> 6
         else -> 7
     }
+}
+
+/** 给 AI 看的计划状态（P14-03 起「先放一放」也用上了，不再笼统说「已结束」）。 */
+internal fun planStatusLabel(wire: String): String = when (wire) {
+    PlanStatus.Active.wireName -> "进行中"
+    PlanStatus.Archived.wireName -> "先放一放"
+    else -> "已完成"
 }

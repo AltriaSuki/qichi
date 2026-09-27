@@ -56,10 +56,10 @@
 | `questions` | 题库：`text`、`source`（ai / user / preset）、`suggested_by_job_id`、`adopted_by`、`adopted_at`（未采纳的 AI 建议 `adopted_at` 为空） |
 | `qna_rounds` | 某天的一问：`question_id`、`round_date`（房间时区）、`revealed_at`；同房间同日期唯一 |
 | `answers` | `round_id`、`author_id`、`body`、`confirmed_at`；**揭晓前接口只返回对方「是否已确认」，不返回 `body`** |
-| `plans` | `title`、`owner_id`、`status`（active / done / archived）、`target_date`（可空）、`next_step`、`next_step_owner_id`、`next_step_due`、`completed_at`、`completion_note`、`cover_file_id`（封面照片，可空；照片删了回到插画） |
+| `plans` | `title`、`owner_id`、`status`（active 进行中 / archived 先放一放 / done 已完成；重新打开时清掉 `completed_at`、留着 `completion_note`）、`target_date`（可空）、`next_step`、`next_step_owner_id`、`next_step_due`、`completed_at`、`completion_note`、`cover_file_id`（封面照片，可空；照片删了回到插画）、`next_step_todo_id`（下一步连着的待办，可空，P14-03：连着时下一步那三项跟着待办，待办做完或删掉时服务端把下一步清空） |
 | `plan_stages` | `plan_id`、`title`、`sort_order`、`done_at` |
 | `milestones` | `plan_id`、`title`、`target_date`、`done_at` |
-| `plan_logs` | `plan_id`、`author_id`、`body`（过程记录，不可变） |
+| `plan_logs` | `plan_id`、`author_id`、`body`（进展记录；记的人可以改、可以删，删了进回收站，P14-03） |
 | `todos` 增加列 | `plan_id` 引用 `plans` |
 | `rooms` 增加列 | `ics_token`（只读订阅链接用的随机令牌，可重置） |
 | `ideas` | 灵感：`author_id`、`body` |
