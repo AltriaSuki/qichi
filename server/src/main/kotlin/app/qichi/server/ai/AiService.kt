@@ -249,16 +249,20 @@ class AiService(
         markRunning(jobId)
         val gateway = gateway ?: return fail(jobId, roomId, "AI 服务没有开启")
 
-        val (book, notes) = db.tx(readOnly = true) {
+        val now = clock.instant()
+        val (book, notes, tools) = db.tx(readOnly = true) {
             val b = Books.select(Books.title, Books.author).where { Books.id eq bookId }.singleOrNull()
             val names = RoomRepository.activeMembers(roomId).associate { it.userId to it.displayName }
+            // 要联系到他们自己时能查房间资料（P14-04），和问 AI 一样守「AI 能看什么」
+            val lookup = if (config.tools) RoomTools(roomId, now, roomZone(roomId), names, roomPrefs(roomId), SourceBook(), openReaders(roomId))
+                .takeIf { it.definitions.isNotEmpty() } else null
             // 对比、按要求问时参考的标注：只用提问的人看得到的（自己的全部，加上对方共享的），结果也只有他看得到
             val list = Highlights.selectAll().where { (Highlights.bookId eq bookId) and Highlights.deletedAt.isNull() }
                 .map { it.toHighlight() }
                 .filter { Visibility.highlight(it, askerId) && (it.kind == HighlightKind.Highlight || it.kind == HighlightKind.Excerpt) }
                 .sortedBy { it.createdAt }.takeLast(COMPARE_NOTES)
                 .joinToString("\n") { h -> "${names[h.userId] ?: "其中一人"}：${h.text.take(CONTEXT_LINE_MAX)}" + (h.note?.let { " —— ${it.take(CONTEXT_LINE_MAX)}" } ?: "") }
-            b to list
+            Triple(b, list, lookup)
         }
         if (book == null) return fail(jobId, roomId, "书已经不在书架上了")
         val template = when (mode) {
@@ -277,15 +281,19 @@ class AiService(
                 "after" to field("after").ifEmpty { "（无）" },
                 "notes" to notes.ifEmpty { "（还没有标注和摘录）" },
                 "instruction" to instruction,
+                "lookup" to if (tools != null) prompts.render("read_lookup", mapOf("rounds" to TOOL_ROUNDS.toString())).user + "\n" else "",
             ),
         )
         val result = try {
-            gateway.complete(AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)), maxTokens = CHAT_MAX_TOKENS))
+            completeLookingUp(gateway, rendered.system, rendered.user, CHAT_MAX_TOKENS, tools, "阅读 AI")
         } catch (e: AiProviderException) {
             log.warn("阅读 AI 失败（第 {} 次）：{}", job.attempts, e.message)
             if (e.retryable && !job.isLastAttempt) throw e
             return fail(jobId, roomId, "没有得到回答")
         }
+        // 查过资料的回答也不标编号（存成标记旁边的一段话，点不开来源）；一直只想查、一个字没写时算没得到回答
+        val answer = result.text.replace(CITATION, "").trim()
+        if (answer.isEmpty()) return fail(jobId, roomId, "没有得到回答")
         db.tx {
             val now = clock.instant()
             val seq = writer.change(this, roomId, EntityType.Highlight, jobId, askerId, now)
@@ -301,7 +309,6 @@ class AiService(
                 it[locator] = field("locator")
                 it[text] = field("text").take(Limits.HIGHLIGHT_TEXT_MAX)
                 // 按自己的要求问的：开头写上问了什么，回头看时知道这段解释是怎么来的
-                val answer = result.text.trim()
                 it[note] = (if (mode == ReadExplainMode.Custom) "问：$instruction\n\n$answer" else answer).take(Limits.HIGHLIGHT_NOTE_MAX)
                 it[shared] = false
             }
@@ -725,6 +732,8 @@ class AiService(
         markRunning(jobId)
         val gateway = gateway ?: return fail(jobId, roomId, "AI 服务没有开启")
 
+        // 起草时能自己查房间资料（P14-04），和问 AI 一样守「AI 能看什么」；润色、改错字这类只看选中的文字，不用查
+        var tools: RoomTools? = null
         val (name, vars) = db.tx(readOnly = true) {
             val title = req.documentId?.let { d -> Documents.select(Documents.title).where { Documents.id eq d }.singleOrNull()?.get(Documents.title) }
             when (req.mode) {
@@ -738,6 +747,8 @@ class AiService(
                     val start = req.rangeStart!!
                     val end = req.rangeEnd!!
                     val lines = SummaryData.gather(roomId, start, end, zone, names, roomPrefs(roomId))
+                    tools = if (config.tools) RoomTools(roomId, clock.instant(), zone, names, roomPrefs(roomId), SourceBook(), openReaders(roomId))
+                        .takeIf { it.definitions.isNotEmpty() } else null
                     "write_draft" to mapOf(
                         "now" to RoomContext.now(clock.instant(), zone, names, askerId),
                         "genre" to when (req.genre!!) {
@@ -747,22 +758,23 @@ class AiService(
                         },
                         "range" to "${start.monthValue}月${start.dayOfMonth}日—${end.monthValue}月${end.dayOfMonth}日",
                         "sources" to lines.joinToString("\n") { it.line }.ifEmpty { "（这段时间没有记下什么）" },
+                        "lookup" to if (tools != null) prompts.render("write_lookup", mapOf("rounds" to TOOL_ROUNDS.toString())).user + "\n" else "",
                     )
                 }
             }
         }
         val rendered = prompts.render(name, vars)
         val result = try {
-            gateway.complete(
-                AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)),
-                    maxTokens = if (req.mode == WriteAssistMode.Draft) DRAFT_MAX_TOKENS else WRITE_MAX_TOKENS),
+            completeLookingUp(
+                gateway, rendered.system, rendered.user,
+                if (req.mode == WriteAssistMode.Draft) DRAFT_MAX_TOKENS else WRITE_MAX_TOKENS, tools, "写作助手",
             )
         } catch (e: AiProviderException) {
             log.warn("写作助手失败（第 {} 次）：{}", job.attempts, e.message)
             if (e.retryable && !job.isLastAttempt) throw e
             return fail(jobId, roomId, "没有得到结果")
         }
-        val text = result.text.trim().removePrefix("```markdown").removePrefix("```").removeSuffix("```").trim()
+        val text = result.text.replace(CITATION, "").trim().removePrefix("```markdown").removePrefix("```").removeSuffix("```").trim()
         if (text.isEmpty()) return fail(jobId, roomId, "没有得到结果")
         db.tx {
             val now = clock.instant()
@@ -779,6 +791,45 @@ class AiService(
             }
         }
         realtime.aiDone(roomId, jobId, AiJobStatus.Done.wireName)
+    }
+
+    /**
+     * 不流式的「边查边答」（P14-04：阅读里请 AI、写作助手起草也能自己查房间资料）：模型要查就执行 [tools]、把结果交回去，
+     * 直到它直接回答；最多 [TOOL_ROUNDS] 轮，轮数或时间用完时不许再查（和问 AI 一样，见 answerInChat）。
+     * 没有 [tools] 就是一次普通的请求。返回最后一轮的结果，用量是几轮加起来的；最后还是只想查、一个字没写时文字是空的。
+     */
+    private suspend fun completeLookingUp(gateway: AiGateway, system: String, user: String, maxTokens: Int, tools: RoomTools?, what: String): AiResult {
+        if (tools == null) return gateway.complete(AiRequest(system, listOf(AiMessage(AiMessage.Role.User, user)), maxTokens = maxTokens))
+        val messages = mutableListOf(AiMessage(AiMessage.Role.User, user))
+        var tokensIn = 0
+        var tokensOut = 0
+        val deadline = System.currentTimeMillis() + CHAT_TIMEOUT_MS
+        for (round in 0..TOOL_ROUNDS) {
+            val remaining = deadline - System.currentTimeMillis()
+            val last = round == TOOL_ROUNDS || remaining < LAST_ROUND_MS
+            if (last && round > 0) messages += AiMessage(AiMessage.Role.User, prompts.render("chat_lookup_done", emptyMap()).user)
+            val r = gateway.complete(
+                AiRequest(system, messages.toList(), maxTokens = maxTokens, timeoutMillis = remaining.coerceAtLeast(MIN_ROUND_MS), tools = tools.definitions),
+            )
+            tokensIn += r.inputTokens
+            tokensOut += r.outputTokens
+            if (r.toolCalls.isEmpty() || last) return r.copy(text = if (r.toolCalls.isEmpty()) r.text else "", inputTokens = tokensIn, outputTokens = tokensOut)
+            messages += AiMessage(AiMessage.Role.Assistant, r.text, toolCalls = r.toolCalls)
+            // 每次查询各用一个事务：一次出错不影响别的，把「没查成」告诉模型让它继续
+            val outputs = r.toolCalls.map { c ->
+                try {
+                    db.tx(readOnly = true) { tools.run(c) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    log.warn("{}的查询 {} 出错", what, c.name, e)
+                    "这次没查成，换个条件再试，或者先用已有的资料回答。"
+                }
+            }
+            r.toolCalls.zip(outputs).forEach { (c, out) -> messages += AiMessage(AiMessage.Role.Tool, out, toolCallId = c.id) }
+            log.info("{}第 {} 轮查了：{}", what, round + 1, r.toolCalls.joinToString { it.name })
+        }
+        error("最后一轮总会返回")
     }
 
     /** 「我发起的 AI 使用」：某个月（UTC）我发起的调用，以及本月整个服务的用量与上限。 */
@@ -1188,6 +1239,9 @@ class AiService(
         private const val MIN_ROUND_MS = 15_000L
 
         const val GAVE_UP = "资料查了不少，还是没能整理出回答。换个具体点的问法再试试？"
+
+        /** 回答里的来源编号 [n]：阅读、写作的结果点不开来源，去掉（P14-04） */
+        private val CITATION = Regex("""\s?\[\d{1,4}]""")
         private const val CONTEXT_MESSAGES = 30
         private const val CONTEXT_LINE_MAX = 300
         private const val MESSAGE_MAX = 10_000

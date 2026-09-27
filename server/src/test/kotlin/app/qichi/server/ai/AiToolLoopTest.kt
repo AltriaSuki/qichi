@@ -241,7 +241,7 @@ class AiToolLoopTest {
     }
 
     @Test
-    fun `我没公开的阅读记录：打开开关的人，AI 查得到他没公开的划线；关着时查不到（P14-02）`() {
+    fun `我没公开的阅读记录：打开开关的人，AI 查得到这个人没公开的划线；关着时查不到（P14-02）`() {
         var toolResult = ""
         val gateway = ScriptedGateway { round, request, _ ->
             if (round % 2 == 0) {

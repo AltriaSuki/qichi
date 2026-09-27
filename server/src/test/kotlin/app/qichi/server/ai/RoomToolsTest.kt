@@ -261,7 +261,7 @@ class RoomToolsTest {
         assertTrue(tools.call("search", """{"query":"不必急着"}""").startsWith("没有找到"))
     }
 
-    @Test fun `阅读：打开「我没公开的阅读记录」的人，他没公开的划线、摘录、AI 解释给 AI；对方的照旧不给（P14-02）`() {
+    @Test fun `阅读：打开「我没公开的阅读记录」的人，这个人没公开的划线、摘录、AI 解释给 AI；对方的照旧不给（P14-02）`() {
         val gateway = FakeGateway().apply { answer = "这一句说的是慢下来" }
         val ctx = testContext(aiGateway = gateway)
         serverTest(ctx) { client ->

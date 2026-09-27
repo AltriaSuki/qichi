@@ -196,7 +196,7 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | POST | `/rooms/{roomId}/documents/{id}/comments` | 段落旁留言（P9-03）：开头带 `quote`（钉住的原文，最多 200 字）和写时的 `version`；回复带 `parentId`；幂等 |
 | PATCH · DELETE | `/rooms/{roomId}/doc-comments/{id}` | 改留言正文 / 删除讨论开头进回收站（都只能作者；回复不能单独删） |
 | POST | `/rooms/{roomId}/doc-comments/{id}/resolve` · `/reopen` | 标为解决 / 重新打开（两人都可以，只对开头） |
-| POST | `/rooms/{roomId}/ai/write-assist` | 写作助手（P9-04 / P9-05）→ 202：润色 / 改错别字 / 缩短选中的一段，起标题，按体裁和日期范围参考房间资料起草稿。结果在 `GET …/ai/jobs/{jobId}` 的 `resultText`，只给发起的人看；AI 不改文稿 |
+| POST | `/rooms/{roomId}/ai/write-assist` | 写作助手（P9-04 / P9-05）→ 202：润色 / 改错别字 / 缩短选中的一段，起标题，按体裁和日期范围参考房间资料起草稿（起草时 AI 能自己查房间资料，和问 AI 一样守「AI 能看什么」，P14-04）。结果在 `GET …/ai/jobs/{jobId}` 的 `resultText`，只给发起的人看；AI 不改文稿 |
 | POST | `/rooms/{roomId}/documents/{id}/versions` | 保存新版本：`{id, baseVersion, body, restoredFromVersion?}`，新文稿的基线是 0；基线落后 409；同 `id` 重试返回已保存的版本 |
 | GET · POST · PATCH · DELETE | `/rooms/{roomId}/board/topics[/{id}]` | 留言主题：列表（置顶在前，其余按最近留言）/ 新建 / 改标题与置顶 / 删除进回收站 |
 | POST | `/rooms/{roomId}/board/topics/{topicId}/posts` | 发帖（可引用，摘录由服务端生成，原文之后修订也不变） |
@@ -223,7 +223,7 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | PATCH · DELETE | `/rooms/{roomId}/books/{id}` | 改书名、作者、共读计划 / 拿下书架（进回收站） |
 | PUT | `/rooms/{roomId}/books/{bookId}/progress` | 我的进度（每人每本一条） |
 | POST · PATCH · DELETE | `/rooms/{roomId}/books/{bookId}/highlights[/{id}]` | 书签、摘录、标注、感想（只能改删自己的；对方没共享的不会同步给你） |
-| POST | `/rooms/{roomId}/ai/read-explain` | 选中段落请 AI 解释（`mode = explain`）、和两人在这本书里的标注、摘录对照（`compare`），或按自己写的要求来（`custom`，要求放在 `instruction`，1–300 字，P14-05）→ 202；结果是一条 `kind = ai` 的标记，只有自己看得到 |
+| POST | `/rooms/{roomId}/ai/read-explain` | 选中段落请 AI 解释（`mode = explain`）、和两人在这本书里的标注、摘录对照（`compare`），或按自己写的要求来（`custom`，要求放在 `instruction`，1–300 字，P14-05）→ 202；结果是一条 `kind = ai` 的标记，只有自己看得到。AI 能自己查房间资料（P14-04，守「AI 能看什么」），结果里不带来源编号 |
 | GET · POST · DELETE | `/rooms/{roomId}/summaries[/{id}]` | 总结列表 / 生成周、月、自定义范围（→ 202，结果是 id = jobId 的总结，正文用 [n] 引用来源）/ 删除（年度回顾锁定，403）；年度回顾由服务端的「年度检查」任务每 6 小时检查一次，过了 1 月 1 日自动生成上一年的 |
 
 ### 导出（P7）
