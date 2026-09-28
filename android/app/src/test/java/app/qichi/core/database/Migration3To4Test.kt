@@ -80,7 +80,7 @@ class Migration3To4Test {
     private fun insertOld(db: SupportSQLiteDatabase, row: EntityRow) {
         db.execSQL(
             "INSERT INTO entities (type, id, roomId, seq, syncState, deleted, ownerId, parentId, sortSeq, sortTime, localTime, json, serverJson) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            arrayOf(row.type, row.id, row.roomId, row.seq, row.syncState.name, if (row.deleted) 1 else 0, row.ownerId, row.parentId, row.sortSeq, row.sortTime, row.localTime, row.json, row.serverJson),
+            arrayOf<Any?>(row.type, row.id, row.roomId, row.seq, row.syncState.name, if (row.deleted) 1 else 0, row.ownerId, row.parentId, row.sortSeq, row.sortTime, row.localTime, row.json, row.serverJson),
         )
     }
 
