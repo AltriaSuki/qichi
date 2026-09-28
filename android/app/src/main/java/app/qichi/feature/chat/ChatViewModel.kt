@@ -37,6 +37,7 @@ import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.AiAction
 import app.qichi.shared.api.Document
 import app.qichi.shared.api.Message
+import app.qichi.shared.model.BoardReactionKind
 import app.qichi.shared.model.AiJobStatus
 import app.qichi.shared.model.ProblemCode
 import app.qichi.shared.model.wireName
@@ -411,6 +412,15 @@ class ChatViewModel @AssistedInject constructor(
 
     /** 撤回自己的消息（不可恢复，界面先确认）。 */
     fun retract(message: Message) = viewModelScope.launch { chat.retract(message) }
+
+    /** 改自己发的文字（P16-05）。空的不改。 */
+    fun edit(message: Message, text: String) = viewModelScope.launch {
+        if (text.isBlank()) return@launch
+        chat.edit(message, text)
+    }
+
+    /** 回应一条消息；再点同一个 = 收回（P16-05）。 */
+    fun react(message: Message, kind: BoardReactionKind?) = viewModelScope.launch { chat.react(message, kind) }
 
     /** 删除进回收站。 */
     fun delete(message: Message) = viewModelScope.launch {

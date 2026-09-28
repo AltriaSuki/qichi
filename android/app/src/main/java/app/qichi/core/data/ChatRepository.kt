@@ -26,6 +26,9 @@ import app.qichi.shared.api.AiChatRequest
 import app.qichi.shared.model.AiActionStatus
 import app.qichi.shared.api.AiJob
 import app.qichi.shared.api.AiJobAccepted
+import app.qichi.shared.api.EditMessageRequest
+import app.qichi.shared.api.SetMessageReactionRequest
+import app.qichi.shared.model.BoardReactionKind
 import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.Lenient
@@ -171,6 +174,33 @@ class ChatRepository(
             message.roomId,
             message.copy(body = "", file = null, retractedAt = now, retractedBy = me, updatedAt = now),
             OutboxOp.action("rooms/${message.roomId}/messages/${message.id}/retract"),
+        )
+        scheduler.kickOutbox()
+    }
+
+    /** 改自己发的文字（24 小时内，P16-05）：本机立即显示新文字和「已编辑」，经发件箱发出。 */
+    suspend fun edit(message: Message, text: String) {
+        val body = text.trim()
+        require(body.isNotEmpty() && body.length <= Limits.MESSAGE_BODY_MAX)
+        if (body == message.body) return
+        val now = clock.instant()
+        store.writeLocal(
+            message.roomId,
+            message.copy(body = body, editedAt = now, updatedAt = now),
+            OutboxOp.patch("rooms/${message.roomId}/messages/${message.id}", EditMessageRequest(body)),
+        )
+        scheduler.kickOutbox()
+    }
+
+    /** 给一条消息回应（null = 收回，P16-05）；每人最多一个。 */
+    suspend fun react(message: Message, kind: BoardReactionKind?) {
+        if (message.reactions[me] == kind) return
+        val now = clock.instant()
+        val reactions = if (kind == null) message.reactions - me else message.reactions + (me to kind)
+        store.writeLocal(
+            message.roomId,
+            message.copy(reactions = reactions, updatedAt = now),
+            OutboxOp.put("rooms/${message.roomId}/messages/${message.id}/reaction", SetMessageReactionRequest(kind)),
         )
         scheduler.kickOutbox()
     }

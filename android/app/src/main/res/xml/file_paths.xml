@@ -4,4 +4,6 @@
     <cache-path name="attachments" path="attachments/" />
     <!-- 内置更新下载的安装包，交给系统安装界面 -->
     <cache-path name="updates" path="updates/" />
+    <!-- 聊天里直接拍照：相机应用把照片写到这里（P16-05） -->
+    <cache-path name="camera" path="camera/" />
 </paths>
