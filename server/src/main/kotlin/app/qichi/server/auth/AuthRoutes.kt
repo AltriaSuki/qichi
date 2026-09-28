@@ -8,6 +8,7 @@ import app.qichi.shared.api.ChangePasswordRequest
 import app.qichi.shared.api.LoginRequest
 import app.qichi.shared.api.RefreshRequest
 import app.qichi.shared.api.RegisterRequest
+import app.qichi.shared.api.ResetPasswordRequest
 import app.qichi.shared.api.UpdateMeRequest
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.auth.authenticate
@@ -29,6 +30,9 @@ fun Route.authRoutes(ctx: AppContext) {
         }
         post("/login") {
             call.respond(ctx.auth.login(call.receive<LoginRequest>(), call.clientIp))
+        }
+        post("/password-reset") {
+            call.respond(ctx.auth.resetPassword(call.receive<ResetPasswordRequest>(), call.clientIp))
         }
         post("/refresh") {
             call.respond(ctx.auth.refresh(call.receive<RefreshRequest>().refreshToken))

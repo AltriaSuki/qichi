@@ -1,6 +1,7 @@
 package app.qichi.server.auth
 
 import app.qichi.server.db.Devices
+import app.qichi.server.db.PasswordResetCodes
 import app.qichi.server.db.QichiDatabase
 import app.qichi.server.db.RefreshTokens
 import app.qichi.server.db.Tx
@@ -8,12 +9,15 @@ import app.qichi.server.db.Users
 import app.qichi.server.db.tx
 import app.qichi.server.plugins.ApiException
 import app.qichi.server.plugins.validate
+import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomService
 import app.qichi.shared.api.AuthTokens
 import app.qichi.shared.api.ChangePasswordRequest
 import app.qichi.shared.api.LoginSession
 import app.qichi.shared.api.LoginRequest
+import app.qichi.shared.api.PasswordResetCode
 import app.qichi.shared.api.RegisterRequest
+import app.qichi.shared.api.ResetPasswordRequest
 import app.qichi.shared.model.ProblemCode
 import app.qichi.shared.rules.Limits
 import app.qichi.shared.util.UuidV7
@@ -36,6 +40,7 @@ import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Duration
+import java.security.SecureRandom
 import app.qichi.server.plugins.notFound
 import java.util.UUID
 
@@ -55,6 +60,7 @@ class AuthService(
     private val onRevoked: suspend (userId: UUID, familyIds: Set<UUID>) -> Unit = { _, _ -> },
 ) {
     private val log = LoggerFactory.getLogger(AuthService::class.java)
+    private val random = SecureRandom()
 
     /**
      * 登录按用户名限流，另按 IP 限流（换着用户名猜也绕不过，P13-02）；改密码按用户限流；邀请码按 IP 限流。
@@ -274,6 +280,93 @@ class AuthService(
         return fresh
     }
 
+    // ── 忘了密码（P16-04）──
+
+    /**
+     * 房间里的一个人给另一个人生成重置码（对方忘了密码时）。只能给同一个房间里的另一个人；不是房间成员 404。
+     * 再生成就换掉旧的；码只在这次回应里出现，库里只存哈希。
+     */
+    suspend fun createResetCode(callerId: UUID, roomId: UUID, targetId: UUID): PasswordResetCode = db.tx {
+        rooms.requireMember(roomId, callerId)
+        if (!RoomRepository.isMember(roomId, targetId)) notFound()
+        validate { check(targetId != callerId, "userId", "自己的密码在「安全」里改") }
+        issueResetCode(targetId, createdBy = callerId)
+    }
+
+    /** 两个人都忘了时，在服务器上用命令生成（`qichi-server reset-code 用户名`）。用户名不存在返回 null。 */
+    suspend fun createResetCodeForUsername(username: String): PasswordResetCode? = db.tx {
+        val userId = Users.select(Users.id).where { Users.username eq username.trim().lowercase() }.singleOrNull()?.get(Users.id)
+            ?: return@tx null
+        issueResetCode(userId, createdBy = null)
+    }
+
+    private fun Tx.issueResetCode(userId: UUID, createdBy: UUID?): PasswordResetCode {
+        val now = clock.instant()
+        val code = buildString { repeat(Limits.INVITE_LENGTH) { append(Limits.INVITE_ALPHABET[random.nextInt(Limits.INVITE_ALPHABET.length)]) } }
+        val expiresAt = now.plus(RESET_CODE_VALID)
+        PasswordResetCodes.deleteWhere { PasswordResetCodes.userId eq userId }
+        PasswordResetCodes.insert {
+            it[PasswordResetCodes.userId] = userId
+            it[codeHash] = TokenService.hashRefresh(code)
+            it[PasswordResetCodes.createdBy] = createdBy
+            it[PasswordResetCodes.expiresAt] = expiresAt
+            it[createdAt] = now
+        }
+        return PasswordResetCode(code, expiresAt)
+    }
+
+    /**
+     * 用重置码设新密码：码对、没过期才行，用过就作废；所有登录（包括别的手机）都退出，这台直接登录。
+     * 和登录一样按用户名、按 IP 限流，码不对和用户名不存在是同一句话。
+     */
+    suspend fun resetPassword(req: ResetPasswordRequest, clientIp: String): AuthTokens {
+        validate {
+            check(req.newPassword.length in Limits.PASSWORD_LENGTH, "newPassword", "密码 8–128 位")
+        }
+        val username = req.username.trim().lowercase()
+        val key = "reset:$username"
+        val ipKey = "login-ip:$clientIp"
+        loginThrottle.check(key)
+        loginIpThrottle.check(ipKey)
+        val codeHash = TokenService.hashRefresh(req.code.trim().uppercase())
+        val userId = db.tx {
+            val user = Users.select(Users.id).where { Users.username eq username }.singleOrNull()?.get(Users.id) ?: return@tx null
+            PasswordResetCodes.selectAll().where { PasswordResetCodes.userId eq user }.singleOrNull()
+                ?.takeIf { it[PasswordResetCodes.codeHash] == codeHash && it[PasswordResetCodes.expiresAt].isAfter(clock.instant()) }
+                ?.let { user }
+        }
+        if (userId == null) {
+            loginThrottle.recordFailure(key)
+            loginIpThrottle.recordFailure(ipKey)
+            throw ApiException(ProblemCode.Unauthorized, "重置码不对或已经过期，请对方再生成一个")
+        }
+        loginThrottle.reset(key)
+        val newHash = hashing { hasher.hash(req.newPassword) }
+        var revoked: Set<UUID> = emptySet()
+        val fresh = db.tx {
+            val now = clock.instant()
+            // 同一个码两台手机同时用：只有先删掉它的那个算数
+            val used = PasswordResetCodes.deleteWhere { (PasswordResetCodes.userId eq userId) and (PasswordResetCodes.codeHash eq codeHash) }
+            if (used == 0) throw ApiException(ProblemCode.Unauthorized, "重置码不对或已经过期，请对方再生成一个")
+            revoked = RefreshTokens.select(RefreshTokens.familyId)
+                .where { (RefreshTokens.userId eq userId) and RefreshTokens.revokedAt.isNull() }
+                .map { it[RefreshTokens.familyId] }.toSet()
+            Users.update({ Users.id eq userId }) {
+                it[passwordHash] = newHash
+                it[passwordChangedAt] = now
+                it[updatedAt] = now
+            }
+            RefreshTokens.update({ (RefreshTokens.userId eq userId) and RefreshTokens.revokedAt.isNull() }) {
+                it[revokedAt] = now
+            }
+            Devices.deleteWhere { Devices.userId eq userId }
+            newSession(userId, UuidV7.generate(), req.deviceName)
+        }
+        log.info("用重置码设了新密码，其它 {} 次登录已退出", revoked.size)
+        onRevoked(userId, revoked)
+        return fresh
+    }
+
     /** 「安全」页：我的有效登录（每次登录一行），最近用过的在前。 */
     suspend fun sessions(principal: UserPrincipal): List<LoginSession> = db.tx(readOnly = true) {
         val now = clock.instant()
@@ -352,6 +445,9 @@ class AuthService(
 
         /** 同时计算的密码哈希个数上限（1GB 的服务器、256MB 的堆） */
         const val HASH_CONCURRENCY = 2
+
+        /** 重置码的有效期 */
+        val RESET_CODE_VALID: Duration = Duration.ofMinutes(15)
 
         /** 刷新回应丢失的宽限：被换掉的旧刷新令牌这么久之内再出现、新令牌还没被用过，就再换发一对（人类 2026-09-26 选定） */
         val REFRESH_GRACE: Duration = Duration.ofMinutes(5)

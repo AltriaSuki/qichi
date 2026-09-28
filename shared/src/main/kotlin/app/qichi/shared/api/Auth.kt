@@ -43,6 +43,22 @@ data class ChangePasswordRequest(
     val newPassword: String,
 )
 
+/** 忘了密码（P16-04）：用房间里另一个人生成的一次性重置码设新密码，成功后直接登录。 */
+@Serializable
+data class ResetPasswordRequest(
+    val username: String,
+    val code: String,
+    val newPassword: String,
+    val deviceName: String? = null,
+)
+
+/** 给房间里另一个人生成的重置码：只显示这一次，[expiresAt] 之后作废。 */
+@Serializable
+data class PasswordResetCode(
+    val code: String,
+    val expiresAt: Timestamp,
+)
+
 @Serializable
 data class AuthTokens(
     val accessToken: String,

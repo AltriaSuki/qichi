@@ -1,6 +1,7 @@
 package app.qichi.server
 
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import app.qichi.server.auth.AuthService
 import app.qichi.server.auth.PasswordHasher
 import app.qichi.server.auth.TokenService
@@ -99,7 +100,7 @@ import kotlin.system.exitProcess
 
 private val log = LoggerFactory.getLogger("app.qichi.server.Application")
 
-fun main() {
+fun main(args: Array<String>) {
     // 数据库与接口一律用 UTC
     TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
     val config = try {
@@ -114,6 +115,22 @@ fun main() {
 
     val database = QichiDatabase.start(config.database)
     val ctx = AppContext(config, database, Clock.systemUTC(), buildInfo)
+
+    // 两个人都忘了密码（P16-04）：qichi-server reset-code 用户名 → 打印一个 15 分钟有效的重置码，不启动服务
+    if (args.firstOrNull() == "reset-code") {
+        val username = args.getOrNull(1) ?: run {
+            System.err.println("用法：qichi-server reset-code 用户名")
+            exitProcess(2)
+        }
+        val code = runBlocking { ctx.auth.createResetCodeForUsername(username) }
+        database.close()
+        if (code == null) {
+            System.err.println("没有这个用户名：$username")
+            exitProcess(1)
+        }
+        println("「$username」的重置码：${code.code}（${code.expiresAt} 之前有效，在 App 登录页点「忘了密码」输入）")
+        exitProcess(0)
+    }
 
     when {
         ctx.ai.enabled -> log.info("AI：{}（{}）", config.ai.provider, config.ai.model)

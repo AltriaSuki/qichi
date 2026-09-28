@@ -43,6 +43,16 @@ abstract class SyncedTable(name: String) : Table(name) {
     open val creator: Column<*>? get() = null
 }
 
+/** 忘了密码时的一次性重置码（P16-04）：每人最多一个，只存哈希。 */
+object PasswordResetCodes : Table("password_reset_codes") {
+    val userId = javaUUID("user_id")
+    val codeHash = text("code_hash")
+    val createdBy = javaUUID("created_by").nullable()
+    val expiresAt = timestamp("expires_at")
+    val createdAt = timestamp("created_at")
+    override val primaryKey = PrimaryKey(userId)
+}
+
 object Users : Table("users") {
     val id = javaUUID("id")
     val username = text("username")

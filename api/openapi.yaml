@@ -150,6 +150,31 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }    # 用户名或密码不正确
         '429': { $ref: '#/components/responses/RateLimited' }
 
+  /auth/password-reset:
+    post:
+      tags: [auth]
+      operationId: resetPassword
+      summary: 用重置码设新密码（忘了密码，P16-04）
+      description: |
+        重置码由房间里的另一个人生成（`POST /rooms/{roomId}/members/{userId}/password-reset`），
+        或在服务器上用 `qichi-server reset-code 用户名` 生成；15 分钟有效，用过就作废。
+        成功后这个账号所有的登录（包括别的手机）都退出，这台设备直接登录。和登录一样按用户名、按 IP 限流。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResetPasswordRequest' }
+      responses:
+        '200':
+          description: 已设新密码并登录
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }    # 用户名或重置码不对、已过期
+        '429': { $ref: '#/components/responses/RateLimited' }
+
   /auth/refresh:
     post:
       tags: [auth]
@@ -350,6 +375,30 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/members/{userId}/password-reset:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - name: userId
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Uuid' }
+    post:
+      tags: [rooms]
+      operationId: createPasswordResetCode
+      summary: 给忘了密码的另一个人生成重置码（P16-04）
+      description: |
+        只能给同一个房间里的另一个人（给自己 400，对方不在这个房间 404）。8 位，字符和邀请码一样，15 分钟有效；
+        再生成就换掉旧的。码只在这次回应里出现，服务端只存哈希。
+      responses:
+        '201':
+          description: 新的重置码
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PasswordResetCode' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /invites/accept:
     post:
@@ -2995,6 +3044,20 @@ components:
       properties:
         currentPassword: { type: string, minLength: 1, maxLength: 128 }
         newPassword: { $ref: '#/components/schemas/Password' }
+    ResetPasswordRequest:
+      type: object
+      required: [username, code, newPassword]
+      properties:
+        username: { type: string, minLength: 1, maxLength: 32 }
+        code: { type: string, minLength: 1, maxLength: 16, description: 不分大小写 }
+        newPassword: { $ref: '#/components/schemas/Password' }
+        deviceName: { type: string, maxLength: 64 }
+    PasswordResetCode:
+      type: object
+      required: [code, expiresAt]
+      properties:
+        code: { type: string, pattern: '^[A-Z2-9]{8}$', example: K7PQ2XRM }
+        expiresAt: { $ref: '#/components/schemas/Instant' }
     AuthTokens:
       type: object
       required: [accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt]
