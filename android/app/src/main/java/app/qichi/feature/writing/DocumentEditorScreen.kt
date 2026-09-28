@@ -31,6 +31,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
@@ -43,6 +45,8 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -53,6 +57,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
@@ -70,6 +75,7 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
@@ -80,6 +86,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.WritingSettings
 import app.qichi.core.designsystem.Feature
@@ -149,6 +157,12 @@ fun DocumentEditorScreen(
     var showOutline by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
+    // 查找、替换（P20-04）
+    var finding by rememberSaveable { mutableStateOf(false) }
+    var replacing by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var replacement by rememberSaveable { mutableStateOf("") }
+    var queryFocused by remember { mutableStateOf(false) }
 
     // 文稿被删除（本机或对方）：回到列表
     LaunchedEffect(state.loaded, state.document) { if (state.loaded && state.document == null) onBack() }
@@ -261,6 +275,63 @@ fun DocumentEditorScreen(
     val fontSize = settings.fontSize.tsp
     val doc = state.document?.value
 
+    val reduceMotion = QichiTheme.reduceMotion
+    /** 把 [offset] 所在的那一行滚到屏幕上方三分之一处。 */
+    fun scrollToOffset(offset: Int, animate: Boolean = !reduceMotion) {
+        val l = layout ?: return
+        val line = l.getLineForOffset(offset.coerceIn(0, l.layoutInput.text.length))
+        val target = (l.getLineTop(line) - scroll.viewportSize / 3f).toInt().coerceAtLeast(0)
+        scope.launch { if (animate) scroll.animateScrollTo(target) else scroll.scrollTo(target) }
+    }
+
+    // 回到上次写到的位置（P20-05）：第一次排好版后把光标放回去、滚到那一行
+    var restored by remember(documentId) { mutableStateOf(false) }
+    LaunchedEffect(state.ready, layout == null) {
+        if (restored || !state.ready || layout == null) return@LaunchedEffect
+        restored = true
+        val offset = vm.lastPosition()?.takeIf { it in 1..field.text.length } ?: return@LaunchedEffect
+        field = field.copy(selection = TextRange(offset))
+        scrollToOffset(offset, animate = false)
+    }
+    val latestCursor by rememberUpdatedState(field.selection.start)
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (restored) vm.rememberPosition(latestCursor) }
+    DisposableEffect(documentId) { onDispose { if (restored) vm.rememberPosition(latestCursor) } }
+
+    // 找到的地方；选中的正好是其中一处时，那就是「当前这一处」
+    val found = remember(field.text, query, finding) { if (finding) DocFind.matches(field.text, query) else emptyList() }
+    val currentMatch = found.indexOfFirst { it.first == field.selection.min && it.last + 1 == field.selection.max }
+    fun selectMatch(r: IntRange) {
+        field = field.copy(selection = TextRange(r.first, r.last + 1))
+        scrollToOffset(r.first)
+    }
+    fun findNext() {
+        if (found.isEmpty()) return
+        val from = if (currentMatch >= 0) field.selection.max else field.selection.min
+        selectMatch(found[DocFind.nearest(found, from)])
+    }
+    fun findPrevious() {
+        if (found.isEmpty()) return
+        selectMatch(found.lastOrNull { it.first < field.selection.min } ?: found.last())
+    }
+    // 边打要找的字边跳到离光标最近的那一处
+    LaunchedEffect(query, finding) {
+        if (finding && found.isNotEmpty() && currentMatch < 0) selectMatch(found[DocFind.nearest(found, field.selection.min)])
+    }
+    fun replaceCurrent() {
+        if (currentMatch < 0) return findNext()
+        val r = found[currentMatch]
+        val next = DocFind.replaceAt(field.text, r, replacement)
+        val after = r.first + replacement.length
+        applyEdit(MarkdownEdits.Edit(next, after, after))
+        DocFind.matches(next, query).let { m -> if (m.isNotEmpty()) selectMatch(m[DocFind.nearest(m, after)]) }
+    }
+    fun replaceAll() {
+        val (next, count) = DocFind.replaceAll(field.text, query, replacement)
+        if (count == 0) return
+        applyEdit(MarkdownEdits.Edit(next, field.selection.min.coerceAtMost(next.length)))
+        Toast.makeText(context, "换了 $count 处", Toast.LENGTH_SHORT).show()
+    }
+
     // 顶栏收窄（P12-02）：键盘打开、或手指往下滑时收成窄条；往上滑回来时展开
     val imeVisible = WindowInsets.isImeVisible
     var scrolledDown by remember { mutableStateOf(false) }
@@ -294,6 +365,8 @@ fun DocumentEditorScreen(
                 menu = listOfNotNull(
                     if (focus) null else MenuAction("专注模式", { focus = true }),
                     MenuAction("大纲", { showOutline = true }),
+                    MenuAction("查找", { finding = true; replacing = false; preview = false; focus = false }),
+                    MenuAction("查找替换", { finding = true; replacing = true; preview = false; focus = false }),
                     MenuAction("帮我起标题", {
                         if (field.text.isBlank()) {
                             Toast.makeText(context, "先写点内容再起标题", Toast.LENGTH_SHORT).show()
@@ -340,6 +413,29 @@ fun DocumentEditorScreen(
                         PrimaryButton("重基线", { mode = EditorMode.Rebase })
                     }
                 }
+            }
+            // ── 查找、替换（P20-04） ──
+            if (finding && !focus) {
+                FindBar(
+                    query = query,
+                    onQuery = { query = it.take(FIND_MAX) },
+                    counter = when {
+                        query.isEmpty() -> ""
+                        found.isEmpty() -> "没有"
+                        currentMatch >= 0 -> "${currentMatch + 1}/${found.size}"
+                        else -> "${found.size} 处"
+                    },
+                    onNext = ::findNext,
+                    onPrevious = ::findPrevious,
+                    onClose = { finding = false; queryFocused = false },
+                    onFocus = { queryFocused = it },
+                    replacing = replacing,
+                    replacement = replacement,
+                    onReplacement = { replacement = it.take(FIND_MAX) },
+                    onReplace = ::replaceCurrent,
+                    onReplaceAll = ::replaceAll,
+                    canReplace = found.isNotEmpty(),
+                )
             }
             // ── 署名图例：对方写了多少、我写了多少 ──
             if (settings.showAuthorship && !focus && !preview && !compactBar) {
@@ -420,7 +516,9 @@ fun DocumentEditorScreen(
                         val glow = colors.accent.copy(alpha = .08f)
                         val partnerRanges = if (settings.showAuthorship) partnerRanges else emptyList()
                         val current = if (focus) currentLine(field.text, field.selection.start) else null
-                        val transformation = remember(markerColor, headingSize, partnerRanges, current, dim) {
+                        val foundShade = colors.accent.copy(alpha = .2f)
+                        val foundCurrent = colors.accent.copy(alpha = .45f)
+                        val transformation = remember(markerColor, headingSize, partnerRanges, current, dim, found, currentMatch) {
                             VisualTransformation { text ->
                                 val styled = buildAnnotatedString {
                                     append(Markdown.highlight(text.text, markerColor, headingSize, markerFont))
@@ -429,6 +527,9 @@ fun DocumentEditorScreen(
                                         if (current.first > 0) addStyle(SpanStyle(color = dim), 0, current.first)
                                         if (current.last + 1 < text.length) addStyle(SpanStyle(color = dim), current.last + 1, text.length)
                                         if (!current.isEmpty()) addStyle(SpanStyle(background = glow), current.first, current.last + 1)
+                                    }
+                                    found.forEachIndexed { i, r ->
+                                        if (r.last < text.length) addStyle(SpanStyle(background = if (i == currentMatch) foundCurrent else foundShade), r.first, r.last + 1)
                                     }
                                 }
                                 TransformedText(styled, OffsetMapping.Identity)
@@ -510,7 +611,7 @@ fun DocumentEditorScreen(
         }
 
         // ── 格式按钮：键盘打开、正在编辑时代替底栏（保存放在这一排最右边） ──
-        if ((imeVisible || focus) && !preview && state.ready) {
+        if ((imeVisible || focus) && !preview && state.ready && !queryFocused) {
             key(historyTick) {
                 FormatBar(
                     saveLabel = "存 v${state.latestVersion + 1}",
@@ -708,6 +809,71 @@ private fun FormatBar(
             }
         }
     }
+}
+
+/** 查找、替换的字最多几个 */
+private const val FIND_MAX = 100
+
+/** 查找条（P20-04）：要找的字、第几处 / 共几处、上一处、下一处、关掉；「查找替换」时下面多一行替换。 */
+@Composable
+private fun FindBar(
+    query: String,
+    onQuery: (String) -> Unit,
+    counter: String,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+    onClose: () -> Unit,
+    onFocus: (Boolean) -> Unit,
+    replacing: Boolean,
+    replacement: String,
+    onReplacement: (String) -> Unit,
+    onReplace: () -> Unit,
+    onReplaceAll: () -> Unit,
+    canReplace: Boolean,
+) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
+    Column(Modifier.fillMaxWidth().padding(start = Spacing.m, end = Spacing.xs, bottom = Spacing.xs), verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            FindField(query, onQuery, "在文稿里找", Modifier.weight(1f).focusRequester(focusRequester).onFocusChanged { onFocus(it.isFocused) }, ImeAction.Search, onNext)
+            Text(counter, style = type.caption.copy(color = colors.muted), maxLines = 1, modifier = Modifier.padding(horizontal = Spacing.xs))
+            IconAction(QichiIcons.Up, "上一处", onPrevious, enabled = canReplace, tint = if (canReplace) colors.ink else colors.faint)
+            IconAction(QichiIcons.Down, "下一处", onNext, enabled = canReplace, tint = if (canReplace) colors.ink else colors.faint)
+            IconAction(QichiIcons.Close, "关掉查找", onClose, tint = colors.muted)
+        }
+        if (replacing) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FindField(replacement, onReplacement, "换成", Modifier.weight(1f).onFocusChanged { onFocus(it.isFocused) }, ImeAction.Done, onReplace)
+                TextAction("替换", onReplace, enabled = canReplace)
+                TextAction("全部替换", onReplaceAll, enabled = canReplace)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FindField(value: String, onChange: (String) -> Unit, hint: String, modifier: Modifier, imeAction: ImeAction, onAction: () -> Unit) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    BasicTextField(
+        value = value,
+        onValueChange = onChange,
+        singleLine = true,
+        textStyle = type.body.copy(color = colors.ink),
+        cursorBrush = SolidColor(colors.personA),
+        keyboardOptions = KeyboardOptions(imeAction = imeAction),
+        keyboardActions = KeyboardActions(onSearch = { onAction() }, onDone = { onAction() }),
+        modifier = modifier.heightIn(min = Sizes.touchTarget).clip(QichiShapes.pill).background(colors.surface)
+            .padding(horizontal = Spacing.s).semantics { contentDescription = hint },
+        decorationBox = { inner ->
+            Box(Modifier.heightIn(min = Sizes.touchTarget), contentAlignment = Alignment.CenterStart) {
+                if (value.isEmpty()) Text(hint, style = type.body.copy(color = colors.faint))
+                inner()
+            }
+        },
+    )
 }
 
 /** 纸面底部给浮着的底栏留的空白。 */

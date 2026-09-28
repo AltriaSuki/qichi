@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -30,7 +31,9 @@ import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -54,6 +58,8 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
@@ -62,11 +68,14 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.People
+import app.qichi.core.data.ReadingSettings
+import app.qichi.core.reading.PageKeys
 import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiShapes
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
 import app.qichi.core.designsystem.component.BarAction
+import app.qichi.core.designsystem.component.ChoicePill
 import app.qichi.core.designsystem.component.ConfirmDialog
 import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.MenuAction
@@ -88,19 +97,18 @@ import app.qichi.shared.model.HighlightKind
 import app.qichi.shared.model.ReadExplainMode
 import app.qichi.shared.rules.Limits
 import java.util.UUID
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.readium.r2.navigator.DecorableNavigator
 import org.readium.r2.navigator.Decoration
 import org.readium.r2.navigator.epub.EpubNavigatorFragment
-import org.readium.r2.navigator.epub.EpubPreferences
 import org.readium.r2.navigator.input.InputListener
 import org.readium.r2.navigator.input.TapEvent
-import org.readium.r2.navigator.preferences.Color as ReadiumColor
 import org.readium.r2.navigator.util.DirectionalNavigationAdapter
 import org.readium.r2.shared.publication.Locator
 
-private enum class ReaderSheet { Toc, Notes, Search }
+private enum class ReaderSheet { Toc, Notes, Search, Settings }
 
 private val HighlightKind.label: String
     get() = when (this) {
@@ -151,6 +159,41 @@ fun ReaderScreen(
     val marked = vm.bookmarkAt(locator) != null
     SystemBarsVisible(chrome)
 
+    // 字号、行距、页边距、翻页方式（P20-01）；书的正文也跟着「大字」放大
+    val readingSettings by vm.settings.collectAsStateWithLifecycle()
+    val paper = colors.paper.toArgb()
+    val ink = colors.ink.toArgb()
+    val prefs = remember(readingSettings, paper, ink, type.scale) { epubPreferences(readingSettings ?: ReadingSettings(), paper, ink, type.scale) }
+    // 阅读页开着时改了设置、天色随时间变了：直接换到正在读的书上（以前要退出再进才生效）
+    LaunchedEffect(navigator, prefs) { navigator?.submitPreferences(prefs) }
+    // 音量键翻页：按下时翻，抬起也吃掉（不调音量）
+    val volumeKeys = readingSettings?.volumeKeys == true
+    DisposableEffect(navigator, volumeKeys, reduceMotion) {
+        val nav = navigator
+        if (nav != null && volumeKeys) {
+            PageKeys.handler = { e ->
+                val forward = when (e.keyCode) {
+                    android.view.KeyEvent.KEYCODE_VOLUME_DOWN -> true
+                    android.view.KeyEvent.KEYCODE_VOLUME_UP -> false
+                    else -> null
+                }
+                if (forward != null && e.action == android.view.KeyEvent.ACTION_DOWN) {
+                    if (forward) nav.goForward(animated = !reduceMotion) else nav.goBackward(animated = !reduceMotion)
+                }
+                forward != null
+            }
+        }
+        onDispose { PageKeys.handler = null }
+    }
+    // 读书时屏幕不自己熄灭；10 分钟没翻页就恢复系统的熄屏时间，放下手机不会一直亮着
+    val view = LocalView.current
+    LaunchedEffect(locator) {
+        view.keepScreenOn = true
+        delay(KEEP_SCREEN_ON_MS)
+        view.keepScreenOn = false
+    }
+    DisposableEffect(view) { onDispose { view.keepScreenOn = false } }
+
     Box(Modifier.fillMaxSize().background(colors.paper)) {
         // 正文：上面让出状态栏（收起时也按它的高度留，叫出时文字不跳），下面留一行页码
         val topInset = with(LocalDensity.current) { WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout).getTop(this).toDp() }
@@ -158,16 +201,8 @@ fun ReaderScreen(
         Box(Modifier.fillMaxSize().padding(top = topInset, bottom = bottomInset + PAGE_NUMBER_HEIGHT)) {
             val pub = vm.publication
             when {
-                state.ready && pub != null -> {
-                    // 书的正文也跟着「大字」放大
-                    val scale = type.scale
-                    val prefs = remember(colors, scale) {
-                        EpubPreferences(
-                            backgroundColor = ReadiumColor(colors.paper.toArgb()),
-                            textColor = ReadiumColor(colors.ink.toArgb()),
-                            fontSize = scale.toDouble(),
-                        )
-                    }
+                // 本机的阅读设置读到之前先不排版，免得先按默认字号排一遍再跳
+                state.ready && pub != null && readingSettings != null -> {
                     val actions = remember(vm) {
                         listOf(
                             SelectionAction(1, "标注") { nav -> scope.launch { nav.currentSelection()?.let { sel ->
@@ -219,6 +254,7 @@ fun ReaderScreen(
                     BarAction("目录", QichiIcons.Toc, { sheet = ReaderSheet.Toc }, enabled = state.ready),
                     BarAction(if (marked) "去掉书签" else "加书签", QichiIcons.Bookmark, { locator?.let(vm::toggleBookmark) },
                         enabled = locator != null, tint = if (marked) colors.accent else null),
+                    BarAction("字号与排版", QichiIcons.TextSize, { sheet = ReaderSheet.Settings }, enabled = readingSettings != null),
                 ),
                 menu = listOf(MenuAction("书内搜索", { sheet = ReaderSheet.Search }, enabled = state.ready)),
             )
@@ -293,13 +329,16 @@ fun ReaderScreen(
     val go: (Locator) -> Unit = { l -> navigator?.go(l, animated = false); sheet = null }
     when (sheet) {
         ReaderSheet.Toc -> ModalBottomSheet(onDismissRequest = { sheet = null }, containerColor = colors.background) {
-            TocSheet(state, onOpen = { link -> navigator?.go(link, animated = false); sheet = null }, onNotes = { sheet = ReaderSheet.Notes })
+            TocSheet(state, locator, onOpen = { link -> navigator?.go(link, animated = false); sheet = null }, onNotes = { sheet = ReaderSheet.Notes })
         }
         ReaderSheet.Notes -> ModalBottomSheet(onDismissRequest = { sheet = null }, containerColor = colors.background) {
             NotesSheet(state, vm, onGo = go, onOpen = { openHighlight = it; sheet = null })
         }
         ReaderSheet.Search -> ModalBottomSheet(onDismissRequest = { sheet = null }, containerColor = colors.background) {
             SearchSheet(vm, onGo = go)
+        }
+        ReaderSheet.Settings -> ModalBottomSheet(onDismissRequest = { sheet = null }, containerColor = colors.background) {
+            readingSettings?.let { ReadingSettingsSheet(it, vm::setSettings) }
         }
         null -> Unit
     }
@@ -330,6 +369,9 @@ fun ReaderScreen(
 
 /** 收起工具栏时底部那一行：小小的页码（像 Kindle）。 */
 private val PAGE_NUMBER_HEIGHT = 28.dp
+
+/** 多久没翻页就不再让屏幕常亮 */
+private const val KEEP_SCREEN_ON_MS = 10 * 60 * 1000L
 
 @Composable
 private fun PageNumber(state: ReaderState, locator: Locator?, modifier: Modifier = Modifier) {
@@ -383,21 +425,30 @@ private fun ProgressTrack(state: ReaderState, locator: Locator?, modifier: Modif
 }
 
 @Composable
-private fun TocSheet(state: ReaderState, onOpen: (org.readium.r2.shared.publication.Link) -> Unit, onNotes: () -> Unit) {
+private fun TocSheet(state: ReaderState, locator: Locator?, onOpen: (org.readium.r2.shared.publication.Link) -> Unit, onNotes: () -> Unit) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
+    // 正在读的那一章标出来，打开时就滚到它附近
+    val current = remember(state.toc, locator?.href) { currentTocIndex(state.toc.map { it.link.href.toString() }, locator?.href?.toString()) }
+    val list = rememberLazyListState(initialFirstVisibleItemIndex = (current - 2).coerceAtLeast(0))
     Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = Spacing.page)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SectionLabel("目录", modifier = Modifier.weight(1f))
             TextAction("书签与笔记", onNotes)
         }
-        LazyColumn(Modifier.heightIn(max = 480.dp)) {
-            items(state.toc) { item ->
+        LazyColumn(Modifier.heightIn(max = 480.dp), state = list) {
+            itemsIndexed(state.toc) { i, item ->
+                val reading = i == current
                 Text(
                     item.link.title ?: item.link.href.toString(),
-                    style = type.body.copy(fontSize = (if (item.depth == 0) 16 else 14).tsp, color = if (item.depth == 0) colors.ink else colors.muted),
+                    style = type.body.copy(
+                        fontSize = (if (item.depth == 0) 16 else 14).tsp,
+                        color = if (reading) colors.accent else if (item.depth == 0) colors.ink else colors.muted,
+                        fontWeight = if (reading) FontWeight.W600 else null,
+                    ),
                     maxLines = 2, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).clickable(role = Role.Button) { onOpen(item.link) }
+                        .semantics { if (reading) stateDescription = "正在读" }
                         .padding(start = (item.depth.coerceAtMost(3) * 16).dp, top = 10.dp),
                 )
             }
@@ -475,6 +526,16 @@ private fun HighlightSheet(h: Highlight, people: People, vm: ReaderViewModel, on
     var note by rememberSaveable(h.id) { mutableStateOf(h.note.orEmpty()) }
     var shared by rememberSaveable(h.id) { mutableStateOf(h.shared) }
     var deleting by remember { mutableStateOf(false) }
+    // 往下滑、点外面关掉时，写了的感想照样存下（以前只有点「保存」才存，一滑就丢）
+    // 点了「保存」「删掉」的就不再补存（不是界面状态，不用触发重画）
+    val closed = remember { booleanArrayOf(false) }
+    val latest by rememberUpdatedState(note to shared)
+    DisposableEffect(h.id) {
+        onDispose {
+            val (n, sh) = latest
+            if (mine && h.kind != HighlightKind.Ai && !closed[0] && (n != h.note.orEmpty() || sh != h.shared)) vm.updateHighlight(h, n, sh)
+        }
+    }
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().navigationBarsPadding().padding(horizontal = Spacing.page, vertical = Spacing.s),
         verticalArrangement = Arrangement.spacedBy(Spacing.m),
@@ -495,7 +556,7 @@ private fun HighlightSheet(h: Highlight, people: People, vm: ReaderViewModel, on
             QichiTextField(note, { note = it.take(Limits.HIGHLIGHT_NOTE_MAX) }, label = "感想（可以不写）", singleLine = false)
             SwitchRow("共同可见", shared, { shared = it }, description = "打开后${people.partner?.displayName ?: "对方"}也能看到这条和你的感想")
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-                TextAction("保存", { vm.updateHighlight(h, note, shared); onDone() })
+                TextAction("保存", { closed[0] = true; vm.updateHighlight(h, note, shared); onDone() })
                 TextAction("删除", { deleting = true }, color = colors.muted)
             }
         } else {
@@ -504,7 +565,7 @@ private fun HighlightSheet(h: Highlight, people: People, vm: ReaderViewModel, on
         Spacer(Modifier.height(Spacing.s))
     }
     if (deleting) {
-        ConfirmDialog("删掉这条${h.kind.label}？", "删掉后不能恢复。", "删掉", onConfirm = { deleting = false; vm.deleteHighlight(h); onDone() }, onDismiss = { deleting = false })
+        ConfirmDialog("删掉这条${h.kind.label}？", "删掉后不能恢复。", "删掉", onConfirm = { deleting = false; closed[0] = true; vm.deleteHighlight(h); onDone() }, onDismiss = { deleting = false })
     }
 }
 
@@ -519,4 +580,43 @@ private fun SystemBarsVisible(visible: Boolean) {
         if (visible) controller.show(WindowInsetsCompat.Type.systemBars()) else controller.hide(WindowInsetsCompat.Type.systemBars())
     }
     DisposableEffect(controller) { onDispose { controller.show(WindowInsetsCompat.Type.systemBars()) } }
+}
+
+/** 书内阅读的字号、行距、页边距、翻页方式（P20-01），只影响这台手机。 */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ReadingSettingsSheet(settings: ReadingSettings, onChange: (ReadingSettings) -> Unit) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    Column(
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = Spacing.page, vertical = Spacing.s),
+        verticalArrangement = Arrangement.spacedBy(Spacing.m),
+    ) {
+        Text("只影响这台手机上的显示。", style = type.caption.copy(color = colors.muted))
+        SectionLabel("字号")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            ReadingSettings.FONT_SCALES.zip(listOf("小", "标准", "大", "特大")).forEach { (v, label) ->
+                ChoicePill(label, settings.fontScale == v, { onChange(settings.copy(fontScale = v)) })
+            }
+        }
+        SectionLabel("行距")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            ReadingSettings.LINE_HEIGHTS.zip(listOf("照原书", "适中", "宽松")).forEach { (v, label) ->
+                ChoicePill(label, settings.lineHeight == v, { onChange(settings.copy(lineHeight = v)) })
+            }
+        }
+        SectionLabel("页边距")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            ReadingSettings.MARGINS.zip(listOf("窄", "标准", "宽")).forEach { (v, label) ->
+                ChoicePill(label, settings.margins == v, { onChange(settings.copy(margins = v)) })
+            }
+        }
+        SectionLabel("翻页")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            ChoicePill("左右翻页", !settings.scroll, { onChange(settings.copy(scroll = false)) })
+            ChoicePill("上下滚动", settings.scroll, { onChange(settings.copy(scroll = true)) })
+        }
+        SwitchRow("音量键翻页", settings.volumeKeys, { onChange(settings.copy(volumeKeys = it)) }, description = "音量减下一页，音量加上一页")
+        Spacer(Modifier.height(Spacing.l))
+    }
 }

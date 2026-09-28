@@ -8,8 +8,10 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 /** 共同写作编辑器的字号与行距：只存在这台手机上（两个人各自习惯不同）。 */
@@ -24,6 +26,10 @@ data class WritingSettings(val fontSize: Int = 17, val lineHeight: Float = 2.1f,
 interface WritingSettingsStore {
     val settings: Flow<WritingSettings>
     suspend fun set(settings: WritingSettings)
+
+    /** 上次在这篇文稿里写到哪（光标的字符位置，P20-05）；没记过为空 */
+    suspend fun position(documentId: UUID): Int?
+    suspend fun setPosition(documentId: UUID, offset: Int)
 }
 
 private val Context.writingDataStore: DataStore<Preferences> by preferencesDataStore(name = "qichi_writing")
@@ -45,6 +51,14 @@ class DataStoreWritingSettingsStore(private val context: Context) : WritingSetti
         }
     }
 
+    override suspend fun position(documentId: UUID): Int? = context.writingDataStore.data.first()[positionKey(documentId)]
+
+    override suspend fun setPosition(documentId: UUID, offset: Int) {
+        context.writingDataStore.edit { it[positionKey(documentId)] = offset }
+    }
+
+    private fun positionKey(documentId: UUID) = intPreferencesKey("pos_$documentId")
+
     private companion object {
         val FONT_SIZE = intPreferencesKey("font_size")
         val LINE_HEIGHT = floatPreferencesKey("line_height")
@@ -57,5 +71,11 @@ class InMemoryWritingSettingsStore(initial: WritingSettings = WritingSettings())
     override val settings: Flow<WritingSettings> = state
     override suspend fun set(settings: WritingSettings) {
         state.value = settings
+    }
+
+    private val positions = mutableMapOf<UUID, Int>()
+    override suspend fun position(documentId: UUID): Int? = positions[documentId]
+    override suspend fun setPosition(documentId: UUID, offset: Int) {
+        positions[documentId] = offset
     }
 }

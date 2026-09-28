@@ -19,6 +19,7 @@ import app.qichi.core.network.NetworkMonitor
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.todayIn
 import app.qichi.core.ui.zoneOf
+import app.qichi.di.ApplicationScope
 import app.qichi.shared.api.AiWriteRequest
 import app.qichi.shared.api.DocComment
 import app.qichi.shared.api.Document
@@ -36,6 +37,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -279,7 +281,16 @@ class DocumentEditorViewModel @AssistedInject constructor(
     private val preparer: AttachmentPreparer,
     private val files: FileRepository,
     val urls: FileUrls,
+    @ApplicationScope private val appScope: CoroutineScope,
 ) : ViewModel() {
+    /** 上次在这篇里写到哪（P20-05）；打开时回到那里 */
+    suspend fun lastPosition(): Int? = settingsStore.position(documentId)
+
+    /** 离开编辑器时记下光标位置（应用级作用域：页面关掉后也要写完） */
+    fun rememberPosition(offset: Int) {
+        appScope.launch { settingsStore.setPosition(documentId, offset) }
+    }
+
     // ── 插照片（P9-02，要联网） ──
     private val _uploadingImage = MutableStateFlow(false)
     val uploadingImage: StateFlow<Boolean> = _uploadingImage
