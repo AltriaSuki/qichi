@@ -135,10 +135,16 @@ object RoomContext {
         val today = now.atZone(zone).toLocalDate()
         fun who(id: UUID?) = id?.let(names::get) ?: "其中一人"
         val hits = mutableListOf<Hit>()
+        // 只要常备的时候，过去的日程、做完的待办、不在进行的计划根本用不上，在数据库里就筛掉，
+        // 不再每问一次就把这些表整张读出来（P19-07）；下面在内存里照旧精确地判断
+        val todayStart = today.atStartOfDay(zone).toInstant()
 
         if (prefs.events) {
             val until = today.plusDays(EVENTS_AHEAD_DAYS)
-            Events.selectAll().where { (Events.roomId eq roomId) and Events.deletedAt.isNull() }.forEach { r ->
+            val notOver: Op<Boolean> = if (!standingOnly) Op.TRUE else
+                (Events.endsAt greaterEq todayStart) or (Events.endsAt.isNull() and (Events.startsAt greaterEq todayStart)) or
+                    (Events.endDate greaterEq today) or (Events.endDate.isNull() and (Events.startDate greaterEq today))
+            Events.selectAll().where { (Events.roomId eq roomId) and Events.deletedAt.isNull() and notOver }.forEach { r ->
                 val start = r[Events.startsAt]?.atZone(zone)
                 val startDay = start?.toLocalDate() ?: r[Events.startDate] ?: return@forEach
                 val endDay = r[Events.endsAt]?.atZone(zone)?.toLocalDate() ?: r[Events.endDate] ?: startDay
@@ -158,7 +164,8 @@ object RoomContext {
             }
         }
         if (prefs.todos) {
-            Todos.selectAll().where { (Todos.roomId eq roomId) and Todos.deletedAt.isNull() }.forEach { r ->
+            val open: Op<Boolean> = if (standingOnly) Todos.doneAt.isNull() else Op.TRUE
+            Todos.selectAll().where { (Todos.roomId eq roomId) and Todos.deletedAt.isNull() and open }.forEach { r ->
                 val open = r[Todos.doneAt] == null
                 val text = r[Todos.title] + " " + (r[Todos.note] ?: "")
                 val s = score(text, terms)
@@ -174,7 +181,8 @@ object RoomContext {
             }
         }
         if (prefs.plans) {
-            Plans.selectAll().where { (Plans.roomId eq roomId) and Plans.deletedAt.isNull() }.forEach { r ->
+            val going: Op<Boolean> = if (standingOnly) Plans.status eq PlanStatus.Active.wireName else Op.TRUE
+            Plans.selectAll().where { (Plans.roomId eq roomId) and Plans.deletedAt.isNull() and going }.forEach { r ->
                 val active = r[Plans.status] == PlanStatus.Active.wireName
                 // 重新打开的计划留着上次的完成记录（P14-03），那不算结果，不给
                 val note = r[Plans.completionNote]?.takeIf { r[Plans.status] == PlanStatus.Done.wireName }

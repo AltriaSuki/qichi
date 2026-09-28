@@ -40,11 +40,13 @@ class FakeGateway : AiGateway {
     val requests = mutableListOf<AiRequest>()
     val failures = ArrayDeque<AiProviderException>()
     var answer = "去北边那片海，人少。"
+    /** 回答写到长度上限被截断 */
+    var truncated = false
 
     override suspend fun complete(request: AiRequest): AiResult {
         requests += request
         failures.removeFirstOrNull()?.let { throw it }
-        return AiResult(answer, inputTokens = 100, outputTokens = 20, model = model)
+        return AiResult(answer, inputTokens = 100, outputTokens = 20, model = model, truncated = truncated)
     }
 }
 
@@ -60,6 +62,22 @@ class AiTest {
 
     private suspend fun Session.send(roomId: UUID, body: String): Message =
         post("/api/v1/rooms/$roomId/messages", SendMessageRequest(UuidV7.generate(), "text", body)).body()
+
+    @Test
+    fun `问 AI：回答写到长度上限被截断时标出没写完`() {
+        val ctx = testContext(clock = clock, aiGateway = gateway)
+        serverTest(ctx) { client ->
+            val (aqi, _, roomId) = Api(client).pair()
+            gateway.answer = "先去北边，再"
+            gateway.truncated = true
+            val jobId = UuidV7.generate()
+            aqi.ask(roomId, "周六去哪？", jobId)
+            ctx.jobs.drain()
+            val answer = aqi.get("/api/v1/rooms/$roomId/messages").body<MessagePage>().messages.first { it.id == jobId }
+            assertEquals("先去北边，再" + AiService.CUT_OFF, answer.body)
+            assertTrue(gateway.requests.single().maxTokens >= 2_000, "问 AI 的上限给足：会先想再答的模型想的部分也算在里面")
+        }
+    }
 
     @Test
     fun `没配置 AI：接口 503，me 里 aiEnabled 为 false`() = serverTest { client ->
