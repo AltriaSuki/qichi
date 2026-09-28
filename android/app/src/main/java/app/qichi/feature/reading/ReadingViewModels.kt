@@ -8,6 +8,8 @@ import app.qichi.core.data.AccountRepository
 import app.qichi.core.data.BookCache
 import app.qichi.core.data.People
 import app.qichi.core.data.ReadingRepository
+import app.qichi.core.data.ReadingSettings
+import app.qichi.core.data.ReadingSettingsStore
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.network.NetworkMonitor
 import app.qichi.core.reading.EpubException
@@ -16,6 +18,7 @@ import app.qichi.core.sync.Local
 import app.qichi.core.sync.RealtimeClient
 import app.qichi.core.ui.todayIn
 import app.qichi.core.ui.zoneOf
+import app.qichi.di.ApplicationScope
 import app.qichi.shared.api.Book
 import app.qichi.shared.api.Highlight
 import app.qichi.shared.api.ReadingProgress
@@ -34,6 +37,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -200,6 +204,8 @@ class ReaderViewModel @AssistedInject constructor(
     private val cache: BookCache,
     private val epubs: EpubOpener,
     private val account: AccountRepository,
+    private val settingsStore: ReadingSettingsStore,
+    @ApplicationScope private val appScope: CoroutineScope,
     rooms: RoomRepository,
     network: NetworkMonitor,
     realtime: RealtimeClient,
@@ -232,6 +238,15 @@ class ReaderViewModel @AssistedInject constructor(
 
     /** 阅读页当前的位置（旋转屏幕后从这里接着读） */
     private val current = MutableStateFlow<Locator?>(null)
+
+    /** 最后一次存下的进度位置；离开时还没存的补存一次 */
+    @Volatile private var savedLocator: Locator? = null
+
+    /** 本机的字号、行距、页边距、翻页方式（P19-01） */
+    val settings: StateFlow<ReadingSettings?> = settingsStore.settings
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    fun setSettings(next: ReadingSettings) = viewModelScope.launch { settingsStore.set(next) }
 
     val state: StateFlow<ReaderState> = combine(
         combine(people, environment) { p, e -> p to e }, reading.observeBooks(roomId), reading.observeProgress(roomId), reading.observeHighlights(roomId), opened,
@@ -275,6 +290,7 @@ class ReaderViewModel @AssistedInject constructor(
         viewModelScope.launch {
             current.filterNotNull().debounce(1_500).collect { locator ->
                 val book = state.value.book ?: return@collect
+                savedLocator = locator
                 reading.saveProgress(book, locator.toJSON().toString(), locator.locations.totalProgression ?: 0.0)
             }
         }
@@ -414,6 +430,12 @@ class ReaderViewModel @AssistedInject constructor(
     }
 
     override fun onCleared() {
+        // 翻完页马上退出时，等不到那 1.5 秒：在应用级的作用域里补存，免得下次打开回到上一页
+        val last = current.value
+        val book = state.value.book
+        if (last != null && book != null && last != savedLocator) {
+            appScope.launch { reading.saveProgress(book, last.toJSON().toString(), last.locations.totalProgression ?: 0.0) }
+        }
         publication?.close()
         publication = null
     }

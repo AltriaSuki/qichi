@@ -2,6 +2,7 @@ package app.qichi
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
@@ -9,6 +10,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.fragment.app.FragmentActivity
+import app.qichi.core.reading.PageKeys
 import app.qichi.core.reading.ReaderFragments
 import app.qichi.core.data.DisplaySettingsStore
 import app.qichi.core.designsystem.QichiTheme
@@ -67,4 +69,7 @@ class MainActivity : FragmentActivity() {
         DeepLink.parse(intent.dataString)?.let { pendingLink = it }
         intent.sharedContent()?.let(shareInbox::offer)
     }
+
+    // 阅读页打开了「音量键翻页」时，音量键先交给它
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean = PageKeys.dispatch(event) || super.dispatchKeyEvent(event)
 }
