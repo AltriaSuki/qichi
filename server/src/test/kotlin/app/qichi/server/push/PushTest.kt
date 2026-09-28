@@ -119,6 +119,24 @@ class PushTest {
         assertEquals(2, sender.sent.size)
     }
 
+    @Test fun `免打扰按各自手机的时区算：两个人时区不同时各按各的，没报过时区的按房间时区（P16-10）`() = serverTest(testContext(clock = clock, pushSender = sender)) { client ->
+        val (aqi, chi, room) = Api(client).pair()
+        aqi.device("https://push.example.com/aqi")
+        chi.device("https://push.example.com/chi")
+        // 两个人都设免打扰 11:00–13:00。现在上海 12:00、伦敦 05:00
+        aqi.patch("/api/v1/me", UpdateMeRequest(notificationPrefs = Patch.of(NotificationPrefs(quietEnabled = true, quietStart = "11:00", quietEnd = "13:00", timezone = "Europe/London").toJson())))
+        chi.patch("/api/v1/me", UpdateMeRequest(notificationPrefs = Patch.of(NotificationPrefs(quietEnabled = true, quietStart = "11:00", quietEnd = "13:00").toJson())))
+        chi.post("/api/v1/rooms/$room/messages", SendMessageRequest(UuidV7.generate(), "text", "在伦敦吗"))
+        awaitSent(1)
+        assertEquals("https://push.example.com/aqi", sender.sent.single().first, "阿栖在伦敦，不在免打扰时段")
+        aqi.post("/api/v1/rooms/$room/messages", SendMessageRequest(UuidV7.generate(), "text", "在"))
+        delay(400)
+        assertEquals(1, sender.sent.size, "小迟没报时区，按房间时区（上海）正在免打扰")
+        // 不认得的时区名不收
+        aqi.patch("/api/v1/me", UpdateMeRequest(notificationPrefs = Patch.of(NotificationPrefs(timezone = "Mars/Base").toJson())))
+            .assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
+    }
+
     @Test fun `推送地址失效时删掉设备；设备只能是 https 的 unifiedpush；只能注销自己的`() = serverTest(testContext(clock = clock, pushSender = sender)) { client ->
         val (aqi, chi, room) = Api(client).pair()
         val device = aqi.device("https://push.example.com/old").body<Device>()

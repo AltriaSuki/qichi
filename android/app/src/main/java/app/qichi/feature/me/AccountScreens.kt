@@ -426,6 +426,8 @@ fun NotificationsScreen(onBack: () -> Unit, vm: NotificationsViewModel = hiltVie
                     TextAction("从 ${p.quietStart}", { picking = true }, color = colors.ink)
                     TextAction("到 ${p.quietEnd}", { picking = false }, color = colors.ink)
                 }
+                // P16-10：按自己手机的时区，出差、异地时也对得上
+                Text("按这台手机的时间算，换了时区会自动跟着变。", style = type.caption.copy(color = colors.muted))
             }
             Spacer(Modifier.height(Spacing.l))
             PushSection(vm)

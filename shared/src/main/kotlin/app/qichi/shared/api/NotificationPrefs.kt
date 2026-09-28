@@ -25,6 +25,11 @@ data class NotificationPrefs(
     /** 形如 22:00 */
     val quietStart: String = "22:00",
     val quietEnd: String = "08:00",
+    /**
+     * 免打扰按哪个时区算：自己手机的时区（IANA 名，如 Asia/Shanghai），App 发现手机时区变了会自动改（P16-10）。
+     * 为空（旧版 App）时按房间时区。
+     */
+    val timezone: String? = null,
 ) {
     fun toJson(): JsonObject = QichiJson.encodeToJsonElement(this).jsonObject
 

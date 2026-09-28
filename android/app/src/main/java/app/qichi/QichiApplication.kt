@@ -56,6 +56,7 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
     @Inject lateinit var unknownContent: app.qichi.core.sync.UnknownContent
     @Inject lateinit var todoWidget: TodoWidgetUpdater
     @Inject lateinit var reminders: ReminderScheduler
+    @Inject lateinit var account: app.qichi.core.data.AccountRepository
     @Inject @ApplicationScope lateinit var appScope: CoroutineScope
 
     override val workManagerConfiguration: Configuration
@@ -146,6 +147,8 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
         if (push.builtIn.value) BackgroundConnectionService.start(this) else BackgroundConnectionService.stop(this)
         scheduler.kickOutbox(now = true)
         appScope.launch { pullAll() }
+        // 免打扰按自己手机的时区算：手机时区和服务器上记的不一样就告诉服务器（P16-10）
+        appScope.launch { runCatching { account.reportPhoneZone(java.time.ZoneId.systemDefault().id) } }
         // 内置更新：每 6 小时最多看一次有没有新版本
         appScope.launch { updater.checkAutomatically() }
     }

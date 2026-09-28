@@ -17,6 +17,7 @@ import app.qichi.shared.api.ReadingPrompt
 import app.qichi.shared.api.UpdateMeRequest
 import io.ktor.http.HttpMethod
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import java.util.UUID
 
 /**
@@ -49,6 +50,17 @@ class AccountRepository(
 
     suspend fun updateNotifications(prefs: NotificationPrefs) {
         rooms.updateMe(UpdateMeRequest(notificationPrefs = Patch.of(prefs.toJson())))
+    }
+
+    /**
+     * 免打扰按自己手机的时区算（P16-10）：服务器上记的和手机现在的不一样时改过去。
+     * 每次回到前台看一次（出差、换了时区后打开 App 就会更新）；没联网就下次再说。
+     */
+    suspend fun reportPhoneZone(zone: String) {
+        val me = rooms.me.first() ?: return
+        val prefs = NotificationPrefs.from(me.user.notificationPrefs)
+        if (prefs.timezone == zone) return
+        updateNotifications(prefs.copy(timezone = zone))
     }
 
     suspend fun updateAiPrefs(prefs: AiPrefs) {
