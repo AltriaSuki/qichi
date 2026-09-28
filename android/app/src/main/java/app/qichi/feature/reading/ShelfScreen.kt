@@ -82,6 +82,10 @@ import androidx.compose.foundation.layout.PaddingValues
 
 private fun mb(bytes: Long) = "${(bytes / (1024 * 1024)).coerceAtLeast(if (bytes > 0) 1 else 0)} MB"
 
+internal fun currentReadingBook(books: List<ShelfBook>): ShelfBook? =
+    books.filter { it.mine?.progress?.let { p -> p < .99 } == true }
+        .maxByOrNull { it.mine!!.updatedAt }
+
 /** 共同书架：各自的进度、是否已下载、共读计划；右下角加 EPUB，右上角设离线缓存上限。 */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -110,8 +114,8 @@ fun ShelfScreen(
             FeatureTopBar(Feature.Reading, onBack, actions = listOf(BarAction("离线下载", QichiIcons.Down, { cacheSheet = true })))
             adding?.let { Text("正在上传 ${(it * 100).toInt()}%", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(horizontal = Spacing.page)) }
             // 书多了也只画看得见的那几排（P17-05）
-            // 在读：我最近读过、还没读完的那本
-            val current = state.books.filter { it.mine?.progress?.let { p -> p > 0 && p < .99 } == true }.maxByOrNull { it.mine!!.updatedAt }
+            // 在读：最近打开且还没读完的那本；停在第一页的 0% 也算在读。
+            val current = currentReadingBook(state.books)
             val rest = state.books.filter { it != current }
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = Spacing.page, end = Spacing.page, top = Spacing.xs)) {
                 if (state.loaded && state.books.isEmpty()) {
