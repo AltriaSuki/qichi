@@ -143,10 +143,11 @@ class AiService(
         queue.register(JOB_CHAT, ::giveUp, JobLane.Ai) { job -> answerInChat(job) }
         queue.register(JOB_QUESTION, ::giveUp, JobLane.Ai) { job -> suggestQuestion(job) }
         queue.register(JOB_READ, ::giveUp, JobLane.Ai) { job -> explainReading(job) }
-        queue.register(JOB_SUMMARY, ::giveUp, JobLane.Ai) { job -> summarize(job) }
+        // 总结、审稿一次要几分钟，放在自己那一道，不挡住有人在等的问 AI、阅读、写作助手（P19-06）
+        queue.register(JOB_SUMMARY, ::giveUp, JobLane.AiLong) { job -> summarize(job) }
         // 年度检查放弃了也要接着排下一次，不然每年一次的回顾就断了
         queue.register(JOB_YEARLY_CHECK, { _, _ -> ensureYearlyCheck() }) { _ -> yearlyCheck() }
-        queue.register(JOB_REVIEW, ::giveUp, JobLane.Ai) { job -> reviewFindings(job) }
+        queue.register(JOB_REVIEW, ::giveUp, JobLane.AiLong) { job -> reviewFindings(job) }
         queue.register(JOB_WRITE, ::giveUp, JobLane.Ai) { job -> writeAssist(job) }
     }
 

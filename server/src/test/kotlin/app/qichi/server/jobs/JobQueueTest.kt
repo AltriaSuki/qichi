@@ -193,6 +193,29 @@ class JobQueueTest {
     }
 
     @Test
+    fun `长的 AI 活（总结、审稿）在做时，问 AI 那一道照样做`() = runBlocking {
+        val summarizing = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val answered = CompletableDeferred<Unit>()
+        queue.register("summary", lane = JobLane.AiLong) {
+            summarizing.complete(Unit)
+            release.await()
+        }
+        queue.register("ask", lane = JobLane.Ai) { answered.complete(Unit) }
+        val workers = queue.start(this, pollInterval = Duration.ofMillis(100))
+        try {
+            enqueue("summary")
+            enqueue("summary")
+            withTimeout(5_000) { summarizing.await() }
+            enqueue("ask")
+            withTimeout(5_000) { answered.await() }
+        } finally {
+            release.complete(Unit)
+            workers.cancelAndJoin()
+        }
+    }
+
+    @Test
     fun `退避时间：5 秒起翻倍，最多 10 分钟`() {
         assertEquals(Duration.ofSeconds(5), JobQueue.backoff(1))
         assertEquals(Duration.ofSeconds(10), JobQueue.backoff(2))
