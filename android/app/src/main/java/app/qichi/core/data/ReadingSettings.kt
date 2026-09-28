@@ -35,7 +35,8 @@ interface ReadingSettingsStore {
     suspend fun set(settings: ReadingSettings)
 }
 
-private val Context.readingDataStore: DataStore<Preferences> by preferencesDataStore(name = "qichi_reading")
+// 阅读设置与离线书籍缓存上限共用同一个文件，必须共用同一个 DataStore 实例。
+internal val Context.readingDataStore: DataStore<Preferences> by preferencesDataStore(name = "qichi_reading")
 
 class DataStoreReadingSettingsStore(private val context: Context) : ReadingSettingsStore {
     override val settings: Flow<ReadingSettings> = context.readingDataStore.data.map { prefs ->

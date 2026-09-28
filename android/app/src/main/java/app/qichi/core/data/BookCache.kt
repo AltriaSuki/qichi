@@ -1,11 +1,8 @@
 package app.qichi.core.data
 
 import android.content.Context
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
 import app.qichi.core.network.ApiClient
 import app.qichi.shared.rules.Limits
 import kotlinx.coroutines.Dispatchers
@@ -17,8 +14,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
-
-private val Context.readingDataStore: DataStore<Preferences> by preferencesDataStore(name = "qichi_reading")
 
 /**
  * 书籍离线缓存（docs/05-sync-offline.md）：整本 EPUB 下载到手机上，离线能读。
