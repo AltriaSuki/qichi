@@ -7,7 +7,9 @@ import app.qichi.server.plugins.intQuery
 import app.qichi.server.plugins.longQuery
 import app.qichi.server.plugins.user
 import app.qichi.server.plugins.uuidParam
+import app.qichi.shared.api.EditMessageRequest
 import app.qichi.shared.api.SendMessageRequest
+import app.qichi.shared.api.SetMessageReactionRequest
 import app.qichi.shared.api.UpdateReadMarkerRequest
 import app.qichi.shared.rules.Limits
 import io.ktor.server.auth.authenticate
@@ -16,6 +18,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
+import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
 import io.ktor.server.routing.put
 import io.ktor.server.routing.route
@@ -39,6 +42,12 @@ fun Route.messageRoutes(ctx: AppContext) {
             }
             delete("/{id}") {
                 call.respond(ctx.messages.delete(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id")))
+            }
+            patch("/{id}") {
+                call.respond(ctx.messages.edit(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id"), call.receive<EditMessageRequest>()))
+            }
+            put("/{id}/reaction") {
+                call.respond(ctx.messages.react(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id"), call.receive<SetMessageReactionRequest>()))
             }
             post("/{id}/retract") {
                 call.respond(ctx.messages.retract(call.user.userId, call.uuidParam("roomId"), call.uuidParam("id")))

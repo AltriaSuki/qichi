@@ -6,12 +6,15 @@ import app.qichi.server.db.ReadMarkers
 import app.qichi.server.files.toFileMeta
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.ReadMarker
+import app.qichi.shared.model.BoardReactionKind
 import app.qichi.shared.model.MessageKind
 import app.qichi.shared.model.fromWire
+import app.qichi.shared.model.fromWireOrNull
 import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.jdbc.Query
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import java.util.UUID
 
 /** 消息查询：左连接文件表，带出附件元数据。 */
 fun messageQuery(): Query = Messages.join(Files, JoinType.LEFT, Messages.fileId, Files.id).selectAll()
@@ -39,6 +42,11 @@ fun ResultRow.toMessage() = Message(
     aiSources = this[Messages.aiSources],
     aiStopped = this[Messages.aiStopped],
     aiAskedBy = this[Messages.aiAskedBy],
+    editedAt = this[Messages.editedAt],
+    // 认不出来的回应（更新的版本加的）不给出去
+    reactions = this[Messages.reactions].mapNotNull { (user, kind) ->
+        fromWireOrNull<BoardReactionKind>(kind)?.let { UUID.fromString(user) to it }
+    }.toMap(),
 )
 
 fun ResultRow.toReadMarker() = ReadMarker(

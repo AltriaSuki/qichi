@@ -19,11 +19,13 @@ import app.qichi.server.plugins.validate
 import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomService
 import app.qichi.server.sync.Visibility
+import app.qichi.shared.api.EditMessageRequest
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.MessagePage
 import app.qichi.shared.api.MessageSearchPage
 import app.qichi.shared.api.ReadMarker
 import app.qichi.shared.api.SendMessageRequest
+import app.qichi.shared.api.SetMessageReactionRequest
 import app.qichi.shared.api.SummarySource
 import app.qichi.shared.api.UpdateReadMarkerRequest
 import app.qichi.shared.model.EntityType
@@ -48,6 +50,7 @@ import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
 import java.time.Clock
+import java.time.Duration
 import java.util.UUID
 
 /** 聊天消息（P3-02）：发送、翻历史、撤回、删除进回收站、搜索。 */
@@ -138,6 +141,56 @@ class MessageService(
         }
     }
 
+    /**
+     * 改自己发的文字消息（P16-05）：只有作者、只有文字消息、撤回和删除的不能改、发出 24 小时内。
+     * 改前的不保留；回复了它的消息摘要跟着换。内容没变不产生变化。
+     */
+    suspend fun edit(userId: UUID, roomId: UUID, id: UUID, req: EditMessageRequest): Message {
+        val body = req.body.trim()
+        validate {
+            check(body.isNotEmpty(), "body", "消息不能为空")
+            check(body.length <= Limits.MESSAGE_BODY_MAX, "body", "最多 ${Limits.MESSAGE_BODY_MAX} 字")
+        }
+        return db.tx {
+            rooms.requireMember(roomId, userId)
+            RoomRepository.lockRoom(roomId)
+            val current = message(id)?.takeIf { it.roomId == roomId } ?: notFound()
+            if (current.authorId != userId) forbidden("只能改自己发的消息")
+            validate {
+                check(current.kind == MessageKind.Text, "id", "只有文字消息可以改")
+                check(current.retractedAt == null && current.deletedAt == null, "id", "撤回或删除的消息不能改")
+                check(
+                    current.createdAt.plus(Duration.ofHours(Limits.MESSAGE_EDIT_HOURS)).isAfter(clock.instant()),
+                    "id", "只能改 ${Limits.MESSAGE_EDIT_HOURS} 小时内发的消息",
+                )
+            }
+            if (current.body == body) return@tx current
+            writes.update(this, roomId, userId, EntityType.Message, id, Messages) {
+                it[Messages.body] = body
+                it[Messages.editedAt] = clock.instant()
+            }
+            val excerpt = MessageRules.replyExcerpt(current.kind, body, null, retracted = false)
+            Messages.select(Messages.id)
+                .where { (Messages.replyToId eq id) and (Messages.roomId eq roomId) }
+                .map { it[Messages.id] }
+                .forEach { replyId -> writes.update(this, roomId, userId, EntityType.Message, replyId, Messages) { it[Messages.replyExcerpt] = excerpt } }
+            message(id)!!
+        }
+    }
+
+    /** 给一条消息回应或收回（P16-05）：每人最多一个，换一种就是改；撤回的不能回应。没变不产生变化。 */
+    suspend fun react(userId: UUID, roomId: UUID, id: UUID, req: SetMessageReactionRequest): Message = db.tx {
+        rooms.requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId)
+        val current = message(id)?.takeIf { it.roomId == roomId && it.deletedAt == null } ?: notFound()
+        validate { check(current.retractedAt == null, "id", "撤回的消息不能回应") }
+        if (current.reactions[userId] == req.kind) return@tx current
+        val next = Messages.select(Messages.reactions).where { Messages.id eq id }.single()[Messages.reactions].toMutableMap()
+        if (req.kind == null) next.remove(userId.toString()) else next[userId.toString()] = req.kind!!.wireName
+        writes.update(this, roomId, userId, EntityType.Message, id, Messages) { it[Messages.reactions] = next }
+        message(id)!!
+    }
+
     /** 往上翻历史：createdSeq < beforeSeq，最新的在前。含已删除的（客户端据此隐藏或放进回收站）。 */
     suspend fun history(userId: UUID, roomId: UUID, beforeSeq: Long?, limit: Int): MessagePage {
         validate {
@@ -177,6 +230,7 @@ class MessageService(
                 it[Messages.fileId] = null
                 it[Messages.retractedAt] = now
                 it[Messages.retractedBy] = userId
+                it[Messages.reactions] = emptyMap()
             }
             // 回复了它的消息：摘要清空，并各自产生一次变化，让客户端更新
             val replies = Messages.select(Messages.id)

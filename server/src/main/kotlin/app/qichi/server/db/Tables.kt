@@ -9,6 +9,7 @@ import app.qichi.shared.api.ReadingPrompt
 import app.qichi.shared.api.AiActionDraft
 import app.qichi.shared.api.SummarySource
 import app.qichi.shared.api.TextBlock
+import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonObject
@@ -158,6 +159,9 @@ object Messages : SyncedTable("messages") {
     val aiSources = jsonb("ai_sources", QichiJson, ListSerializer(SummarySource.serializer())).default(emptyList())
     val aiStopped = bool("ai_stopped").default(false)
     val aiAskedBy = javaUUID("ai_asked_by").nullable()
+    val editedAt = timestamp("edited_at").nullable()
+    /** 用户 id → 回应（like / hug / support），每人最多一个（P16-05） */
+    val reactions = jsonb("reactions", QichiJson, MapSerializer(String.serializer(), String.serializer())).default(emptyMap())
 }
 
 object ReadMarkers : SyncedTable("read_markers") {

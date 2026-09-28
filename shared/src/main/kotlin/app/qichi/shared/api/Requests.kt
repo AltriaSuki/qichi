@@ -1,5 +1,6 @@
 package app.qichi.shared.api
 
+import app.qichi.shared.model.BoardReactionKind
 import app.qichi.shared.model.MoodLabel
 import app.qichi.shared.model.MoodReplyKind
 import app.qichi.shared.model.PushProvider
@@ -94,6 +95,14 @@ data class UpdateEventRequest(
     @EncodeDefault(EncodeDefault.Mode.NEVER) val participantIds: Patch<List<Id>> = Patch.Absent,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val remindMinutes: Patch<Int?> = Patch.Absent,
 )
+
+/** 改自己发的文字消息（24 小时内，P16-05）。 */
+@Serializable
+data class EditMessageRequest(val body: String)
+
+/** 给一条消息回应（P16-05）：[kind] 为 null = 收回自己的回应。 */
+@Serializable
+data class SetMessageReactionRequest(val kind: BoardReactionKind?)
 
 @Serializable
 data class SendMessageRequest(

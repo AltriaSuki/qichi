@@ -32,6 +32,8 @@ object Limits {
     const val EVENT_REMIND_DEFAULT: Int = 15
 
     const val MESSAGE_BODY_MAX: Int = 10_000
+    /** 自己发的文字消息多久之内可以改（P16-05） */
+    const val MESSAGE_EDIT_HOURS: Long = 24
     /** 照片下面手写的一句说明（图片消息的 body），按字符数 */
     const val PHOTO_CAPTION_MAX: Int = 30
     const val REPLY_EXCERPT_LENGTH: Int = 60

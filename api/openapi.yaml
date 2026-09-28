@@ -868,6 +868,44 @@ paths:
         '200': { $ref: '#/components/responses/MessageOk' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [messages]
+      operationId: editMessage
+      summary: 改自己发的文字消息（P16-05）
+      description: |
+        只有作者（否则 403）、只有文字消息、撤回和删除的不能改、发出 24 小时内（否则 400）。
+        填 `editedAt`，改前的不保留；回复了它的消息的 `replyExcerpt` 跟着换。内容没变时原样返回、不产生变化。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EditMessageRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/messages/{id}/reaction:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    put:
+      tags: [messages]
+      operationId: setMessageReaction
+      summary: 给一条消息回应或收回（P16-05）
+      description: 每人最多一个回应，换一种就是改；`kind` 为 null 收回。撤回的消息不能回应（400）。没变时原样返回、不产生变化。撤回时回应一起清掉。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetMessageReactionRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /rooms/{roomId}/messages/{id}/retract:
     parameters:
@@ -4369,6 +4407,26 @@ components:
             aiStopped:
               type: boolean
               description: AI 回答是被提问的人中途停下的（正文是停下时已经写出来的部分，可能为空）；其它消息为 false（P10-04）
+            editedAt:
+              $ref: '#/components/schemas/NullableInstant'
+              description: 作者改过文字的时间（P16-05）；没改过为空。旧数据没有这个字段，按空
+            reactions:
+              type: object
+              description: 用户 id → 回应（每人最多一个，P16-05）。旧数据没有这个字段，按空对象
+              additionalProperties: { $ref: '#/components/schemas/BoardReactionKind' }
+    EditMessageRequest:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 10000 }
+    SetMessageReactionRequest:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          oneOf:
+            - $ref: '#/components/schemas/BoardReactionKind'
+            - type: 'null'
     RenameTagRequest:
       type: object
       required: [from, to]
