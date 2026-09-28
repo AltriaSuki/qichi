@@ -16,6 +16,21 @@ fun skyAt(localTime: LocalTime): Sky = when {
     else -> Sky.Night
 }
 
+/**
+ * 天色怎么定（「我的 → 显示」，存在本机）：
+ * [Auto] 跟着手机时间（默认，四种天色）；[System] 跟手机的深色模式（深色时是深夜，浅色时按时间、但夜里也用白天）；
+ * [Light] 总是白天；[Dark] 总是深夜。
+ */
+enum class SkyMode(val label: String) { Auto("跟着时间"), System("跟手机深色模式"), Light("总是白天"), Dark("总是深夜") }
+
+/** 按设置得到现在的天色：[timeSky] 是按时间算出的，[systemDark] 是手机是否开了深色模式。 */
+fun skyFor(mode: SkyMode, timeSky: Sky, systemDark: Boolean): Sky = when (mode) {
+    SkyMode.Auto -> timeSky
+    SkyMode.System -> if (systemDark) Sky.Night else if (timeSky == Sky.Night) Sky.Day else timeSky
+    SkyMode.Light -> Sky.Day
+    SkyMode.Dark -> Sky.Night
+}
+
 @Immutable
 data class QichiColors(
     /** 页面底色 */

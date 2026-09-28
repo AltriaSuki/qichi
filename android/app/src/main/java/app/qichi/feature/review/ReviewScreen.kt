@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -90,6 +92,7 @@ import app.qichi.core.designsystem.component.dashedBorder
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.ui.DiffView
+import app.qichi.core.ui.DraftSheet
 import app.qichi.core.ui.relativeDay
 import app.qichi.shared.api.AiFinding
 import app.qichi.shared.api.AnnotationAnchor
@@ -112,8 +115,6 @@ import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
 import kotlinx.coroutines.launch
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 
 /** 选中了什么（还没写批注）：一段文字、一个单元格、一块区域、一张图片或整页。 */
 internal data class Selection(val page: Int, val kind: AnchorKind, val rect: NormRect?, val ref: String?, val quote: String?) {
@@ -516,8 +517,8 @@ private fun statusLine(item: AnnotationItem): String {
 private fun ComposeSheet(sel: Selection, kind: AnnotationKind, onSave: (String) -> Unit, onDismiss: () -> Unit) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = colors.background) {
-        var body by rememberSaveable { mutableStateOf("") }
+    var body by rememberSaveable { mutableStateOf("") }
+    DraftSheet(dirty = body.isNotBlank(), onDismiss = onDismiss) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().navigationBarsPadding().padding(horizontal = Spacing.page, vertical = Spacing.s),
             verticalArrangement = Arrangement.spacedBy(Spacing.m),
@@ -545,9 +546,9 @@ private fun AnnotationSheet(item: AnnotationItem, people: People, me: UUID?, tim
     val a = item.value
     var editing by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = colors.background) {
-        var reply by rememberSaveable(a.id) { mutableStateOf("") }
-        var edited by rememberSaveable(a.id) { mutableStateOf(a.body) }
+    var reply by rememberSaveable(a.id) { mutableStateOf("") }
+    var edited by rememberSaveable(a.id) { mutableStateOf(a.body) }
+    DraftSheet(dirty = reply.isNotBlank() || edited != a.body, onDismiss = onDismiss) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().navigationBarsPadding().padding(horizontal = Spacing.page, vertical = Spacing.s),
             verticalArrangement = Arrangement.spacedBy(Spacing.s),

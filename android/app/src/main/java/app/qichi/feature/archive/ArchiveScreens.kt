@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -19,14 +20,14 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -76,6 +77,7 @@ import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.DiffView
+import app.qichi.core.ui.DraftSheet
 import app.qichi.core.ui.aiAnswerTitle
 import app.qichi.core.ui.plainAiAnswer
 import app.qichi.core.ui.relativeDay
@@ -93,9 +95,6 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.layout.PaddingValues
 
 private val hm = DateTimeFormatter.ofPattern("HH:mm")
 
@@ -413,11 +412,12 @@ private fun ItemEditor(
 ) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = colors.background) {
-        var kind by rememberSaveable { mutableStateOf(initialKind) }
-        var title by rememberSaveable(initialTitle) { mutableStateOf(initialTitle) }
-        var body by rememberSaveable(initialBody) { mutableStateOf(initialBody) }
-        var keepSource by rememberSaveable { mutableStateOf(true) }
+    var kind by rememberSaveable { mutableStateOf(initialKind) }
+    var title by rememberSaveable(initialTitle) { mutableStateOf(initialTitle) }
+    var body by rememberSaveable(initialBody) { mutableStateOf(initialBody) }
+    var keepSource by rememberSaveable { mutableStateOf(true) }
+    // 改了字以后误滑、误点外面不直接丢掉
+    DraftSheet(dirty = title != initialTitle || body != initialBody, onDismiss = onDismiss) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().navigationBarsPadding()
                 .padding(horizontal = Spacing.page, vertical = Spacing.s),

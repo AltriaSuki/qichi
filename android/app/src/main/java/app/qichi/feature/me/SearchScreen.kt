@@ -88,6 +88,14 @@ class UnifiedSearchViewModel @AssistedInject constructor(
     private val _state = MutableStateFlow(UnifiedSearchState())
     val state: StateFlow<UnifiedSearchState> = _state.asStateFlow()
     private var job: Job? = null
+    /** 读出来、解析好的本机内容和读的时间：打字时每改一个字都重读整个本机库太慢，短时间内接着用 */
+    private var cached: Pair<Long, SearchCorpus>? = null
+
+    private suspend fun loadCorpus(): SearchCorpus {
+        val now = System.currentTimeMillis()
+        cached?.let { (at, corpus) -> if (now - at < CORPUS_TTL_MS) return corpus }
+        return withContext(Dispatchers.Default) { search.corpus(roomId) }.also { cached = now to it }
+    }
 
     fun onQuery(query: String) {
         _state.update { it.copy(query = query) }
@@ -99,7 +107,7 @@ class UnifiedSearchViewModel @AssistedInject constructor(
         job = viewModelScope.launch {
             delay(DEBOUNCE_MS)
             val me = session.currentUserId
-            val corpus = withContext(Dispatchers.Default) { search.corpus(roomId) }
+            val corpus = loadCorpus()
             val local = withContext(Dispatchers.Default) { searchLocal(corpus, query, me) }
             _state.update { it.copy(groups = local, searched = true, askingServer = network.isOnline.value) }
             if (!network.isOnline.value) return@launch
@@ -130,6 +138,8 @@ class UnifiedSearchViewModel @AssistedInject constructor(
 
     private companion object {
         const val DEBOUNCE_MS = 250L
+        /** 本机内容读一次用多久（这期间新同步来的内容，下次过期后再搜才出现） */
+        const val CORPUS_TTL_MS = 20_000L
     }
 }
 

@@ -28,11 +28,9 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -55,6 +53,7 @@ import app.qichi.core.designsystem.Sizes
 import app.qichi.core.designsystem.Spacing
 import app.qichi.core.designsystem.component.CheckCircle
 import app.qichi.core.designsystem.component.ChoicePill
+import app.qichi.core.designsystem.component.ConfirmDialog
 import app.qichi.core.designsystem.component.Fab
 import app.qichi.core.designsystem.component.FabClearance
 import app.qichi.core.designsystem.component.ItemTopBar
@@ -69,6 +68,7 @@ import app.qichi.core.designsystem.tsp
 import app.qichi.core.reminder.REMIND_CHOICES
 import app.qichi.core.reminder.remindLabel
 import app.qichi.core.sync.Local
+import app.qichi.core.ui.DraftSheet
 import app.qichi.core.ui.chinese
 import app.qichi.core.ui.dotDate
 import app.qichi.core.ui.relativeDay
@@ -110,6 +110,15 @@ fun EventListScreen(
                     .weight(1f)
                     .padding(horizontal = Spacing.page),
             ) {
+                if (state.loaded && state.days.isEmpty()) {
+                    item(key = "empty") {
+                        Text(
+                            "从今天起还没有日程。右下角可以新建一个。",
+                            style = type.caption.copy(color = colors.muted),
+                            modifier = Modifier.padding(top = Spacing.m),
+                        )
+                    }
+                }
                 items(state.days, key = { it.date.toString() }) { day ->
                     Column(Modifier.padding(bottom = Spacing.l)) {
                         val (label, _) = relativeDay(day.date, state.today)
@@ -233,11 +242,10 @@ private fun EventEditor(
     val endsAt = endDate.atTime(endTime).atZone(zone).toInstant()
     val valid = title.isNotBlank() && if (allDay) !endDate.isBefore(startDate) else !endsAt.isBefore(startsAt)
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = colors.background,
-    ) {
+    // 写了字以后误滑、误点外面不直接丢掉
+    val dirty = title != existing?.title.orEmpty() || location != existing?.location.orEmpty() || note != existing?.note.orEmpty()
+    var deleting by remember { mutableStateOf(false) }
+    DraftSheet(dirty = dirty, onDismiss = onDismiss) {
         Column(
             Modifier
                 .fillMaxWidth()
@@ -308,10 +316,14 @@ private fun EventEditor(
                 )
             })
             if (existing != null) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) { TextAction("删除", onClick = onDelete) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) { TextAction("删除", onClick = { deleting = true }) }
             }
             Spacer(Modifier.height(Spacing.s))
         }
+    }
+
+    if (deleting) {
+        ConfirmDialog("删除这个日程？", "会进回收站，可以恢复。", "删除", onConfirm = onDelete, onDismiss = { deleting = false })
     }
 
     when (picking) {

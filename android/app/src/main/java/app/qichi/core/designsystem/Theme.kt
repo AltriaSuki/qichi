@@ -1,10 +1,12 @@
 package app.qichi.core.designsystem
 
 import android.app.Activity
+import android.graphics.drawable.ColorDrawable
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -19,11 +21,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
-import kotlinx.coroutines.delay
 import java.time.LocalTime
+import kotlinx.coroutines.delay
 
 val LocalQichiColors = staticCompositionLocalOf { DayColors }
 val LocalQichiTypography = staticCompositionLocalOf { DefaultTypography }
@@ -43,25 +46,28 @@ const val SKY_TRANSITION_MILLIS = 800
 
 /**
  * 栖迟主题。
- * @param skyOverride 固定某个天色（组件陈列页、截图用）；为空时按手机本地时间，每分钟检查一次。
+ * @param skyOverride 固定某个天色（组件陈列页、截图用）；为空时按 [skyMode]（默认跟着手机本地时间，每分钟检查一次）。
+ * @param skyMode 「我的 → 显示」里选的天色：跟着时间 / 跟手机深色模式 / 总是白天 / 总是深夜
  * @param largeText 「大字」模式：字号 ×1.2
  * @param reduceMotion 「减少动画」：天色与页面切换都直接完成
  */
 @Composable
 fun QichiTheme(
     skyOverride: Sky? = null,
+    skyMode: SkyMode = SkyMode.Auto,
     largeText: Boolean = false,
     reduceMotion: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val sky = skyOverride ?: rememberCurrentSky()
+    val timeSky = rememberCurrentSky()
+    val sky = skyOverride ?: skyFor(skyMode, timeSky, isSystemInDarkTheme())
     val target = colorsFor(sky)
     val colors = animatedColors(target, if (reduceMotion) snap() else tween(SKY_TRANSITION_MILLIS))
     val typography = remember(largeText) {
         if (largeText) DefaultTypography.scaled(QichiTypography.LARGE_TEXT_FACTOR) else DefaultTypography
     }
 
-    SystemBarsAppearance(dark = target.isDark)
+    SystemBarsAppearance(dark = target.isDark, background = target.background)
 
     CompositionLocalProvider(
         LocalQichiColors provides colors,
@@ -110,11 +116,14 @@ private fun animatedColors(target: QichiColors, spec: AnimationSpec<Color>): Qic
     )
 }
 
-/** 深夜时状态栏、导航栏图标用浅色，其余天色用深色。 */
+/** 深夜时状态栏、导航栏图标用浅色，其余天色用深色；窗口底色跟着天色（键盘弹出、页面切换时露出的边不是另一种颜色）。 */
 @Composable
-private fun SystemBarsAppearance(dark: Boolean) {
+private fun SystemBarsAppearance(dark: Boolean, background: Color) {
     if (LocalInspectionMode.current) return
     val view = LocalView.current
+    LaunchedEffect(background) {
+        (view.context as? Activity)?.window?.setBackgroundDrawable(ColorDrawable(background.toArgb()))
+    }
     SideEffect {
         val window = (view.context as? Activity)?.window ?: return@SideEffect
         WindowCompat.getInsetsController(window, view).apply {

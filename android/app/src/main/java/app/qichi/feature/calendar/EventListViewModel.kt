@@ -16,15 +16,15 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.util.UUID
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.Instant
-import java.time.LocalDate
-import java.time.ZoneId
-import java.util.UUID
 
 /** 某一天的日程：全天的在前，定时的按开始时间。 */
 data class EventDay(val date: LocalDate, val events: List<Local<Event>>)
@@ -52,6 +52,8 @@ data class EventListState(
     val today: LocalDate = LocalDate.now(),
     val days: List<EventDay> = emptyList(),
     val all: List<Local<Event>> = emptyList(),
+    /** 本机数据读出来了（没读出来之前不说「还没有日程」） */
+    val loaded: Boolean = false,
 )
 
 @HiltViewModel(assistedFactory = EventListViewModel.Factory::class)
@@ -64,7 +66,7 @@ class EventListViewModel @AssistedInject constructor(
     val state: StateFlow<EventListState> = combine(rooms.observeRoom(roomId), rooms.observeMembers(roomId), events.observeEvents(roomId)) { room, members, all ->
         val zone = zoneOf(room?.timezone)
         val today = todayIn(zone)
-        EventListState(People(room, members, session.currentUserId), zone, today, groupEventsByDay(all, zone, today), all)
+        EventListState(People(room, members, session.currentUserId), zone, today, groupEventsByDay(all, zone, today), all, loaded = true)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), EventListState())
 
     fun save(existing: Event?, draft: EventDraft) = viewModelScope.launch {

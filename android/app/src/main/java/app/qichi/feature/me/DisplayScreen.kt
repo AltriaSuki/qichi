@@ -3,6 +3,8 @@ package app.qichi.feature.me
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,6 +27,7 @@ import app.qichi.core.data.DisplaySettings
 import app.qichi.core.data.DisplaySettingsStore
 import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
+import app.qichi.core.designsystem.SkyMode
 import app.qichi.core.designsystem.Spacing
 import app.qichi.core.designsystem.component.ChoicePill
 import app.qichi.core.designsystem.component.ItemTopBar
@@ -45,9 +48,11 @@ class DisplayViewModel @Inject constructor(private val store: DisplaySettingsSto
 
     fun setLargeText(on: Boolean) = viewModelScope.launch { store.setLargeText(on) }
     fun setReduceMotion(on: Boolean) = viewModelScope.launch { store.setReduceMotion(on) }
+    fun setSkyMode(mode: SkyMode) = viewModelScope.launch { store.setSkyMode(mode) }
 }
 
-/** 「我的 → 显示」：字号（标准 / 大字）与减少动画。改了立即作用于整个 App，这一页本身就是预览。 */
+/** 「我的 → 显示」：天色、字号（标准 / 大字）与减少动画。改了立即作用于整个 App，这一页本身就是预览。 */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DisplayScreen(
     onBack: () -> Unit,
@@ -70,6 +75,29 @@ fun DisplayScreen(
                 .padding(horizontal = Spacing.page),
             verticalArrangement = Arrangement.spacedBy(Spacing.detailSection),
         ) {
+            Column {
+                SectionLabel("天色")
+                // 默认跟着时间变四种天色；想要一直浅色、一直深色，或跟手机的深色模式走，在这里选
+                FlowRow(
+                    Modifier.selectableGroup(),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.s),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.s),
+                ) {
+                    SkyMode.entries.forEach { mode ->
+                        ChoicePill(mode.label, selected = settings.skyMode == mode, onClick = { viewModel.setSkyMode(mode) })
+                    }
+                }
+                Text(
+                    when (settings.skyMode) {
+                        SkyMode.Auto -> "清晨、白天、黄昏、深夜按手机时间自动换。"
+                        SkyMode.System -> "手机开了深色模式就是深夜的颜色；没开时按时间换，夜里也用白天的颜色。"
+                        SkyMode.Light -> "一直是白天的颜色。"
+                        SkyMode.Dark -> "一直是深夜的颜色。"
+                    },
+                    style = type.caption.copy(color = colors.muted),
+                    modifier = Modifier.padding(top = Spacing.xs),
+                )
+            }
             Column {
                 SectionLabel("字号")
                 Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {

@@ -52,8 +52,9 @@ data class TodoUiState(
     /** 已经从本机读出来了（桌面组件点进来要打开某一条时，读出来之前先等着，P15-02） */
     val loaded: Boolean = false,
 ) {
-    val sections: TodoSections get() = todoSections(open, today, zone)
-    val planTitles: Map<UUID, String> get() = allPlans.mapValues { it.value.title }
+    // 算一次记住：每一行都要查计划名字，以前每查一次就重建一遍整张表
+    val sections: TodoSections by lazy { todoSections(open, today, zone) }
+    val planTitles: Map<UUID, String> by lazy { allPlans.mapValues { it.value.title } }
     fun find(id: UUID): TodoGroup? = (open + done).firstOrNull { it.todo.value.id == id }
 
     /** 编辑 [todo] 时能选的计划：进行中的，加上它现在挂着的（先放一放或已完成的也列出来，免得看不出挂在哪）。 */
@@ -109,11 +110,13 @@ class TodoViewModel @AssistedInject constructor(
     fun create(form: TodoForm) = viewModelScope.launch {
         val s = state.value
         val fixed = form.fixed(s.today)
+        val (dueDate, dueAt) = fixed.due(s.zone)
         todos.create(
             roomId = roomId,
             title = fixed.title,
             assigneeId = fixed.assigneeId(s.people),
-            dueDate = fixed.dueDate,
+            dueDate = dueDate,
+            dueAt = dueAt,
             recurrence = fixed.recurrence(),
             note = fixed.note,
             planId = fixed.planId,

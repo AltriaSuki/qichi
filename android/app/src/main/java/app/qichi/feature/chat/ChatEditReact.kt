@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,6 +29,7 @@ import app.qichi.core.designsystem.component.PrimaryButton
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.tsp
+import app.qichi.core.ui.DraftSheet
 import app.qichi.shared.api.Message
 import app.qichi.shared.model.BoardReactionKind
 import app.qichi.shared.model.MessageKind
@@ -94,7 +94,8 @@ internal fun ReactionChips(reactions: Map<UUID, BoardReactionKind>, people: Peop
 internal fun EditMessageSheet(message: Message, onSave: (String) -> Unit, onDismiss: () -> Unit) {
     val colors = QichiTheme.colors
     var text by rememberSaveable(message.id) { mutableStateOf(message.body) }
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.paper) {
+    // 改了字以后误滑、误点外面不直接丢掉
+    DraftSheet(dirty = text != message.body, onDismiss = onDismiss, containerColor = colors.paper) {
         Column(Modifier.fillMaxWidth().padding(start = Spacing.xl, end = Spacing.xl, bottom = Spacing.xl)) {
             QichiTextField(
                 text,
