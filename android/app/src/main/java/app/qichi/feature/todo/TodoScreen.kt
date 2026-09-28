@@ -85,6 +85,20 @@ fun TodoScreen(
                     .weight(1f)
                     .padding(horizontal = Spacing.page),
             ) {
+                // 一件都没有时说一句，不留一整页空白
+                if (state.loaded && state.open.isEmpty() && state.done.isEmpty()) {
+                    item(key = "empty") {
+                        Text(
+                            "还没有待办。要做的事记在这里，今天到期的会出现在今天页和桌面组件上。",
+                            style = QichiTheme.typography.caption.copy(color = colors.muted),
+                            modifier = Modifier.padding(top = Spacing.m),
+                        )
+                    }
+                } else if (state.loaded && state.open.isEmpty()) {
+                    item(key = "all-done") {
+                        Text("都做完了。", style = QichiTheme.typography.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
+                    }
+                }
                 section("today", "今天", QichiIcons.Sun, sections.today, state, viewModel, edit, showDue = false) {
                     if (sections.today.isNotEmpty()) Sticker("还有 ${sections.today.size} 件", color = QichiTheme.colors.personB, rotation = -3f, fontSizeSp = 15f)
                 }
@@ -154,6 +168,7 @@ fun TodoScreen(
 
 private val weekdays = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 private val MD = DateTimeFormatter.ofPattern("MM.dd")
+private val HM = DateTimeFormatter.ofPattern("HH:mm")
 
 /** 一段：小标题 + 这一段的待办（子任务缩进在下面）。空的段不显示。 */
 private fun LazyListScope.section(
@@ -198,6 +213,8 @@ private fun todoMeta(group: TodoGroup, state: TodoUiState, showDue: Boolean): (@
         if (!due.isAfter(state.today.with(java.time.temporal.TemporalAdjusters.nextOrSame(java.time.DayOfWeek.SUNDAY)))) weekdays[due.dayOfWeek.value - 1] else null
     } else null
     val dueDigits = if (showDue && due != null && dueText == null) due.format(MD) else null
+    // 有时刻的（到点提醒）在每一段都写出时刻
+    val time = todo.dueAt?.atZone(state.zone)?.format(HM)
     val plan = todo.planId?.let { state.planTitles[it] }
     val progress = group.children.takeIf { it.isNotEmpty() }?.let { c -> "${c.count { it.value.doneAt != null }}/${c.size}" }
     val repeat = todo.recurrence?.let(Recurrence::parse)?.let { r ->
@@ -211,6 +228,7 @@ private fun todoMeta(group: TodoGroup, state: TodoUiState, showDue: Boolean): (@
     val parts = listOfNotNull(
         dueText?.let { Triple(it, false, null) },
         dueDigits?.let { Triple(it, true, null) },
+        time?.let { Triple(it, true, QichiIcons.Clock) },
         plan?.let { Triple(it, false, QichiIcons.Flag) },
         progress?.let { Triple(it, true, null) },
         repeat?.let { Triple(it, false, QichiIcons.Repeat) },
