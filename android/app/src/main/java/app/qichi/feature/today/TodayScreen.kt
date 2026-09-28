@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,13 +84,15 @@ import app.qichi.core.designsystem.component.topBarInset
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
-import app.qichi.core.ui.anniversaryLine
 import app.qichi.core.ui.PlanCover
 import app.qichi.core.ui.StageTrack
 import app.qichi.core.ui.TodoRow
+import app.qichi.core.ui.anniversaryLine
 import app.qichi.core.ui.displayName
 import app.qichi.core.ui.feelingWord
 import app.qichi.core.ui.icon
+import app.qichi.core.ui.isRecent
+import app.qichi.core.ui.relativeDay
 import app.qichi.navigation.Page
 import app.qichi.shared.api.Mood
 import app.qichi.shared.model.MoodReplyKind
@@ -100,6 +103,7 @@ import java.time.DayOfWeek
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import kotlinx.coroutines.delay
 
 private val chineseMonths = listOf("一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月")
 private val hm = DateTimeFormatter.ofPattern("HH:mm")
@@ -278,8 +282,8 @@ private fun MoodSection(state: TodayState, onOpen: (Page) -> Unit, onReply: (Moo
     Column(Modifier.padding(horizontal = Spacing.page)) {
         SectionLabel("心情", Feature.Mood)
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(Spacing.s)) {
-            partner?.let { MoodCard(it, people.name(it.authorId), people, Modifier.weight(1f)) { onOpen(Page.Mood) } }
-            mine?.let { MoodCard(it, "我", people, Modifier.weight(1f)) { onOpen(Page.Mood) } }
+            partner?.let { MoodCard(it, people.name(it.authorId), people, state, Modifier.weight(1f)) { onOpen(Page.Mood) } }
+            mine?.let { MoodCard(it, "我", people, state, Modifier.weight(1f)) { onOpen(Page.Mood) } }
             // 只有一个人记了：另一半留空，卡片不被拉满整行
             if (partner == null || mine == null) Spacer(Modifier.weight(1f))
         }
@@ -300,10 +304,13 @@ private fun MoodSection(state: TodayState, onOpen: (Page) -> Unit, onReply: (Moo
 }
 
 @Composable
-private fun MoodCard(mood: Mood, name: String, people: People, modifier: Modifier, onClick: () -> Unit) {
+private fun MoodCard(mood: Mood, name: String, people: People, state: TodayState, modifier: Modifier, onClick: () -> Unit) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val tint = people.person(mood.authorId).color()
+    // 最近一条可能是几天前记的：不是今天就在名字后面写上哪天，免得看起来像今天的心情
+    val day = mood.createdAt.atZone(state.zone).toLocalDate()
+    val whenText = if (day == state.today) null else relativeDay(day, state.today).first
     Box(modifier) {
         Column(
             Modifier
@@ -317,7 +324,7 @@ private fun MoodCard(mood: Mood, name: String, people: People, modifier: Modifie
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PersonMark(people.markChar(mood.authorId), people.person(mood.authorId), size = 20.dp, modifier = Modifier.clearAndSetSemantics { })
-                Text(name, style = type.caption.copy(fontWeight = FontWeight.W500, color = colors.muted), maxLines = 1, modifier = Modifier.weight(1f))
+                Text(whenText?.let { "$name · $it" } ?: name, style = type.caption.copy(fontWeight = FontWeight.W500, color = colors.muted), maxLines = 1, modifier = Modifier.weight(1f))
                 Icon(mood.label.icon, contentDescription = mood.label.displayName, tint = tint, modifier = Modifier.size(22.dp))
             }
             Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -330,7 +337,7 @@ private fun MoodCard(mood: Mood, name: String, people: People, modifier: Modifie
             }
             IntensityDots(mood.intensity, tint, Modifier.padding(top = 8.dp))
         }
-        if (mood.needsComfort && mood.authorId != people.myUserId) {
+        if (mood.needsComfort && mood.authorId != people.myUserId && isRecent(mood.createdAt, state.zone, state.today)) {
             Sticker("需要安慰", Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-12).dp), rotation = 6f)
         }
     }
@@ -433,7 +440,13 @@ private fun ScheduleSection(state: TodayState, onOpen: (Page) -> Unit) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val people = state.people
-    val now = remember(state.today) { Instant.now() }
+    // 每分钟更新一次：页面开着时，过去的日程变灰、「接下来那一件」往后挪
+    val now by produceState(Instant.now(), state.today) {
+        while (true) {
+            delay(60_000L - System.currentTimeMillis() % 60_000L)
+            value = Instant.now()
+        }
+    }
     val next = state.events.firstOrNull { e -> !e.value.allDay && (e.value.endsAt ?: e.value.startsAt)?.isAfter(now) == true }
     Column(Modifier.padding(horizontal = Spacing.page)) {
         SectionLabel("安排", Feature.Calendar)

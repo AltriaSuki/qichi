@@ -38,6 +38,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -137,9 +138,11 @@ fun IdeasScreen(
     var deleting by remember { mutableStateOf<Idea?>(null) }
 
     val tags = remember(state.ideas) { topTags(state.ideas.map { it.value.body }) }
-    val shown = state.ideas.filter { local ->
-        val body = local.value.body
-        (filter == null || Tags.has(body, filter!!)) && (query.isBlank() || body.contains(query.trim(), ignoreCase = true))
+    val shown = remember(state.ideas, filter, query) {
+        state.ideas.filter { local ->
+            val body = local.value.body
+            (filter == null || Tags.has(body, filter!!)) && (query.isBlank() || body.contains(query.trim(), ignoreCase = true))
+        }
     }
 
     Box(Modifier.fillMaxSize().background(colors.background).imePadding()) {
@@ -157,6 +160,13 @@ fun IdeasScreen(
             if (tags.isNotEmpty()) TagFilterRow(tags, filter, { filter = it })
             if (state.loaded && state.ideas.isEmpty()) {
                 EmptyIdeas(Modifier.weight(1f))
+            } else if (state.loaded && shown.isEmpty()) {
+                // 筛选、搜索没有结果：说一句，不是一片空白
+                Text(
+                    if (query.isNotBlank()) "没有找到含「${query.trim()}」的灵感。" else "这个标签下还没有灵感。",
+                    style = QichiTheme.typography.caption.copy(color = colors.muted),
+                    modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = Spacing.page, vertical = Spacing.m),
+                )
             } else {
                 IdeaBoard(
                     shown, state.people, state.zone, Modifier.weight(1f),
@@ -172,6 +182,8 @@ fun IdeasScreen(
         var text by rememberSaveable { mutableStateOf(filter?.let { " #$it" } ?: "") }
         AlertDialog(
             onDismissRequest = { writing = false },
+            // 写了字以后点对话框外面不关，免得一碰就丢；要关点「取消」
+            properties = DialogProperties(dismissOnClickOutside = text.isBlank()),
             containerColor = colors.paper,
             title = { Text("记一条", style = QichiTheme.typography.barTitle.copy(color = colors.ink)) },
             text = { QichiTextField(text, { text = it.take(Limits.IDEA_BODY_LENGTH.last) }, label = "一个念头，可以带 #标签", singleLine = false) },
@@ -183,6 +195,7 @@ fun IdeasScreen(
         var text by remember(idea.id) { mutableStateOf(idea.body) }
         AlertDialog(
             onDismissRequest = { editing = null },
+            properties = DialogProperties(dismissOnClickOutside = text == idea.body),
             containerColor = colors.paper,
             title = { Text("改一下", style = QichiTheme.typography.barTitle.copy(color = colors.ink)) },
             text = { QichiTextField(text, { text = it.take(Limits.IDEA_BODY_LENGTH.last) }, label = "灵感", singleLine = false) },

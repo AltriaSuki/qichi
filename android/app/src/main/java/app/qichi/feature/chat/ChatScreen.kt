@@ -119,9 +119,12 @@ import app.qichi.core.ui.MarkdownView
 import app.qichi.core.ui.aiFailText
 import app.qichi.core.ui.chatDay
 import app.qichi.core.ui.feelingWord
+import app.qichi.core.ui.rememberLinkified
 import app.qichi.core.ui.scrollToItemMotion
 import app.qichi.core.ui.sourceKind
 import app.qichi.core.ui.sourceLabel
+import app.qichi.core.ui.todayIn
+import app.qichi.core.ui.zoneOf
 import app.qichi.shared.api.AiAction
 import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
@@ -136,6 +139,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.UUID
 import kotlin.math.abs
 import kotlinx.coroutines.delay
@@ -314,7 +318,8 @@ fun ChatScreen(
             Sprig(Modifier.align(Alignment.TopEnd).offset(x = 18.dp, y = 18.dp).rotate(12f), width = 150.dp, flip = true, alpha = .55f)
             val maxBubble = (maxWidth - 40.dp) * 0.78f
             val zone = remember { ZoneId.systemDefault() }
-            val today = remember { LocalDate.now(zone) }
+            // 每次回到聊天重算：开着过了午夜，「今天」「昨天」的分隔也跟着对
+            val today = remember(visible) { LocalDate.now(zone) }
             LazyColumn(
                 state = listState,
                 reverseLayout = true,
@@ -504,7 +509,12 @@ private fun ChatHeader(people: People, partnerMood: Mood?, onSearch: () -> Unit)
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.semantics { heading() },
             )
-            if (partnerMood != null) HandNote("今天" + feelingWord(partnerMood.label, partnerMood.intensity), fontSizeSp = 16f, rotation = -2f)
+            // 只写今天、昨天的心情；更早的不再写成「今天……」
+            val zone = zoneOf(people.room?.timezone)
+            val moodDay = partnerMood?.let { ChronoUnit.DAYS.between(it.createdAt.atZone(zone).toLocalDate(), todayIn(zone)) }
+            if (partnerMood != null && moodDay != null && moodDay in 0L..1L) {
+                HandNote((if (moodDay == 0L) "今天" else "昨天") + feelingWord(partnerMood.label, partnerMood.intensity), fontSizeSp = 16f, rotation = -2f)
+            }
         }
         IconAction(QichiIcons.Search, contentDescription = "搜索", onClick = onSearch)
     }
@@ -711,7 +721,8 @@ private fun TextBubble(
                 .padding(horizontal = 15.dp, vertical = 10.dp),
         ) {
             if (m.replyToId != null || m.replyExcerpt != null) ReplyQuote(m, people, onClick = m.replyToId?.let { id -> { onQuoteClick(id) } })
-            Text(m.body, style = type.body.copy(lineHeight = 24.75.tsp, color = colors.ink))
+            // 网址能点（下划线、雾蓝），点了用浏览器打开
+            Text(rememberLinkified(m.body, colors.personB), style = type.body.copy(lineHeight = 24.75.tsp, color = colors.ink))
             if (m.editedAt != null) {
                 Text("已编辑", style = type.caption.copy(fontSize = 11.tsp, color = colors.muted), modifier = Modifier.align(Alignment.End))
             }
@@ -1138,7 +1149,7 @@ private fun InputBar(
                 .lift(colors, RoundedCornerShape(23.dp))
                 .clip(RoundedCornerShape(23.dp))
                 .background(colors.card)
-                .padding(start = 16.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+                .padding(start = 16.dp, end = 6.dp),
             contentAlignment = Alignment.CenterStart,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1150,6 +1161,7 @@ private fun InputBar(
                     maxLines = 5,
                     modifier = Modifier
                         .weight(1f)
+                        .padding(vertical = 10.dp)
                         .semantics { contentDescription = "消息" },
                     decorationBox = { inner ->
                         if (draft.isEmpty()) Text("说点什么", style = type.body.copy(color = colors.faint))
@@ -1159,9 +1171,10 @@ private fun InputBar(
                 // 设计稿里输入框右端的「问 AI」：只有点它才会调用 AI；没开启、离线、没写问题时置灰
                 val canAsk = aiEnabled && online && draft.isNotBlank()
                 val askColor = if (canAsk) colors.personB else colors.faint
+                // 触控区域撑满输入框的高度（至少 44dp），字还是原来那么大
                 Row(
                     Modifier
-                        .heightIn(min = 24.dp)
+                        .heightIn(min = Sizes.touchTarget)
                         .clickable(role = Role.Button, onClick = onAskAi)
                         .padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,

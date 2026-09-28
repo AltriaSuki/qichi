@@ -56,3 +56,22 @@ fun chatDay(date: LocalDate, today: LocalDate): Pair<String, Boolean> {
     }
 }
 
+
+/**
+ * 某个时刻离今天多远的说法：今天只写时刻「19:30」；昨天「昨天 19:30」；更早「09.21 19:30」，不是今年的带年份。
+ * 用在只显示「最近一条」的地方（心情），免得上周的内容看起来像刚发生。
+ */
+fun dayTime(at: Instant, zone: ZoneId, today: LocalDate): String {
+    val t = at.atZone(zone)
+    val hm = "%02d:%02d".format(t.hour, t.minute)
+    val date = t.toLocalDate()
+    return when (ChronoUnit.DAYS.between(date, today)) {
+        0L -> hm
+        1L -> "昨天 $hm"
+        else -> "${dotDate(date, withYear = date.year != today.year)} $hm"
+    }
+}
+
+/** [at] 是不是今天或昨天（房间时区）：心情的「需要安慰」、聊天顶栏的心情只在这两天里显示。 */
+fun isRecent(at: Instant, zone: ZoneId, today: LocalDate): Boolean =
+    ChronoUnit.DAYS.between(at.atZone(zone).toLocalDate(), today) in 0L..1L

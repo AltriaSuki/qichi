@@ -88,7 +88,12 @@ fun TodoRow(
                 val (label, numeral) = relativeDay(due, today)
                 val overdue = !done && due.isBefore(today)
                 val color = if (overdue) colors.accent else colors.muted
-                Text(label, style = if (numeral) type.numeral.copy(fontSize = 16.tsp, color = color) else type.caption.copy(color = color))
+                // 有时刻的（到点提醒）：今天的只写时刻，别的日子在日期后面加上时刻
+                val time = todo.dueAt?.atZone(zone)?.let { "%02d:%02d".format(it.hour, it.minute) }
+                if (time == null || due != today) {
+                    Text(label, style = if (numeral) type.numeral.copy(fontSize = 16.tsp, color = color) else type.caption.copy(color = color))
+                }
+                if (time != null) Text(time, style = type.numeral.copy(fontSize = 14.tsp, color = color))
             }
             if (!subtask) {
                 val assignee = todo.assigneeId

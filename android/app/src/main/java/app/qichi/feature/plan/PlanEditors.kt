@@ -17,13 +17,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -53,18 +50,17 @@ import app.qichi.core.designsystem.component.SwitchRow
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.ui.DateChoice
-import app.qichi.core.ui.shortDate
+import app.qichi.core.ui.DraftSheet
 import app.qichi.core.ui.relativeDay
+import app.qichi.core.ui.shortDate
 import app.qichi.shared.api.Milestone
 import app.qichi.shared.api.Plan
 import app.qichi.shared.api.PlanLog
 import app.qichi.shared.api.PlanStage
 import app.qichi.shared.api.Todo
 import app.qichi.shared.rules.Limits
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.ZoneOffset
 import java.util.UUID
 
 /** 新建计划：标题、负责人、目标日（可以不设）。 */
@@ -81,10 +77,10 @@ internal fun PlanEditor(
     onSave: (String, UUID, LocalDate?) -> Unit,
 ) {
     val colors = QichiTheme.colors
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = colors.background) {
-        var name by rememberSaveable { mutableStateOf(initialTitle) }
-        var owner by remember { mutableStateOf(initialOwner ?: people.myUserId) }
-        var target by remember { mutableStateOf(initialTarget) }
+    var name by rememberSaveable { mutableStateOf(initialTitle) }
+    var owner by remember { mutableStateOf(initialOwner ?: people.myUserId) }
+    var target by remember { mutableStateOf(initialTarget) }
+    DraftSheet(dirty = name != initialTitle, onDismiss = onDismiss) {
         SheetColumn {
             QichiTextField(name, { name = it.take(Limits.PLAN_TITLE_LENGTH.last) }, label = title, placeholder = "比如：秋天去一次海边",
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done))
@@ -208,11 +204,11 @@ internal fun NextStepEditor(
 ) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = colors.background) {
-        var text by rememberSaveable { mutableStateOf(plan.nextStep.orEmpty()) }
-        var owner by remember { mutableStateOf(plan.nextStepOwnerId) }
-        var due by remember { mutableStateOf(plan.nextStepDue) }
-        var asTodo by rememberSaveable { mutableStateOf(false) }
+    var text by rememberSaveable { mutableStateOf(plan.nextStep.orEmpty()) }
+    var owner by remember { mutableStateOf(plan.nextStepOwnerId) }
+    var due by remember { mutableStateOf(plan.nextStepDue) }
+    var asTodo by rememberSaveable { mutableStateOf(false) }
+    DraftSheet(dirty = text != plan.nextStep.orEmpty(), onDismiss = onDismiss) {
         SheetColumn {
             if (candidates.isNotEmpty()) {
                 Column {
@@ -298,7 +294,7 @@ internal fun MilestoneEditor(m: Milestone, today: LocalDate, onDismiss: () -> Un
     var title by rememberSaveable { mutableStateOf(m.title) }
     var date by remember { mutableStateOf(m.targetDate) }
     var deleting by remember { mutableStateOf(false) }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = colors.background) {
+    DraftSheet(dirty = title != m.title, onDismiss = onDismiss) {
         SheetColumn {
             QichiTextField(title, { title = it.take(Limits.PLAN_TITLE_LENGTH.last) }, label = "里程碑")
             DateChoice("哪天", date, today) { date = it }
@@ -320,7 +316,7 @@ internal fun LogEditor(log: PlanLog, onDismiss: () -> Unit, onSave: (String) -> 
     val colors = QichiTheme.colors
     var body by rememberSaveable { mutableStateOf(log.body) }
     var deleting by remember { mutableStateOf(false) }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = colors.background) {
+    DraftSheet(dirty = body != log.body, onDismiss = onDismiss) {
         SheetColumn {
             QichiTextField(body, { body = it.take(Limits.PLAN_LOG_LENGTH.last) }, label = "这条进展", singleLine = false)
             PrimaryButton("保存", onClick = { onSave(body) }, enabled = body.isNotBlank(), modifier = Modifier.fillMaxWidth())

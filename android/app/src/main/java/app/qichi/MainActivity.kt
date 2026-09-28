@@ -1,25 +1,31 @@
 package app.qichi
 
 import android.content.Intent
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
+import android.provider.Settings
 import android.view.KeyEvent
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.toArgb
 import androidx.fragment.app.FragmentActivity
-import app.qichi.core.reading.PageKeys
-import app.qichi.core.reading.ReaderFragments
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.DisplaySettingsStore
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sky
+import app.qichi.core.designsystem.colorsFor
+import app.qichi.core.designsystem.skyAt
+import app.qichi.core.reading.PageKeys
+import app.qichi.core.reading.ReaderFragments
 import app.qichi.core.share.ShareInbox
 import app.qichi.core.share.sharedContent
 import app.qichi.navigation.DeepLink
 import app.qichi.navigation.QichiRoot
 import dagger.hilt.android.AndroidEntryPoint
+import java.time.LocalTime
 import javax.inject.Inject
 
 /** 唯一的 Activity，承载整个 App 的导航。深链、别的 App 分享进来的内容（P16-03）从 onCreate / onNewIntent 进来。是 FragmentActivity，因为阅读页用了 Readium 的 Fragment。 */
@@ -37,6 +43,10 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         if (savedInstanceState != null) ReaderFragments.dropRestored(supportFragmentManager)
         enableEdgeToEdge()
+        // 窗口底色按现在的天色：夜里打开不先闪一下白天的浅色（主题里写死的是白天的底色）
+        window.setBackgroundDrawable(ColorDrawable(colorsFor(skyAt(LocalTime.now())).background.toArgb()))
+        // 手机设置里关掉了动画（开发者选项或无障碍的「移除动画」）：App 里也直接切换
+        val systemNoAnimation = Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
         if (savedInstanceState == null) {
             pendingLink = DeepLink.parse(intent?.dataString)
             intent?.sharedContent()?.let(shareInbox::offer)
@@ -57,7 +67,12 @@ class MainActivity : FragmentActivity() {
             // 读到本机显示设置之前先不画（只有几毫秒），免得大字模式下先闪一下标准字号
             val display by displaySettings.settings.collectAsStateWithLifecycle(initialValue = null)
             val settings = display ?: return@setContent
-            QichiTheme(skyOverride = skyOverride, largeText = settings.largeText, reduceMotion = settings.reduceMotion) {
+            QichiTheme(
+                skyOverride = skyOverride,
+                skyMode = settings.skyMode,
+                largeText = settings.largeText,
+                reduceMotion = settings.reduceMotion || systemNoAnimation,
+            ) {
                 QichiRoot(pendingLink = pendingLink, onLinkHandled = { pendingLink = null })
             }
         }

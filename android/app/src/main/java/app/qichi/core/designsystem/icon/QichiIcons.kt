@@ -24,6 +24,8 @@ object QichiIcons {
     val Calendar: ImageVector by lazy { icon("cal", "M6 5.5h12a2 2 0 0 1 2 2v10.5a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-10.5a2 2 0 0 1 2 -2zM4 10h16M8.5 3.5v4M15.5 3.5v4") }
     val CalendarToday: ImageVector by lazy { icon("today", "M6 5.5h12a2 2 0 0 1 2 2v10.5a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-10.5a2 2 0 0 1 2 -2zM4 10h16M8.5 3.5v4M15.5 3.5v4", "M12 15h.01" to 2.8f) }
     val Eye: ImageVector by lazy { icon("eye", "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12zM9 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0") }
+    /** 眼睛上一道斜线：隐藏密码 */
+    val EyeOff: ImageVector by lazy { icon("eyeoff", "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12zM9 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0M4 4l16 16") }
     val Focus: ImageVector by lazy { icon("focus", "M4 9V5h4M20 9V5h-4M4 15v4h4M20 15v4h-4") }
     val People: ImageVector by lazy { icon("people", "M6 8.5a3 3 0 1 0 6 0a3 3 0 1 0 -6 0M3.5 19.5c.8-3 3-4.6 5.5-4.6s4.7 1.6 5.5 4.6M14.1 9.5a2.4 2.4 0 1 0 4.8 0a2.4 2.4 0 1 0 -4.8 0M15.6 14.7c2.2-.3 4.2 1 4.9 3.6") }
     val Mood: ImageVector by lazy { icon("mood", "M3.5 12a8.5 8.5 0 1 0 17 0a8.5 8.5 0 1 0 -17 0M8.6 14.2c1.9 2 4.9 2 6.8 0", "M9 10h.01M15 10h.01" to 2.4f) }
