@@ -45,6 +45,7 @@ import app.qichi.shared.api.Room
 import app.qichi.shared.api.SyncEntity
 import app.qichi.shared.api.Todo
 import app.qichi.shared.model.EntityType
+import app.qichi.shared.model.MessageKind
 import app.qichi.shared.model.fromWire
 import app.qichi.shared.model.wireName
 import io.ktor.http.HttpMethod
@@ -368,6 +369,9 @@ class LocalStore(
 
         const val DECODE_CACHE_MAX = 2_000
 
+        /** 图片消息的 [EntityRow.tag] */
+        const val TAG_IMAGE = "image"
+
         private val decoded = object : LinkedHashMap<DecodeKey, SyncEntity>(256, 0.75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<DecodeKey, SyncEntity>?): Boolean = size > DECODE_CACHE_MAX
         }
@@ -380,7 +384,7 @@ class LocalStore(
         fun toRow(entity: SyncEntity, state: SyncState, serverJson: String?, localTime: Long): EntityRow {
             val type = typeOf(entity)
             val json = encode(type, entity)
-            fun base(roomId: UUID, deleted: Boolean, owner: UUID?, parent: UUID?, sortSeq: Long?, sortTime: Long?) =
+            fun base(roomId: UUID, deleted: Boolean, owner: UUID?, parent: UUID?, sortSeq: Long?, sortTime: Long?, tag: String? = null) =
                 EntityRow(
                     type = type.wireName,
                     id = entity.id.toString(),
@@ -395,6 +399,7 @@ class LocalStore(
                     localTime = localTime,
                     json = json,
                     serverJson = serverJson,
+                    tag = tag,
                 )
             return when (entity) {
                 is Room -> base(entity.id, false, entity.createdBy, null, null, entity.createdAt.toEpochMilli())
@@ -403,6 +408,8 @@ class LocalStore(
                     entity.roomId, entity.deletedAt != null, entity.authorId, entity.replyToId,
                     // 还没发出去的消息没有 createdSeq（本机用 0 占位）
                     entity.createdSeq.takeIf { it > 0 }, entity.createdAt.toEpochMilli(),
+                    // 时间线选照片按这一列查（P17-04）
+                    tag = if (entity.kind == MessageKind.Image) TAG_IMAGE else null,
                 )
                 is ReadMarker -> base(entity.roomId, false, entity.userId, null, null, null)
                 is Mood -> base(entity.roomId, entity.deletedAt != null, entity.authorId, null, null, entity.createdAt.toEpochMilli())

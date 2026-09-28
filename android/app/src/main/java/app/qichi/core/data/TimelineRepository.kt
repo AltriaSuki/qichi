@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.YearMonth
 import java.util.UUID
+import app.qichi.core.sync.offMain
 
 /**
  * 共同时间线：服务端按月拼装，需要联网（docs/04-api.md）。
@@ -54,5 +55,5 @@ class TimelineRepository(
                 .filter { it.kind == MessageKind.Image && it.retractedAt == null && it.deletedAt == null }
                 .mapNotNull { it.file }
                 .distinctBy { it.id }
-        }
+        }.offMain()
 }

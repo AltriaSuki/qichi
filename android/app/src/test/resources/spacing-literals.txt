@@ -1,5 +1,5 @@
 # 页面里写死的间距（见 SpacingLiteralsTest）：文件	处数。只许减少。
-archive/ArchiveScreens.kt	15
+archive/ArchiveScreens.kt	14
 board/BoardScreens.kt	16
 calendar/CalendarMonthScreen.kt	12
 calendar/EventListScreen.kt	1
@@ -7,7 +7,7 @@ chat/ChatAiActions.kt	6
 chat/ChatAttachments.kt	11
 chat/ChatScreen.kt	56
 chat/ChatSearch.kt	12
-decisions/DecisionScreens.kt	14
+decisions/DecisionScreens.kt	13
 ideas/IdeasScreen.kt	12
 ideas/TagsScreen.kt	3
 me/AiUsageScreen.kt	4

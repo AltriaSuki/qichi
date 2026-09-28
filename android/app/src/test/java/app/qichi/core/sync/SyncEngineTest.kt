@@ -28,6 +28,7 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -286,6 +287,35 @@ class SyncEngineTest {
         engine.pullIfBehind(roomId, 4)
         assertEquals(before, server.requests.size)
         engine.pullIfBehind(roomId, 5)
+        assertEquals(before + 1, server.requests.size)
+    }
+
+    @Test
+    fun `回到前台时两处同时要拉：排在后面的发现已经不落后，就不再发请求（P17-06）`() = runTest {
+        bootstrap = boot(lastSeq = 4)
+        engine.pull(roomId)
+        syncPages += SyncResponse(4, 5, false, listOf(change(todo("新的", seq = 5))))
+        val before = server.requests.size
+        val first = launch { engine.pull(roomId) }
+        val second = launch { engine.pullIfBehind(roomId, 5) }
+        first.join()
+        second.join()
+        assertEquals(5, engine.lastSeq(roomId))
+        assertEquals(before + 1, server.requests.size)
+    }
+
+    @Test
+    fun `刚拉过的房间，回到前台「全部拉一遍」时不再发请求（P17-06）`() = runTest {
+        var clock = 1_000_000L
+        engine = SyncEngine(SyncFixtures.api(server.engine), db, store, now = { clock })
+        bootstrap = boot(lastSeq = 4)
+        engine.pull(roomId)
+        val before = server.requests.size
+        clock += 3_000
+        engine.pullIfStale(roomId)
+        assertEquals(before, server.requests.size)
+        clock += SyncEngine.FRESH_MS
+        engine.pullIfStale(roomId)
         assertEquals(before + 1, server.requests.size)
     }
 }

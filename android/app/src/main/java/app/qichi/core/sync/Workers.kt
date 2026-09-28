@@ -63,11 +63,14 @@ class PeriodicSyncWorker @AssistedInject constructor(
     private val syncEngine: SyncEngine,
     private val db: QichiDatabase,
     private val session: SessionManager,
+    private val realtime: RealtimeClient,
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
         // 冷启动时由 WorkManager 拉起，登录状态可能还在读取：等读出来再判断，不能当成没登录跳过（P13-04）
         if (session.awaitLoaded() !is SessionState.LoggedIn) return Result.success()
+        // 实时通道连着（在前台，或开着后台接收消息）：有变化它会马上拉，这里不用再发请求（P17-06）
+        if (realtime.connected.value) return Result.success()
         var failed = false
         for (room in db.syncState().roomIds()) {
             try {

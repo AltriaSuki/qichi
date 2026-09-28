@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.map
 import java.net.URLEncoder
 import java.time.Clock
 import java.util.UUID
+import app.qichi.core.sync.offMain
 
 /**
  * 共同写作（docs/05-sync-offline.md §3.5）：
@@ -62,7 +63,7 @@ class DocumentRepository(
     fun observePreviews(roomId: UUID): Flow<Map<UUID, String>> =
         db.documentVersions().observeLatestBodies(roomId.toString()).map { rows ->
             rows.associate { UUID.fromString(it.documentId) to documentPreview(it.body) }
-        }
+        }.offMain()
 
     /** 房间里的文稿（不含回收站）：置顶的在前，其余最近更新的在前。 */
     fun observeDocuments(roomId: UUID): Flow<List<Local<Document>>> =
@@ -71,6 +72,7 @@ class DocumentRepository(
                 rows.map { LocalStore.toLocal<Document>(it) }
                     .sortedWith(compareByDescending<Local<Document>> { it.value.pinned }.thenByDescending { it.value.updatedAt })
             }
+            .offMain()
 
     fun observeDocument(roomId: UUID, id: UUID): Flow<Local<Document>?> =
         observeDocuments(roomId).map { list -> list.firstOrNull { it.value.id == id } }
@@ -140,6 +142,7 @@ class DocumentRepository(
                 all.filter { it.value.deletedAt == null && (it.value.parentId == null || it.value.parentId in liveRoots) }
                     .sortedBy { it.value.createdAt }
             }
+            .offMain()
 
     /** 钉在 [quote] 上的新留言；正文空白时不建。 */
     suspend fun addComment(doc: Document, quote: String, rawBody: String): DocComment? {

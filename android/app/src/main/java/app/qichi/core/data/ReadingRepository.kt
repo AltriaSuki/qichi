@@ -39,6 +39,7 @@ import java.io.File
 import java.time.Clock
 import java.time.LocalDate
 import java.util.UUID
+import app.qichi.core.sync.offMain
 
 /**
  * 阅读：书、进度、书签 / 标注 / 摘录都是同步实体，先写本机再经发件箱发出（离线也能记）。
@@ -59,7 +60,7 @@ class ReadingRepository(
     private val me: UUID get() = session.currentUserId ?: error("未登录")
 
     private inline fun <reified T : app.qichi.shared.api.SyncEntity> observe(roomId: UUID, type: EntityType): Flow<List<Local<T>>> =
-        db.entities().observeByType(roomId.toString(), type.wireName).map { rows -> rows.map { LocalStore.toLocal<T>(it) } }
+        db.entities().observeByType(roomId.toString(), type.wireName).map { rows -> rows.map { LocalStore.toLocal<T>(it) } }.offMain()
 
     fun observeBooks(roomId: UUID): Flow<List<Local<Book>>> =
         observe<Book>(roomId, EntityType.Book).map { list -> list.sortedByDescending { it.value.createdAt } }

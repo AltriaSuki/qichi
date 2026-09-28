@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.map
 import java.time.Clock
 import java.time.LocalDate
 import java.util.UUID
+import app.qichi.core.sync.offMain
 
 /** 决定记录：先写本机再经发件箱发出；修改只发改动的字段，关注点只改自己的。 */
 class DecisionRepository(
@@ -32,7 +33,7 @@ class DecisionRepository(
     private val me: UUID get() = session.currentUserId ?: error("未登录")
 
     fun observeDecisions(roomId: UUID): Flow<List<Local<Decision>>> =
-        db.entities().observeByType(roomId.toString(), EntityType.Decision.wireName).map { rows -> rows.map { LocalStore.toLocal<Decision>(it) } }
+        db.entities().observeByType(roomId.toString(), EntityType.Decision.wireName).map { rows -> rows.map { LocalStore.toLocal<Decision>(it) } }.offMain()
 
     /** 备选去掉空白与重复，和服务端同样的规则。 */
     fun cleanOptions(raw: List<String>): List<String> =

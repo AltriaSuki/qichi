@@ -20,6 +20,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
+import app.qichi.core.sync.offMain
 
 /** 日程的本机读写：先写本机再经发件箱发出。 */
 class EventRepository(
@@ -34,6 +35,7 @@ class EventRepository(
     fun observeEvents(roomId: UUID): Flow<List<Local<Event>>> =
         db.entities().observeByType(roomId.toString(), EntityType.Event.wireName)
             .map { rows -> rows.map { LocalStore.toLocal<Event>(it) } }
+            .offMain()
 
     /** 某天的日程；跨日安排在覆盖的每一天都出现。 */
     fun observeEventsForDate(roomId: UUID, date: LocalDate, zone: ZoneId): Flow<List<Local<Event>>> =
