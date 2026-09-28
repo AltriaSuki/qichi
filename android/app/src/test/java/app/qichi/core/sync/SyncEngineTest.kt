@@ -303,4 +303,19 @@ class SyncEngineTest {
         assertEquals(5, engine.lastSeq(roomId))
         assertEquals(before + 1, server.requests.size)
     }
+
+    @Test
+    fun `刚拉过的房间，回到前台「全部拉一遍」时不再发请求（P17-06）`() = runTest {
+        var clock = 1_000_000L
+        engine = SyncEngine(SyncFixtures.api(server.engine), db, store, now = { clock })
+        bootstrap = boot(lastSeq = 4)
+        engine.pull(roomId)
+        val before = server.requests.size
+        clock += 3_000
+        engine.pullIfStale(roomId)
+        assertEquals(before, server.requests.size)
+        clock += SyncEngine.FRESH_MS
+        engine.pullIfStale(roomId)
+        assertEquals(before + 1, server.requests.size)
+    }
 }

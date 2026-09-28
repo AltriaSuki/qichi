@@ -64,6 +64,15 @@ class SyncEngine(
         if (seq > lastSeq(roomId)) pullLocked(roomId)
     }
 
+    /**
+     * 最近 [maxAgeMs] 之内拉过就不再拉（回到前台时「全部拉一遍」用，P17-06）：
+     * 实时通道连上时的 hello 已经先拉过的话，这里不再多发一次请求。
+     */
+    suspend fun pullIfStale(roomId: UUID, maxAgeMs: Long = FRESH_MS) = mutex.withLock {
+        val syncedAt = db.syncState().get(roomId.toString())?.lastSyncedAt
+        if (syncedAt == null || now() - syncedAt >= maxAgeMs) pullLocked(roomId)
+    }
+
     private suspend fun pullLocked(roomId: UUID) {
         _syncing.value = true
         try {
@@ -85,6 +94,11 @@ class SyncEngine(
         } finally {
             _syncing.value = false
         }
+    }
+
+    companion object {
+        /** 这么久之内拉过的算是新的 */
+        const val FRESH_MS = 10_000L
     }
 
     private fun describe(e: Exception): String = when (e) {
