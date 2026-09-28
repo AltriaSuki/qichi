@@ -16,6 +16,8 @@ object CommentAnchors {
         is Markdown.Block.Item -> block.text
         is Markdown.Block.Task -> block.text
         is Markdown.Block.Quote -> block.text
+        is Markdown.Block.Code -> block.text
+        is Markdown.Block.Table -> (listOf(block.header) + block.rows).joinToString("\n") { it.joinToString(" ") }
         is Markdown.Block.Rule, is Markdown.Block.Image -> null
     }
 
