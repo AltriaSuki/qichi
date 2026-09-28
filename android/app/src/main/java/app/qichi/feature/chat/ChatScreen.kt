@@ -114,6 +114,7 @@ import app.qichi.core.designsystem.tsp
 import app.qichi.core.network.FileUrls
 import app.qichi.core.share.SHARE_MAX_IMAGES
 import app.qichi.core.sync.Local
+import app.qichi.core.ui.aiFailText
 import app.qichi.core.ui.chatDay
 import app.qichi.core.ui.feelingWord
 import app.qichi.core.ui.scrollToItemMotion
@@ -912,9 +913,11 @@ private fun PendingAiItem(pending: PendingAi, askerName: String, onRetry: () -> 
             AiBlock(prompt = pending.prompt, asker = askerName, modifier = Modifier.padding(end = 40.dp)) {}
             when {
                 pending.failed -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("没有得到回答", style = type.caption.copy(color = colors.accent))
-                    TextAction("重试", onClick = onRetry)
-                    TextAction("算了", onClick = onDismiss, color = colors.muted)
+                    // 说清为什么没回答（P16-08）；额度用完、太长时重试也没用，只给「知道了」
+                    val fail = aiFailText(pending.failReason)
+                    Text(fail.text, style = type.caption.copy(color = colors.accent), modifier = Modifier.weight(1f, fill = false))
+                    if (fail.canRetry) TextAction("重试", onClick = onRetry)
+                    TextAction(if (fail.canRetry) "算了" else "知道了", onClick = onDismiss, color = colors.muted)
                 }
                 else -> {
                     // 边生成边显示（P8-03）：引用编号和提议卡片等正式回答同步下来再出现

@@ -161,7 +161,7 @@ private fun JobRow(job: AiJob, numbers: NumberFormat) {
         Column(Modifier.weight(1f)) {
             Text(kindLabel(job.kind), style = type.bodyLarge.copy(color = colors.ink))
             Text(
-                "${JOB_TIME.format(job.createdAt.atZone(zone))}  ${statusLabel(job.status)}",
+                "${JOB_TIME.format(job.createdAt.atZone(zone))}  ${statusLabel(job.status, job.failReason)}",
                 style = type.caption.copy(color = if (job.status == AiJobStatus.Failed) colors.accent else colors.muted),
             )
         }
@@ -184,8 +184,9 @@ private fun kindLabel(kind: AiJobKind): String = when (kind) {
     AiJobKind.WriteAssist -> "写作时请 AI 帮忙"
 }
 
-private fun statusLabel(status: AiJobStatus): String = when (status) {
+private fun statusLabel(status: AiJobStatus, failReason: String?): String = when (status) {
     AiJobStatus.Queued, AiJobStatus.Running -> "进行中"
     AiJobStatus.Done -> "完成"
-    AiJobStatus.Failed -> "没有得到回答"
+    // 说清为什么（P16-08）
+    AiJobStatus.Failed -> app.qichi.core.ui.aiFailText(failReason).text
 }

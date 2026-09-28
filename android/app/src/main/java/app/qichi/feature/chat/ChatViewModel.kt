@@ -92,6 +92,8 @@ data class PendingAi(
     val stopping: Boolean = false,
     /** AI 正在查什么，如「正在查：日历 9/26–10/3」（P11）；开始写回答后为空 */
     val status: String? = null,
+    /** 失败的种类（AiFailReason 的 wireName，P16-08）；旧服务端不给时为空 */
+    val failReason: String? = null,
 )
 
 /**
@@ -228,7 +230,7 @@ class ChatViewModel @AssistedInject constructor(
         // AI 任务结束的实时通知：失败就在原位置显示「没有得到回答」
         viewModelScope.launch {
             realtime.aiDone.collect { event ->
-                if (event.roomId == roomId && event.status == AiJobStatus.Failed.wireName) markAiFailed(event.jobId)
+                if (event.roomId == roomId && event.status == AiJobStatus.Failed.wireName) markAiFailed(event.jobId, event.reason)
             }
         }
         // 边生成边显示：自己在等的提问，把到目前为止的回答显示出来（回答同步下来后整条换成正式的消息）
@@ -551,7 +553,7 @@ class ChatViewModel @AssistedInject constructor(
             _events.tryEmit(ChatEvent.Toast("离线时不能问 AI"))
             return
         }
-        _pendingAi.update { list -> list.map { if (it.jobId == jobId) it.copy(failed = false, partial = null, status = null) else it } }
+        _pendingAi.update { list -> list.map { if (it.jobId == jobId) it.copy(failed = false, partial = null, status = null, failReason = null) else it } }
         submitAi(pending)
     }
 
@@ -606,27 +608,28 @@ class ChatViewModel @AssistedInject constructor(
             }
             // 实时通道断了也不怕：每隔几秒问一次任务状态。最多等 [AI_WAIT_MAX_MS]（服务端卡住时不会一直转），
             // 之后显示「没有得到回答 · 重试」；回答同步下来时由 answerWatchers 收起这一项（P13-03）
-            withTimeoutOrNull(AI_WAIT_MAX_MS) { pollUntilFailed(pending.jobId) }
-            markAiFailed(pending.jobId)
+            val reason = withTimeoutOrNull(AI_WAIT_MAX_MS) { pollUntilFailed(pending.jobId) }
+            markAiFailed(pending.jobId, reason)
         }
     }
 
-    /** 每隔几秒问一次任务状态，直到服务端说失败为止；完成了就拉取一次，让回答同步下来。 */
-    private suspend fun pollUntilFailed(jobId: UUID) {
+    /** 每隔几秒问一次任务状态，直到服务端说失败为止（返回失败的种类）；完成了就拉取一次，让回答同步下来。 */
+    private suspend fun pollUntilFailed(jobId: UUID): String? {
         while (true) {
             delay(AI_POLL_MS)
             val job = runCatching { chat.aiJob(roomId, jobId) }.getOrNull() ?: continue
             when (job.status) {
-                AiJobStatus.Failed -> return
+                AiJobStatus.Failed -> return job.failReason
                 AiJobStatus.Done -> runCatching { syncEngine.pull(roomId) }
                 else -> Unit
             }
         }
     }
 
-    private fun markAiFailed(jobId: UUID) {
+    private fun markAiFailed(jobId: UUID, reason: String? = null) {
         aiWatchers.remove(jobId)?.cancel()
-        _pendingAi.update { list -> list.map { if (it.jobId == jobId) it.copy(failed = true) else it } }
+        // 已经知道原因的不要被后到的「不知道」盖掉（实时通知和轮询都可能先到）
+        _pendingAi.update { list -> list.map { if (it.jobId == jobId) it.copy(failed = true, failReason = reason ?: it.failReason) else it } }
     }
 
     fun startReply(message: Message) {
