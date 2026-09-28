@@ -81,6 +81,23 @@ class RoomRepository(
     /** 给忘了密码的另一个人生成重置码（P16-04）：只在这次回应里出现，要在线。 */
     suspend fun createResetCode(roomId: UUID, userId: UUID): PasswordResetCode = api.post("rooms/$roomId/members/$userId/password-reset")
 
+    /**
+     * 退出房间（P16-07，需要联网）：房间和内容留给另一个人。成功后删掉本机这个房间的数据，
+     * 换到还在的另一个房间（没有了就回到建房间 / 加入房间）。
+     */
+    suspend fun leave(roomId: UUID) {
+        api.execute(io.ktor.http.HttpMethod.Post, "rooms/$roomId/leave")
+        val id = roomId.toString()
+        db.transaction {
+            db.entities().deleteRoom(id)
+            db.outbox().deleteRoom(id)
+            db.syncState().deleteRoom(id)
+            db.chatHistory().deleteRoom(id)
+            db.drafts().deleteRoom(id)
+        }
+        refreshMe()
+    }
+
     private suspend fun enterRoom(roomId: UUID) {
         profile.setCurrentRoom(roomId)
         refreshMe()
@@ -91,8 +108,12 @@ class RoomRepository(
         db.entities().observe(EntityType.Room.wireName, roomId.toString())
             .map { row -> row?.let { LocalStore.toLocal<Room>(it).value } }
 
+    /**
+     * 房间成员，包括已经退出、注销的（deletedAt 不为空）：他们写过的内容还在，要显示名字（如「已注销的成员」，P16-07）。
+     * 只要现在的成员时用 [People.partner] 或按 deletedAt 过滤。
+     */
     fun observeMembers(roomId: UUID): Flow<List<Member>> =
-        db.entities().observeByType(roomId.toString(), EntityType.Member.wireName)
+        db.entities().observeAllByType(roomId.toString(), EntityType.Member.wireName)
             .map { rows -> rows.map { LocalStore.toLocal<Member>(it).value } }
 
     /** 改房间设置：本机立即生效，经发件箱发出（离线也可以改）。 */

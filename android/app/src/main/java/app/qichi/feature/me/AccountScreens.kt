@@ -279,6 +279,20 @@ class SecurityViewModel @Inject constructor(private val account: AccountReposito
         }
     }
 
+    /** 注销账号（P16-07）：成功后这台手机登出，回到登录页。 */
+    fun deleteAccount(password: String) = viewModelScope.launch {
+        _state.value = _state.value.copy(saving = true)
+        try {
+            account.deleteAccount(password)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ApiException) {
+            _state.value = _state.value.copy(saving = false, message = if (e.status == 401) "密码不对" else e.userMessage)
+        } catch (_: Exception) {
+            _state.value = _state.value.copy(saving = false, message = "没能注销，检查一下网络")
+        }
+    }
+
     fun messageShown() { _state.value = _state.value.copy(message = null) }
 }
 
@@ -296,6 +310,8 @@ fun SecurityScreen(onBack: () -> Unit, vm: SecurityViewModel = hiltViewModel()) 
     var current by rememberSaveable { mutableStateOf("") }
     var new by rememberSaveable { mutableStateOf("") }
     var again by rememberSaveable { mutableStateOf("") }
+    var deletePassword by rememberSaveable { mutableStateOf("") }
+    var deleting by remember { mutableStateOf(false) }
     LaunchedEffect(state.message) { state.message?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show(); vm.messageShown() } }
     val zone = ZoneId.systemDefault()
 
@@ -337,8 +353,33 @@ fun SecurityScreen(onBack: () -> Unit, vm: SecurityViewModel = hiltViewModel()) 
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+
+            // 注销账号（P16-07）：放在最下面，先提示导出，再要密码
+            SectionLabel("注销账号", modifier = Modifier.padding(top = Spacing.xl))
+            Text(
+                "注销后这个账号不能再登录。你写过的内容会留在房间里给对方看，署名变成「已注销的成员」；" +
+                    "只剩你一个人的房间会连同内容一起删掉。想留一份的话，先在「房间设置」里导出。",
+                style = type.caption.copy(color = colors.muted),
+            )
+            QichiTextField(deletePassword, { deletePassword = it }, label = "输入密码确认", password = true, modifier = Modifier.padding(top = Spacing.s))
+            TextAction(
+                "注销账号",
+                { deleting = true },
+                enabled = !state.saving && deletePassword.isNotEmpty(),
+                color = colors.accent,
+                modifier = Modifier.padding(top = Spacing.xs),
+            )
             Spacer(Modifier.height(Spacing.xl))
         }
+    }
+    if (deleting) {
+        ConfirmDialog(
+            "注销账号？",
+            "注销后不能恢复，这台手机会退出登录。对方那边你写过的内容还在。",
+            "注销",
+            onConfirm = { vm.deleteAccount(deletePassword); deleting = false },
+            onDismiss = { deleting = false },
+        )
     }
     if (revokingAll) {
         ConfirmDialog("让其它设备都退出？", "除了这台手机，其它登录都要重新登录。", "都退出", onConfirm = { vm.revokeOthers(); revokingAll = false }, onDismiss = { revokingAll = false })

@@ -221,7 +221,7 @@ private fun Header(state: TodayState, viewModel: TodayViewModel) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             HandNote(greeting(QichiTheme.sky), Modifier.weight(1f), fontSizeSp = 26f, color = colors.ink, rotation = -5f)
-            val marks = listOfNotNull(people.room?.createdBy?.let { people.members.firstOrNull { m -> m.userId == it } }, people.members.firstOrNull { it.userId != people.room?.createdBy })
+            val marks = listOfNotNull(people.room?.createdBy?.let { people.active.firstOrNull { m -> m.userId == it } }, people.active.firstOrNull { it.userId != people.room?.createdBy })
                 .map { people.markChar(it.userId) to people.person(it.userId) }
             if (marks.isNotEmpty()) PersonMarks(marks, size = 26.dp)
         }

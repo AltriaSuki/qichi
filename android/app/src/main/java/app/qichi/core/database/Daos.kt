@@ -10,6 +10,10 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface EntityDao {
+    /** 退出了的房间（P16-07）：本机的这个房间的数据都删掉 */
+    @Query("DELETE FROM entities WHERE roomId = :roomId")
+    suspend fun deleteRoom(roomId: String)
+
     @Query("SELECT * FROM entities WHERE type = :type AND id = :id")
     suspend fun get(type: String, id: String): EntityRow?
 
@@ -125,6 +129,9 @@ interface ChatHistoryDao {
 
     @Upsert
     suspend fun upsert(row: ChatHistoryRow)
+
+    @Query("DELETE FROM chat_history WHERE roomId = :roomId")
+    suspend fun deleteRoom(roomId: String)
 }
 
 @Dao
@@ -141,6 +148,9 @@ interface SyncStateDao {
     @Query("SELECT roomId FROM sync_state")
     suspend fun roomIds(): List<String>
 
+    @Query("DELETE FROM sync_state WHERE roomId = :roomId")
+    suspend fun deleteRoom(roomId: String)
+
     @Query("DELETE FROM sync_state")
     suspend fun clear()
 }
@@ -156,6 +166,10 @@ interface OutboxDao {
 
     @Query("SELECT * FROM outbox ORDER BY localId")
     suspend fun all(): List<OutboxRow>
+
+    /** 退出了的房间（P16-07）：还没发出去的也不用发了 */
+    @Query("DELETE FROM outbox WHERE roomId = :roomId")
+    suspend fun deleteRoom(roomId: String)
 
     @Query("SELECT COUNT(*) FROM outbox WHERE state = 'PENDING'")
     fun observePendingCount(): Flow<Int>
@@ -214,6 +228,9 @@ interface DraftDao {
 
     @Query("DELETE FROM drafts WHERE roomId = :roomId AND `key` = :key")
     suspend fun delete(roomId: String, key: String)
+
+    @Query("DELETE FROM drafts WHERE roomId = :roomId")
+    suspend fun deleteRoom(roomId: String)
 
     @Query("DELETE FROM drafts")
     suspend fun clear()

@@ -95,7 +95,7 @@ class MeViewModel @AssistedInject constructor(
     ) { room, members, me, settings, trashed ->
         MeState(
             room, members.firstOrNull { it.userId == session.currentUserId }, me?.user?.displayName.orEmpty(), settings,
-            memberCount = members.size, trashCount = trashed.size,
+            memberCount = members.count { it.deletedAt == null }, trashCount = trashed.size,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MeState())
 

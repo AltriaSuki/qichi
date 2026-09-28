@@ -73,8 +73,12 @@ data class MembersState(
     val busy: Boolean = false,
     val error: String? = null,
 ) {
-    val isOwner: Boolean get() = members.any { it.userId == myUserId && it.role == MemberRole.Owner }
-    val canInvite: Boolean get() = isOwner && members.size < Limits.MAX_ROOM_MEMBERS
+    /** 现在还在房间里的（退出、注销的不列，P16-07） */
+    val active: List<Member> get() = members.filter { it.deletedAt == null }
+    val isOwner: Boolean get() = active.any { it.userId == myUserId && it.role == MemberRole.Owner }
+    val canInvite: Boolean get() = isOwner && active.size < Limits.MAX_ROOM_MEMBERS
+    /** 另一个人还在时才能退出（只剩自己的房间要删就注销账号） */
+    val canLeave: Boolean get() = active.any { it.userId != myUserId }
 }
 
 /** 成员与邀请：看两个人是谁；房主在房间只有自己时生成邀请码并分享。 */
@@ -114,6 +118,19 @@ class MembersViewModel @AssistedInject constructor(
         }
     }
 
+    /** 退出这个房间（P16-07）：成功后本机换到别的房间，[onLeft] 里关掉这一页。 */
+    fun leave(onLeft: () -> Unit) {
+        if (busy.value) return
+        busy.value = true
+        error.value = null
+        viewModelScope.launch {
+            runCatching { rooms.leave(roomId) }
+                .onSuccess { onLeft() }
+                .onFailure { e -> error.value = e.toFormError().message ?: "没能退出，检查一下网络" }
+            busy.update { false }
+        }
+    }
+
     fun generateInvite() {
         if (busy.value) return
         busy.value = true
@@ -144,6 +161,7 @@ fun MembersScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val resetCode by viewModel.resetCode.collectAsStateWithLifecycle()
     var confirmReset by remember { mutableStateOf<Member?>(null) }
+    var confirmLeave by remember { mutableStateOf(false) }
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val context = LocalContext.current
@@ -163,7 +181,7 @@ fun MembersScreen(
         ) {
             Column {
                 SectionLabel(state.room?.name ?: "房间")
-                state.members.forEach { member ->
+                state.active.forEach { member ->
                     val person = if (member.userId == state.room?.createdBy) Person.A else Person.B
                     Row(
                         Modifier
@@ -181,7 +199,7 @@ fun MembersScreen(
                     }
                 }
                 // 对方忘了密码：给 TA 生成一个重置码（P16-04）
-                state.members.firstOrNull { it.userId != state.myUserId }?.let { partner ->
+                state.active.firstOrNull { it.userId != state.myUserId }?.let { partner ->
                     TextAction("帮 TA 重置密码", onClick = { confirmReset = partner }, color = colors.muted)
                 }
             }
@@ -236,9 +254,22 @@ fun MembersScreen(
                 }
             }
             if (!state.canInvite) state.error?.let { Text(it, style = type.caption.copy(color = colors.accent)) }
+            // 退出房间（P16-07）：不删号，房间和内容留给另一个人
+            if (state.canLeave) {
+                TextAction("退出这个房间", onClick = { confirmLeave = true }, enabled = !state.busy, color = colors.muted)
+            }
         }
     }
 
+    if (confirmLeave) {
+        ConfirmDialog(
+            title = "退出「${state.room?.name ?: "这个房间"}」？",
+            text = "账号还在，只是离开这个房间。房间和里面的内容都留给对方，你写过的也还在；这台手机上这个房间的数据会删掉。想回来需要对方再邀请你。",
+            confirmLabel = "退出",
+            onConfirm = { viewModel.leave(onLeft = onBack) },
+            onDismiss = { confirmLeave = false },
+        )
+    }
     confirmReset?.let { partner ->
         ConfirmDialog(
             title = "帮${partner.displayName}重置密码？",

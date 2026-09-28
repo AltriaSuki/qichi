@@ -12,6 +12,9 @@ data class People(
     val members: List<Member>,
     val myUserId: UUID?,
 ) {
+    /** 现在还在房间里的（退出、注销的不算，P16-07） */
+    val active: List<Member> get() = members.filter { it.deletedAt == null }
+
     val me: Member? get() = members.firstOrNull { it.userId == myUserId }
     val partner: Member? get() = members.firstOrNull { it.userId != myUserId && it.deletedAt == null }
 

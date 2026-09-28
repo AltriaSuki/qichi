@@ -9,6 +9,7 @@ import app.qichi.core.network.get
 import app.qichi.core.network.post
 import app.qichi.shared.api.AuthTokens
 import app.qichi.shared.api.ChangePasswordRequest
+import app.qichi.shared.api.DeleteAccountRequest
 import app.qichi.shared.api.LoginSession
 import app.qichi.shared.api.AiPrefs
 import app.qichi.shared.api.NotificationPrefs
@@ -46,6 +47,15 @@ class AccountRepository(
     suspend fun changePassword(current: String, new: String) {
         val tokens = api.post<AuthTokens>("me/password", ChangePasswordRequest(current, new))
         session.replaceTokens(tokens)
+    }
+
+    /**
+     * 注销账号（P16-07，需要联网）：服务端确认密码后注销，这台手机随即登出、清掉本机数据。
+     * 密码不对时抛 ApiException（401），什么都不变。
+     */
+    suspend fun deleteAccount(password: String) {
+        api.execute(HttpMethod.Delete, "me", DeleteAccountRequest(password))
+        session.logout()
     }
 
     suspend fun updateNotifications(prefs: NotificationPrefs) {
