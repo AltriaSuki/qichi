@@ -51,6 +51,7 @@ import java.net.URLEncoder
 import java.time.Clock
 import java.util.UUID
 import kotlinx.serialization.json.JsonElement
+import app.qichi.core.sync.offMain
 
 /**
  * 聊天消息。列表从本机数据库分页读（Paging 3），往上翻到本机没有的部分时向服务端要更早的历史。
@@ -82,6 +83,7 @@ class ChatRepository(
         db.entities().observeReadMarkers(roomId.toString(), me.toString())
             .map { rows -> rows.maxOfOrNull { LocalStore.toLocal<ReadMarker>(it).value.lastReadSeq } ?: 0L }
             .distinctUntilChanged()
+            .offMain()
 
     /** 未读数：对方发的、在我的未读位置之后、没删除的消息。 */
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -114,7 +116,7 @@ class ChatRepository(
 
     /** 最新的一条消息（含待发送的）。 */
     fun observeNewest(roomId: UUID): Flow<Local<Message>?> =
-        db.entities().observeNewestMessage(roomId.toString()).map { row -> row?.let { LocalStore.toLocal<Message>(it) } }
+        db.entities().observeNewestMessage(roomId.toString()).map { row -> row?.let { LocalStore.toLocal<Message>(it) } }.offMain()
 
     suspend fun sendText(roomId: UUID, text: String, replyTo: Message? = null): Message {
         val body = text.trim()
@@ -207,6 +209,7 @@ class ChatRepository(
         db.entities().observeByType(roomId.toString(), EntityType.AiAction.wireName)
             .map { rows -> rows.map { LocalStore.toLocal<AiAction>(it).value }.filter { it.deletedAt == null }.groupBy { it.messageId }.mapValues { (_, v) -> v.sortedBy { it.position } } }
             .distinctUntilChanged()
+            .offMain()
 
     /** 接受：本机先标成「建好了」，真正的日程 / 待办……由服务端建，同步回来。 */
     suspend fun acceptAiAction(a: AiAction) {

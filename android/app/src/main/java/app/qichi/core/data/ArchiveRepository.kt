@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.Clock
 import java.util.UUID
+import app.qichi.core.sync.offMain
 
 /**
  * 档案：条目是同步实体，新建、修订都先写本机再经发件箱发出。修订带基线（当前修订号）；
@@ -41,6 +42,7 @@ class ArchiveRepository(
     fun observeItems(roomId: UUID): Flow<List<Local<ArchiveItem>>> =
         db.entities().observeByType(roomId.toString(), EntityType.ArchiveItem.wireName)
             .map { rows -> rows.map { LocalStore.toLocal<ArchiveItem>(it) }.sortedByDescending { it.value.updatedAt } }
+            .offMain()
 
     /** 本机的一条聊天消息（作为来源；没有或已删除时为空）。 */
     suspend fun message(id: UUID): Message? = store.get<Message>(EntityType.Message, id)?.value?.takeIf { it.deletedAt == null }

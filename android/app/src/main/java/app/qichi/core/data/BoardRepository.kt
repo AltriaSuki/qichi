@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.Clock
 import java.util.UUID
+import app.qichi.core.sync.offMain
 
 /**
  * 留言板：主题、留言、回应都是同步实体，先写本机再经发件箱发出，断网时也能写、联网补发。
@@ -44,7 +45,7 @@ class BoardRepository(
     private val me: UUID get() = session.currentUserId ?: error("未登录")
 
     private inline fun <reified T : app.qichi.shared.api.SyncEntity> observe(roomId: UUID, type: EntityType): Flow<List<Local<T>>> =
-        db.entities().observeByType(roomId.toString(), type.wireName).map { rows -> rows.map { LocalStore.toLocal<T>(it) } }
+        db.entities().observeByType(roomId.toString(), type.wireName).map { rows -> rows.map { LocalStore.toLocal<T>(it) } }.offMain()
 
     fun observeTopics(roomId: UUID): Flow<List<Local<BoardTopic>>> = observe(roomId, EntityType.BoardTopic)
     fun observePosts(roomId: UUID): Flow<List<Local<BoardPost>>> = observe(roomId, EntityType.BoardPost)

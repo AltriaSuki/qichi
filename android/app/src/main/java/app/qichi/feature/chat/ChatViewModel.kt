@@ -49,6 +49,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -64,6 +65,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.plus
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.UUID
@@ -158,7 +160,8 @@ class ChatViewModel @AssistedInject constructor(
     private val documents: DocumentRepository,
 ) : ViewModel() {
 
-    val messages: Flow<PagingData<Local<Message>>> = chat.messages(roomId).cachedIn(viewModelScope)
+    // 解析消息 JSON 的那一步跟着缓存所在的协程跑：放在后台线程，不占界面线程（P17-01）
+    val messages: Flow<PagingData<Local<Message>>> = chat.messages(roomId).cachedIn(viewModelScope + Dispatchers.Default)
 
     val state: StateFlow<ChatState> = combine(
         rooms.observeRoom(roomId), rooms.observeMembers(roomId), network.isOnline, rooms.me, moods.observeMoods(roomId),
