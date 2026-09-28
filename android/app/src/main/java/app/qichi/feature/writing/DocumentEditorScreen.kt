@@ -157,7 +157,7 @@ fun DocumentEditorScreen(
     var showOutline by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
-    // 查找、替换（P19-04）
+    // 查找、替换（P20-04）
     var finding by rememberSaveable { mutableStateOf(false) }
     var replacing by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -284,7 +284,7 @@ fun DocumentEditorScreen(
         scope.launch { if (animate) scroll.animateScrollTo(target) else scroll.scrollTo(target) }
     }
 
-    // 回到上次写到的位置（P19-05）：第一次排好版后把光标放回去、滚到那一行
+    // 回到上次写到的位置（P20-05）：第一次排好版后把光标放回去、滚到那一行
     var restored by remember(documentId) { mutableStateOf(false) }
     LaunchedEffect(state.ready, layout == null) {
         if (restored || !state.ready || layout == null) return@LaunchedEffect
@@ -414,7 +414,7 @@ fun DocumentEditorScreen(
                     }
                 }
             }
-            // ── 查找、替换（P19-04） ──
+            // ── 查找、替换（P20-04） ──
             if (finding && !focus) {
                 FindBar(
                     query = query,
@@ -814,7 +814,7 @@ private fun FormatBar(
 /** 查找、替换的字最多几个 */
 private const val FIND_MAX = 100
 
-/** 查找条（P19-04）：要找的字、第几处 / 共几处、上一处、下一处、关掉；「查找替换」时下面多一行替换。 */
+/** 查找条（P20-04）：要找的字、第几处 / 共几处、上一处、下一处、关掉；「查找替换」时下面多一行替换。 */
 @Composable
 private fun FindBar(
     query: String,

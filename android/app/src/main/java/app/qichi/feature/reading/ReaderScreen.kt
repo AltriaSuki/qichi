@@ -159,7 +159,7 @@ fun ReaderScreen(
     val marked = vm.bookmarkAt(locator) != null
     SystemBarsVisible(chrome)
 
-    // 字号、行距、页边距、翻页方式（P19-01）；书的正文也跟着「大字」放大
+    // 字号、行距、页边距、翻页方式（P20-01）；书的正文也跟着「大字」放大
     val readingSettings by vm.settings.collectAsStateWithLifecycle()
     val paper = colors.paper.toArgb()
     val ink = colors.ink.toArgb()
@@ -582,7 +582,7 @@ private fun SystemBarsVisible(visible: Boolean) {
     DisposableEffect(controller) { onDispose { controller.show(WindowInsetsCompat.Type.systemBars()) } }
 }
 
-/** 书内阅读的字号、行距、页边距、翻页方式（P19-01），只影响这台手机。 */
+/** 书内阅读的字号、行距、页边距、翻页方式（P20-01），只影响这台手机。 */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ReadingSettingsSheet(settings: ReadingSettings, onChange: (ReadingSettings) -> Unit) {

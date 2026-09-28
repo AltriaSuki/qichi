@@ -27,7 +27,7 @@ interface WritingSettingsStore {
     val settings: Flow<WritingSettings>
     suspend fun set(settings: WritingSettings)
 
-    /** 上次在这篇文稿里写到哪（光标的字符位置，P19-05）；没记过为空 */
+    /** 上次在这篇文稿里写到哪（光标的字符位置，P20-05）；没记过为空 */
     suspend fun position(documentId: UUID): Int?
     suspend fun setPosition(documentId: UUID, offset: Int)
 }

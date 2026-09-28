@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 
 /**
- * 书内阅读的字号、行距、页边距、翻页方式（P19-01）：只存在这台手机上，两个人各自习惯不同。
+ * 书内阅读的字号、行距、页边距、翻页方式（P20-01）：只存在这台手机上，两个人各自习惯不同。
  * [fontScale] 乘在「大字」之上；[lineHeight] 为 0 表示照原书排版；[volumeKeys]：音量键翻页。
  */
 data class ReadingSettings(

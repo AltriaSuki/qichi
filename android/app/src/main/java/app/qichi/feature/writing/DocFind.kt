@@ -1,6 +1,6 @@
 package app.qichi.feature.writing
 
-/** 文稿里查找、替换（P19-04）：不分大小写，找到的不重叠。 */
+/** 文稿里查找、替换（P20-04）：不分大小写，找到的不重叠。 */
 internal object DocFind {
     /** [text] 里所有 [query] 的位置；[query] 为空时没有。 */
     fun matches(text: String, query: String): List<IntRange> {

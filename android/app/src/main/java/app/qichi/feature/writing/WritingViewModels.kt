@@ -283,7 +283,7 @@ class DocumentEditorViewModel @AssistedInject constructor(
     val urls: FileUrls,
     @ApplicationScope private val appScope: CoroutineScope,
 ) : ViewModel() {
-    /** 上次在这篇里写到哪（P19-05）；打开时回到那里 */
+    /** 上次在这篇里写到哪（P20-05）；打开时回到那里 */
     suspend fun lastPosition(): Int? = settingsStore.position(documentId)
 
     /** 离开编辑器时记下光标位置（应用级作用域：页面关掉后也要写完） */

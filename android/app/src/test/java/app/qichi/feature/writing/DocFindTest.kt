@@ -3,7 +3,7 @@ package app.qichi.feature.writing
 import org.junit.Test
 import kotlin.test.assertEquals
 
-/** 文稿里查找、替换（P19-04）。 */
+/** 文稿里查找、替换（P20-04）。 */
 class DocFindTest {
     @Test
     fun `找到的位置：不分大小写、不重叠，空的不找`() {

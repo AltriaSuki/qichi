@@ -5,7 +5,7 @@ import org.readium.r2.navigator.epub.EpubPreferences
 import org.readium.r2.navigator.preferences.Color as ReadiumColor
 
 /**
- * 本机阅读设置换成 Readium 的排版设置（P19-01）。字号乘在「大字」的 [appScale] 上；
+ * 本机阅读设置换成 Readium 的排版设置（P20-01）。字号乘在「大字」的 [appScale] 上；
  * 改了行距才不用原书的样式（Readium 的行距只在不用原书样式时生效），默认照原书排。
  */
 internal fun epubPreferences(settings: ReadingSettings, paper: Int, ink: Int, appScale: Float): EpubPreferences {

@@ -242,7 +242,7 @@ class ReaderViewModel @AssistedInject constructor(
     /** 最后一次存下的进度位置；离开时还没存的补存一次 */
     @Volatile private var savedLocator: Locator? = null
 
-    /** 本机的字号、行距、页边距、翻页方式（P19-01） */
+    /** 本机的字号、行距、页边距、翻页方式（P20-01） */
     val settings: StateFlow<ReadingSettings?> = settingsStore.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
