@@ -29,9 +29,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,6 +47,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.qichi.core.data.People
@@ -81,6 +80,7 @@ import app.qichi.core.designsystem.component.decor.WaxSeal
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
+import app.qichi.core.ui.DraftSheet
 import app.qichi.core.ui.MarkdownView
 import app.qichi.core.ui.relativeDay
 import app.qichi.core.ui.scrollToItemMotion
@@ -170,10 +170,10 @@ fun BoardListScreen(
     }
 
     if (creating) {
-        ModalBottomSheet(onDismissRequest = { creating = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = colors.background) {
-            var title by rememberSaveable { mutableStateOf("") }
-            var body by rememberSaveable { mutableStateOf("") }
+        var title by rememberSaveable { mutableStateOf("") }
+        var body by rememberSaveable { mutableStateOf("") }
+        // 写了字以后误滑、误点外面不直接丢掉
+        DraftSheet(dirty = title.isNotBlank() || body.isNotBlank(), onDismiss = { creating = false }) {
             Column(
                 Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().navigationBarsPadding()
                     .padding(horizontal = Spacing.page, vertical = Spacing.s),
@@ -341,6 +341,8 @@ fun TopicScreen(
         var text by rememberSaveable(post.id) { mutableStateOf(post.body) }
         AlertDialog(
             onDismissRequest = { revising = null },
+            // 改了字以后点外面不关，免得一碰就丢
+            properties = DialogProperties(dismissOnClickOutside = text == post.body),
             containerColor = colors.paper,
             title = { Text("修订", style = type.pageTitle.copy(color = colors.ink)) },
             text = { QichiTextField(text, { text = it.take(Limits.BOARD_POST_LENGTH.last) }, label = "留言", singleLine = false) },

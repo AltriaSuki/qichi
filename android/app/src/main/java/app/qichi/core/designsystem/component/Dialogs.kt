@@ -13,6 +13,7 @@ fun ConfirmDialog(
     confirmLabel: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    dismissLabel: String = "取消",
 ) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
@@ -22,6 +23,6 @@ fun ConfirmDialog(
         title = { Text(title, style = type.pageTitle.copy(color = colors.ink)) },
         text = { Text(text, style = type.body.copy(color = colors.muted)) },
         confirmButton = { TextAction(confirmLabel, onClick = { onConfirm(); onDismiss() }) },
-        dismissButton = { TextAction("取消", onClick = onDismiss, color = colors.muted) },
+        dismissButton = { TextAction(dismissLabel, onClick = onDismiss, color = colors.muted) },
     )
 }

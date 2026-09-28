@@ -26,7 +26,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.qichi.core.data.People
-import app.qichi.core.sync.Local
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
 import app.qichi.core.designsystem.component.PersonMark
@@ -35,6 +34,8 @@ import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.tsp
+import app.qichi.core.sync.Local
+import app.qichi.core.ui.DraftSheet
 import app.qichi.core.ui.Markdown
 import app.qichi.core.ui.relativeDay
 import app.qichi.shared.api.DocComment
@@ -160,7 +161,7 @@ internal fun NewCommentSheet(quote: String, onSubmit: (String) -> Unit, onDismis
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     var body by remember { mutableStateOf("") }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = colors.background) {
+    DraftSheet(dirty = body.isNotBlank(), onDismiss = onDismiss) {
         Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = Spacing.page).padding(bottom = Spacing.xl)) {
             SectionLabel("给这一段留言")
             Text("“$quote”", style = type.caption.copy(color = colors.muted), maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(vertical = Spacing.xs))

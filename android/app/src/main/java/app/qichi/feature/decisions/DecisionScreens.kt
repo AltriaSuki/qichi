@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -22,6 +23,8 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,9 +32,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -79,6 +80,7 @@ import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.DateChoice
+import app.qichi.core.ui.DraftSheet
 import app.qichi.core.ui.dotDate
 import app.qichi.core.ui.relativeDay
 import app.qichi.shared.api.Decision
@@ -86,9 +88,6 @@ import app.qichi.shared.rules.Limits
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.UUID
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.layout.PaddingValues
 
 private fun reviewText(d: Decision, today: LocalDate): String? = d.reviewDate?.let {
     if (!it.isAfter(today)) "该复查了" else "复查 ${relativeDay(it, today).first}"
@@ -136,11 +135,11 @@ fun DecisionListScreen(
     }
 
     if (creating) {
-        ModalBottomSheet(onDismissRequest = { creating = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = colors.background) {
-            var question by rememberSaveable { mutableStateOf("") }
-            var options by rememberSaveable { mutableStateOf("") }
-            var review by remember { mutableStateOf<LocalDate?>(null) }
+        var question by rememberSaveable { mutableStateOf("") }
+        var options by rememberSaveable { mutableStateOf("") }
+        var review by remember { mutableStateOf<LocalDate?>(null) }
+        // 写了字以后误滑、误点外面不直接丢掉
+        DraftSheet(dirty = question.isNotBlank() || options.isNotBlank(), onDismiss = { creating = false }) {
             Column(
                 Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).imePadding().navigationBarsPadding()
                     .padding(horizontal = Spacing.page, vertical = Spacing.s),
