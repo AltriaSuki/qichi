@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -138,6 +139,7 @@ fun MeScreen(
                 .padding(horizontal = Spacing.page),
             verticalArrangement = Arrangement.spacedBy(Spacing.ml),
         ) {
+            SearchEntry(onClick = { onOpen(Page.Search) })
             MeSection("内容", listOf(Page.MyContent to null, Page.AiUsage to null), onOpen)
             MeSection(
                 "房间",
@@ -200,6 +202,27 @@ private fun Page.meTile(): Pair<ImageVector, FeatureTone> = when (this) {
     Page.Notifications -> QichiIcons.Mail to FeatureTone.Accent
     Page.Security -> QichiIcons.Lock to FeatureTone.Muted
     else -> QichiIcons.Spark to FeatureTone.Muted
+}
+
+/** 顶上的搜索框（P16-06）：点了进搜索页再输入。 */
+@Composable
+private fun SearchEntry(onClick: () -> Unit) {
+    val colors = QichiTheme.colors
+    Row(
+        Modifier
+            .padding(top = Spacing.xs)
+            .fillMaxWidth()
+            .heightIn(min = app.qichi.core.designsystem.Sizes.touchTarget)
+            .clip(app.qichi.core.designsystem.QichiShapes.pill)
+            .background(colors.surface)
+            .clickable(role = Role.Button, onClickLabel = "搜索全部内容", onClick = onClick)
+            .padding(horizontal = Spacing.m),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+    ) {
+        Icon(QichiIcons.Search, contentDescription = null, tint = colors.muted)
+        Text("搜索聊天、待办、日程、计划……", style = QichiTheme.typography.body.copy(color = colors.faint))
+    }
 }
 
 @Composable

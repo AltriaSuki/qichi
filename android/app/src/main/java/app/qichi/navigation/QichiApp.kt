@@ -278,6 +278,14 @@ fun QichiApp(
                     mePage = { entry ->
                         val route = entry.toRoute<MePage>()
                         when (route.page) {
+                            Page.Search -> {
+                                val searchRoom = LocalRoomId.current
+                                app.qichi.feature.me.SearchScreen(roomId = searchRoom, onBack = navigator::back, onOpen = { hit ->
+                                    // 留言打开主题后滚到那一条；其它和 AI 引用的来源一样跳过去
+                                    val post = hit.focusId
+                                    if (post != null) navigator.open(Page.Board, "${hit.source.id}:$post") else navigator.openSource(searchRoom, hit.source)
+                                })
+                            }
                             Page.Members -> MembersScreen(roomId = LocalRoomId.current, onBack = navigator::back)
                             Page.Profile -> ProfileScreen(onBack = navigator::back)
                             Page.Display -> DisplayScreen(onBack = navigator::back)
