@@ -12,6 +12,7 @@ import app.qichi.shared.api.Patch
 import app.qichi.shared.api.UpdateEventRequest
 import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.wireName
+import app.qichi.shared.rules.Limits
 import app.qichi.shared.util.UuidV7
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -47,7 +48,7 @@ class EventRepository(
             id = UuidV7.generate(), roomId = roomId, seq = 0, createdAt = now, updatedAt = now, deletedAt = null, deletedBy = null,
             title = draft.title.trim(), note = draft.note.trim().ifEmpty { null }, location = draft.location.trim().ifEmpty { null },
             allDay = draft.allDay, startsAt = draft.startsAt, endsAt = draft.endsAt, startDate = draft.startDate, endDate = draft.endDate,
-            participantIds = draft.participantIds, createdBy = me, icsUid = null,
+            participantIds = draft.participantIds, createdBy = me, icsUid = null, remindMinutes = draft.remindMinutes,
         )
         store.writeLocal(
             roomId, event,
@@ -55,7 +56,7 @@ class EventRepository(
                 "rooms/$roomId/events",
                 CreateEventRequest(
                     event.id, event.title, event.allDay, event.note, event.location,
-                    event.startsAt, event.endsAt, event.startDate, event.endDate, event.participantIds,
+                    event.startsAt, event.endsAt, event.startDate, event.endDate, event.participantIds, event.remindMinutes,
                 ),
             ),
         )
@@ -68,7 +69,7 @@ class EventRepository(
         val updated = event.copy(
             title = draft.title.trim(), note = draft.note.trim().ifEmpty { null }, location = draft.location.trim().ifEmpty { null },
             allDay = draft.allDay, startsAt = draft.startsAt, endsAt = draft.endsAt, startDate = draft.startDate, endDate = draft.endDate,
-            participantIds = draft.participantIds, updatedAt = clock.instant(),
+            participantIds = draft.participantIds, remindMinutes = draft.remindMinutes, updatedAt = clock.instant(),
         )
         val change = UpdateEventRequest(
             title = if (updated.title != event.title) Patch.of(updated.title) else Patch.Absent,
@@ -80,6 +81,7 @@ class EventRepository(
             startDate = Patch.of(updated.startDate),
             endDate = Patch.of(updated.endDate),
             participantIds = if (updated.participantIds != event.participantIds) Patch.of(updated.participantIds) else Patch.Absent,
+            remindMinutes = if (updated.remindMinutes != event.remindMinutes) Patch.of(updated.remindMinutes) else Patch.Absent,
         )
         store.writeLocal(event.roomId, updated, OutboxOp.patch("rooms/${event.roomId}/events/${event.id}", change))
         scheduler.kickOutbox()
@@ -103,6 +105,8 @@ data class EventDraft(
     val location: String = "",
     val note: String = "",
     val participantIds: List<UUID> = emptyList(),
+    /** 提前多久提醒（分钟），null = 不提醒（P16-01） */
+    val remindMinutes: Int? = Limits.EVENT_REMIND_DEFAULT,
 )
 
 /** 日程覆盖房间时区里的哪些日子（跨天的日程在每一天都出现）。 */

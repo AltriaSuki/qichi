@@ -36,6 +36,7 @@ import java.util.UUID
 object PushNotifier {
     private const val CHANNEL_CHAT = "chat"
     private const val CHANNEL_ROOM = "room"
+    private const val CHANNEL_REMIND = "remind"
     private const val HISTORY = "qichi-push-history"
     private const val HISTORY_MAX = 10
 
@@ -192,6 +193,25 @@ object PushNotifier {
         notify(context, p.tag, builder)
     }
 
+    // ── 到点提醒（P16-01）──
+
+    /** 日程、待办到点：走「提醒」渠道（会弹横幅），同一件事只留一条。 */
+    fun showReminder(context: Context, key: String, title: String, text: String, link: String) {
+        if (!canNotify(context)) return
+        ensureChannels(context)
+        val tag = "remind:$key"
+        val builder = NotificationCompat.Builder(context, CHANNEL_REMIND)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setContentIntent(open(context, tag, link))
+            .setAutoCancel(true)
+            .setCategory(if (key.startsWith("event:")) NotificationCompat.CATEGORY_EVENT else NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+        notify(context, tag, builder)
+    }
+
     private fun open(context: Context, tag: String, link: String): PendingIntent {
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link), context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -237,6 +257,13 @@ object PushNotifier {
             manager.createNotificationChannel(
                 NotificationChannel(CHANNEL_ROOM, "房间动态", NotificationManager.IMPORTANCE_DEFAULT).apply {
                     description = "对方记下心情、加了待办和日程、写了留言等"
+                },
+            )
+        }
+        if (manager.getNotificationChannel(CHANNEL_REMIND) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(CHANNEL_REMIND, "提醒", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "日程快开始了、待办到时间了"
                 },
             )
         }

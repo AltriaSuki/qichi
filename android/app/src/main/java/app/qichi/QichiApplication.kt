@@ -20,6 +20,7 @@ import app.qichi.core.network.NetworkMonitor
 import app.qichi.core.push.BackgroundConnectionService
 import app.qichi.core.push.PushNotifier
 import app.qichi.core.push.PushRegistrar
+import app.qichi.core.reminder.ReminderScheduler
 import app.qichi.core.sync.RealtimeClient
 import app.qichi.core.sync.SyncEngine
 import app.qichi.core.sync.SyncScheduler
@@ -54,6 +55,7 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
     @Inject lateinit var updater: app.qichi.core.update.AppUpdater
     @Inject lateinit var unknownContent: app.qichi.core.sync.UnknownContent
     @Inject lateinit var todoWidget: TodoWidgetUpdater
+    @Inject lateinit var reminders: ReminderScheduler
     @Inject @ApplicationScope lateinit var appScope: CoroutineScope
 
     override val workManagerConfiguration: Configuration
@@ -134,6 +136,8 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
 
         // 桌面待办组件：本机的待办一变（自己改的、同步来的）就跟着刷新（P15-02）
         todoWidget.start(appScope)
+        // 到点提醒：本机的日程、待办一变就重排系统闹钟（P16-01）
+        reminders.start(appScope)
     }
 
     private fun onForegroundLoggedIn() {
