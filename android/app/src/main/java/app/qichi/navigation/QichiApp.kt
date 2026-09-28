@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -169,9 +170,19 @@ fun QichiApp(
                         val counts by hub.counts.collectAsStateWithLifecycle()
                         val hubPeople by hub.people.collectAsStateWithLifecycle()
                         val recent by hub.recent.collectAsStateWithLifecycle()
+                        val hubOrder by hub.order.collectAsStateWithLifecycle()
                         TogetherHubScreen(
-                            group = group, onGroupChange = { group = it }, onOpen = { navigator.open(it) }, counts = counts,
+                            group = group, onGroupChange = { group = it },
+                            onOpen = { hub.recordOpen(it); navigator.open(it) }, counts = counts,
                             people = hubPeople, recent = recent, onOpenItem = { page, id -> navigator.open(page, id) }, onAddIdea = hub::addIdea,
+                            pages = hubOrder[group] ?: Page.inGroup(group),
+                            arranging = remember(hub, group) {
+                                app.qichi.feature.together.HubArranging(
+                                    onMove = { page, delta -> hub.move(group, page, delta) },
+                                    onSortByUsage = { hub.sortByUsage(group) },
+                                    onReset = { hub.resetOrder(group) },
+                                )
+                            },
                         )
                     },
                     meHome = { MeScreen(roomId = LocalRoomId.current, onOpen = { navigator.open(it) }) },

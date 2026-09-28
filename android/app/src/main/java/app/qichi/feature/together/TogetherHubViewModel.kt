@@ -8,6 +8,7 @@ import app.qichi.core.data.BoardRepository
 import app.qichi.core.data.DecisionRepository
 import app.qichi.core.data.DocumentRepository
 import app.qichi.core.data.EventRepository
+import app.qichi.core.data.HubOrderStore
 import app.qichi.core.data.IdeaRepository
 import app.qichi.core.data.MoodRepository
 import app.qichi.core.data.People
@@ -20,6 +21,7 @@ import app.qichi.core.data.SummaryRepository
 import app.qichi.core.data.TodoRepository
 import app.qichi.core.ui.zoneOf
 import app.qichi.navigation.Page
+import app.qichi.navigation.TogetherGroup
 import app.qichi.shared.api.BoardTopic
 import app.qichi.shared.api.Document
 import app.qichi.shared.api.ReadingProgress
@@ -62,7 +64,29 @@ class TogetherHubViewModel @AssistedInject constructor(
     summaries: SummaryRepository,
     reading: ReadingRepository,
     session: SessionManager,
+    private val hubOrder: HubOrderStore,
 ) : ViewModel() {
+    /** 每组功能的先后（P16-09）：自己排过的按自己的，没排过的按默认，新加的功能排在最后 */
+    val order: StateFlow<Map<TogetherGroup, List<Page>>> = hubOrder.order.map { o ->
+        TogetherGroup.entries.associateWith { g ->
+            val defaults = Page.inGroup(g)
+            arrange(defaults.map { it.slug }, o.orders[g.name]).mapNotNull { slug -> defaults.firstOrNull { it.slug == slug } }
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, TogetherGroup.entries.associateWith { Page.inGroup(it) })
+
+    /** 从「一起」点开一个功能：记一次，「按我最常用的排」用 */
+    fun recordOpen(page: Page) = hubOrder.recordUse(page.slug)
+
+    fun move(group: TogetherGroup, page: Page, delta: Int) =
+        hubOrder.setOrder(group.name, app.qichi.feature.together.move(slugs(group), page.slug, delta))
+
+    fun sortByUsage(group: TogetherGroup) =
+        hubOrder.setOrder(group.name, byUsage(slugs(group), hubOrder.order.value.uses))
+
+    fun resetOrder(group: TogetherGroup) = hubOrder.resetOrder(group.name)
+
+    private fun slugs(group: TogetherGroup): List<String> = order.value[group].orEmpty().map { it.slug }
+
     private val _saved = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     /** 记下了一条：界面给一句轻提示 */
     val saved: SharedFlow<Unit> = _saved
