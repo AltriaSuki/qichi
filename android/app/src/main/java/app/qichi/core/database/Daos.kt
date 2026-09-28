@@ -8,6 +8,7 @@ import androidx.room.Query
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
+/** 除聊天以外的实体（entities 表）。调用方经 [Entities] 用，不直接用它。 */
 @Dao
 interface EntityDao {
     @Query("SELECT * FROM entities WHERE type = :type AND id = :id")
@@ -32,13 +33,6 @@ interface EntityDao {
     @Query("SELECT * FROM entities WHERE roomId = :roomId AND type = :type AND deleted = 0 ORDER BY sortTime, localTime")
     fun observeByType(roomId: String, type: String): Flow<List<EntityRow>>
 
-    /** 房间里的图片消息（时间线选照片用；先按 JSON 粗筛，调用方再解开确认）。 */
-    @Query(
-        """SELECT * FROM entities WHERE roomId = :roomId AND type = 'message' AND deleted = 0
-           AND json LIKE '%"kind":"image"%' ORDER BY sortTime DESC""",
-    )
-    fun observeImageMessages(roomId: String): Flow<List<EntityRow>>
-
     /** 包括回收站里的。 */
     @Query("SELECT * FROM entities WHERE roomId = :roomId AND type = :type ORDER BY sortTime, localTime")
     fun observeAllByType(roomId: String, type: String): Flow<List<EntityRow>>
@@ -61,52 +55,6 @@ interface EntityDao {
     @Query("SELECT * FROM entities WHERE roomId = :roomId AND type = :type AND parentId = :parentId AND deleted = 0 ORDER BY sortTime, localTime")
     fun observeChildren(roomId: String, type: String, parentId: String): Flow<List<EntityRow>>
 
-    /**
-     * 聊天列表（倒序，最新在前）：待发送的消息排在最前（按本机时间），其余按 createdSeq。
-     * 回收站里的消息不显示；撤回的仍显示（显示为「谁撤回了一条消息」）。
-     */
-    @Query(
-        """SELECT * FROM entities WHERE roomId = :roomId AND type = 'message' AND deleted = 0
-           AND (sortSeq IS NULL OR sortSeq >= COALESCE((SELECT floorSeq FROM chat_history WHERE roomId = :roomId), 0))
-           ORDER BY (sortSeq IS NULL) DESC, sortSeq DESC, localTime DESC""",
-    )
-    fun messagesPaging(roomId: String): PagingSource<Int, EntityRow>
-
-    /** 列表最下面那条（最新的，含待发送的）：用来判断有没有新消息，不受分页窗口影响。 */
-    @Query(
-        """SELECT * FROM entities WHERE roomId = :roomId AND type = 'message' AND deleted = 0
-           ORDER BY (sortSeq IS NULL) DESC, sortSeq DESC, localTime DESC LIMIT 1""",
-    )
-    fun observeNewestMessage(roomId: String): Flow<EntityRow?>
-
-    /** 列表里排在这条之前（更新）的消息数，即它在倒序列表里的位置。待发送的消息都算更新。 */
-    @Query(
-        """SELECT COUNT(*) FROM entities WHERE roomId = :roomId AND type = 'message' AND deleted = 0
-           AND (sortSeq IS NULL OR sortSeq > :createdSeq)""",
-    )
-    suspend fun countNewerMessages(roomId: String, createdSeq: Long): Int
-
-    @Query("SELECT MIN(sortSeq) FROM entities WHERE roomId = :roomId AND type = 'message' AND sortSeq IS NOT NULL")
-    suspend fun oldestMessageSeq(roomId: String): Long?
-
-    /** 对方发的、createdSeq 大于我的已读位置、未删除的消息条数。 */
-    @Query(
-        """SELECT COUNT(*) FROM entities WHERE roomId = :roomId AND type = 'message' AND deleted = 0
-           AND sortSeq > :lastReadSeq AND ownerId IS NOT NULL AND ownerId != :myUserId""",
-    )
-    fun observeUnread(roomId: String, myUserId: String, lastReadSeq: Long): Flow<Int>
-
-    /** 某人在房间里的未读位置（本机可能暂时有两行：待发送的与服务端的，取最大）。 */
-    @Query("SELECT * FROM entities WHERE roomId = :roomId AND type = 'read_marker' AND ownerId = :userId")
-    fun observeReadMarkers(roomId: String, userId: String): Flow<List<EntityRow>>
-
-    @Query("SELECT * FROM entities WHERE roomId = :roomId AND type = 'read_marker' AND ownerId = :userId")
-    suspend fun readMarkers(roomId: String, userId: String): List<EntityRow>
-
-    /** 已同步的最新一条消息的 createdSeq。 */
-    @Query("SELECT MAX(sortSeq) FROM entities WHERE roomId = :roomId AND type = 'message'")
-    fun observeNewestMessageSeq(roomId: String): Flow<Long?>
-
     /** 回收站里的实体（给「我的 → 回收站」）。 */
     @Query("SELECT * FROM entities WHERE roomId = :roomId AND deleted = 1 AND type IN (:types)")
     fun observeDeleted(roomId: String, types: List<String>): Flow<List<EntityRow>>
@@ -115,6 +63,114 @@ interface EntityDao {
     suspend fun children(roomId: String, type: String, parentId: String): List<EntityRow>
 
     @Query("DELETE FROM entities")
+    suspend fun clear()
+}
+
+/**
+ * 聊天的实体（chat_entities 表：消息、未读位置，P17-03）。读出来直接是 [EntityRow]（两张表的列一样），
+ * 写进去用 [ChatEntityRow]。调用方经 [Entities] 用。
+ */
+@Dao
+interface ChatEntityDao {
+    @Query("SELECT * FROM chat_entities WHERE type = :type AND id = :id")
+    suspend fun get(type: String, id: String): EntityRow?
+
+    @Query("SELECT * FROM chat_entities WHERE type = :type AND id = :id")
+    fun observe(type: String, id: String): Flow<EntityRow?>
+
+    @Upsert
+    suspend fun upsert(row: ChatEntityRow)
+
+    @Upsert
+    suspend fun upsertAll(rows: List<ChatEntityRow>)
+
+    @Query("DELETE FROM chat_entities WHERE type = :type AND id = :id")
+    suspend fun delete(type: String, id: String)
+
+    @Query("UPDATE chat_entities SET syncState = :state WHERE type = :type AND id = :id")
+    suspend fun setState(type: String, id: String, state: SyncState)
+
+    @Query("SELECT * FROM chat_entities WHERE roomId = :roomId AND type = :type AND deleted = 0 ORDER BY sortTime, localTime")
+    fun observeByType(roomId: String, type: String): Flow<List<EntityRow>>
+
+    @Query("SELECT * FROM chat_entities WHERE roomId = :roomId AND type = :type ORDER BY sortTime, localTime")
+    fun observeAllByType(roomId: String, type: String): Flow<List<EntityRow>>
+
+    @Query("SELECT * FROM chat_entities WHERE roomId = :roomId AND type = :type AND deleted = 0 ORDER BY sortTime, localTime")
+    suspend fun listByType(roomId: String, type: String): List<EntityRow>
+
+    @Query("SELECT type, COUNT(*) AS count FROM chat_entities WHERE roomId = :roomId AND ownerId = :ownerId AND deleted = 0 AND type IN (:types) GROUP BY type")
+    fun observeCountsByOwner(roomId: String, ownerId: String, types: List<String>): Flow<List<TypeCount>>
+
+    @Query("SELECT * FROM chat_entities WHERE roomId = :roomId AND ownerId = :ownerId AND deleted = 0 AND type IN (:types) ORDER BY sortTime DESC LIMIT :limit")
+    fun observeRecentByOwner(roomId: String, ownerId: String, types: List<String>, limit: Int): Flow<List<EntityRow>>
+
+    @Query("SELECT * FROM chat_entities WHERE type = :type AND parentId = :parentId")
+    suspend fun byParent(type: String, parentId: String): List<EntityRow>
+
+    @Query("SELECT * FROM chat_entities WHERE roomId = :roomId AND type = :type AND parentId = :parentId AND deleted = 0 ORDER BY sortTime, localTime")
+    fun observeChildren(roomId: String, type: String, parentId: String): Flow<List<EntityRow>>
+
+    @Query("SELECT * FROM chat_entities WHERE roomId = :roomId AND type = :type AND parentId = :parentId")
+    suspend fun children(roomId: String, type: String, parentId: String): List<EntityRow>
+
+    @Query("SELECT * FROM chat_entities WHERE roomId = :roomId AND deleted = 1 AND type IN (:types)")
+    fun observeDeleted(roomId: String, types: List<String>): Flow<List<EntityRow>>
+
+    /** 房间里的图片消息（时间线选照片用，按 tag 列查；调用方再解开确认，P17-04）。 */
+    @Query(
+        """SELECT * FROM chat_entities WHERE roomId = :roomId AND type = 'message' AND tag = 'image' AND deleted = 0
+           ORDER BY sortTime DESC""",
+    )
+    fun observeImageMessages(roomId: String): Flow<List<EntityRow>>
+
+    /**
+     * 聊天列表（倒序，最新在前）：待发送的消息排在最前（按本机时间），其余按 createdSeq。
+     * 回收站里的消息不显示；撤回的仍显示（显示为「谁撤回了一条消息」）。
+     */
+    @Query(
+        """SELECT * FROM chat_entities WHERE roomId = :roomId AND type = 'message' AND deleted = 0
+           AND (sortSeq IS NULL OR sortSeq >= COALESCE((SELECT floorSeq FROM chat_history WHERE roomId = :roomId), 0))
+           ORDER BY (sortSeq IS NULL) DESC, sortSeq DESC, localTime DESC""",
+    )
+    fun messagesPaging(roomId: String): PagingSource<Int, EntityRow>
+
+    /** 列表最下面那条（最新的，含待发送的）：用来判断有没有新消息，不受分页窗口影响。 */
+    @Query(
+        """SELECT * FROM chat_entities WHERE roomId = :roomId AND type = 'message' AND deleted = 0
+           ORDER BY (sortSeq IS NULL) DESC, sortSeq DESC, localTime DESC LIMIT 1""",
+    )
+    fun observeNewestMessage(roomId: String): Flow<EntityRow?>
+
+    /** 列表里排在这条之前（更新）的消息数，即它在倒序列表里的位置。待发送的消息都算更新。 */
+    @Query(
+        """SELECT COUNT(*) FROM chat_entities WHERE roomId = :roomId AND type = 'message' AND deleted = 0
+           AND (sortSeq IS NULL OR sortSeq > :createdSeq)""",
+    )
+    suspend fun countNewerMessages(roomId: String, createdSeq: Long): Int
+
+    @Query("SELECT MIN(sortSeq) FROM chat_entities WHERE roomId = :roomId AND type = 'message' AND sortSeq IS NOT NULL")
+    suspend fun oldestMessageSeq(roomId: String): Long?
+
+    /** 对方发的、createdSeq 大于我的已读位置、未删除的消息条数。 */
+    @Query(
+        """SELECT COUNT(*) FROM chat_entities WHERE roomId = :roomId AND type = 'message' AND deleted = 0
+           AND sortSeq > :lastReadSeq AND ownerId IS NOT NULL AND ownerId != :myUserId""",
+    )
+    fun observeUnread(roomId: String, myUserId: String, lastReadSeq: Long): Flow<Int>
+
+    /** 某人在房间里的未读位置（本机可能暂时有两行：待发送的与服务端的，取最大）。 */
+    @Query("SELECT * FROM chat_entities WHERE roomId = :roomId AND type = 'read_marker' AND ownerId = :userId")
+    fun observeReadMarkers(roomId: String, userId: String): Flow<List<EntityRow>>
+
+    @Query("SELECT * FROM chat_entities WHERE roomId = :roomId AND type = 'read_marker' AND ownerId = :userId")
+    suspend fun readMarkers(roomId: String, userId: String): List<EntityRow>
+
+    /** 已同步的最新一条消息的 createdSeq。 */
+    @Query("SELECT MAX(sortSeq) FROM chat_entities WHERE roomId = :roomId AND type = 'message'")
+    fun observeNewestMessageSeq(roomId: String): Flow<Long?>
+
+    @Query("DELETE FROM chat_entities")
     suspend fun clear()
 }
 

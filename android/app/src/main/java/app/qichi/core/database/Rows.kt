@@ -57,7 +57,46 @@ data class EntityRow(
     val localTime: Long,
     val json: String,
     val serverJson: String?,
+    /** 按内容再分一层、要单独查的（P17-04）：图片消息是 image，其余为空。版本 4 之前存下的消息按原文粗筛过，调用方解开后再确认。 */
+    val tag: String? = null,
 )
+
+/**
+ * 聊天的实体（消息、未读位置）单独一张表（P17-03），列和 [EntityRow] 一样。
+ * Room 按整张表通知变化：分开以后收一条消息、推进一次未读位置，今天页、待办等页面不用重读；
+ * 改待办、心情也不会让聊天列表重新加载。按类型分到哪张表由 [Entities] 决定，调用方不用管。
+ */
+@Entity(
+    tableName = "chat_entities",
+    primaryKeys = ["type", "id"],
+    indices = [
+        Index("roomId", "type", "sortSeq"),
+        Index("roomId", "type", "tag"),
+        Index("roomId", "type", "ownerId"),
+    ],
+)
+data class ChatEntityRow(
+    val type: String,
+    val id: String,
+    val roomId: String,
+    val seq: Long?,
+    val syncState: SyncState,
+    val deleted: Boolean,
+    val ownerId: String?,
+    val parentId: String?,
+    val sortSeq: Long?,
+    val sortTime: Long?,
+    val localTime: Long,
+    val json: String,
+    val serverJson: String?,
+    val tag: String?,
+) {
+    companion object {
+        fun of(r: EntityRow) = ChatEntityRow(
+            r.type, r.id, r.roomId, r.seq, r.syncState, r.deleted, r.ownerId, r.parentId, r.sortSeq, r.sortTime, r.localTime, r.json, r.serverJson, r.tag,
+        )
+    }
+}
 
 /** 每个房间同步到的位置。 */
 @Entity(tableName = "sync_state")
