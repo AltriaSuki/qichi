@@ -64,7 +64,7 @@
 | `rooms` 增加列 | `ics_token`（只读订阅链接用的随机令牌，可重置） |
 | `ideas` | 灵感：`author_id`、`body` |
 | `jobs` | 任务队列：`kind`、`payload` jsonb、`status`（queued / running / done / failed）、`run_at`、`attempts`、`last_error`、`locked_at`。做完 7 天、失败 30 天后每天清掉（P13-18） |
-| `ai_jobs` | AI 调用记录：`room_id`、`requested_by`、`kind`（chat_answer / question_suggest / read_explain / review_findings / summary / yearly_review）、`status`、`model`、`input_tokens`、`output_tokens`、`result_ref`（结果写到了哪个实体）、`error`、时间戳 |
+| `ai_jobs` | AI 调用记录：`room_id`、`requested_by`、`kind`（chat_answer / question_suggest / read_explain / review_findings / summary / yearly_review）、`status`、`model`、`input_tokens`、`output_tokens`、`result_ref`（结果写到了哪个实体）、`error`、`fail_reason`（失败的种类，P16-08）、时间戳 |
 
 ### 第 5 阶段：共同写作、留言
 

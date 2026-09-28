@@ -90,7 +90,7 @@
 1. 客户端 `POST …/ai/{kind}`，带 `jobId`（客户端生成）和参数 → 服务端立即返回 **202** `{jobId, status:"queued"}`
 2. 服务端在后台调用大模型，结果写进对应实体（例如一条 `kind = "ai"` 的消息、一批待采纳的问题、一份总结）；问 AI 边生成边经 `ai.delta` 推送进度。等待上限按功能分开：问 AI 3 分钟，其它 2 分钟
 3. 通过 WebSocket 发 `ai.done`，并照常产生 `changed`；客户端拉取同步即可看到结果
-4. 失败时 `ai_jobs.status = failed`，客户端在原位置显示「没有得到回答，重试」
+4. 失败时 `ai_jobs.status = failed`，`fail_reason` 记下种类（quota 额度用完 / unreachable 连不上 / provider 服务商报错 / too_long 太长 / other），`ai.done` 带 `reason`；客户端在原位置说清原因，能重试的给「重试」（额度用完、太长不给，P16-08）
 
 AI 请求**不进离线发件箱**；离线时按钮置灰。
 

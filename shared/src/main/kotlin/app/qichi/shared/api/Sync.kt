@@ -135,7 +135,13 @@ sealed interface WsEvent {
     /** 第 4 阶段启用 */
     @Serializable
     @SerialName("ai.done")
-    data class AiDone(val roomId: Id, val jobId: Id, val status: String) : WsEvent
+    data class AiDone(
+        val roomId: Id,
+        val jobId: Id,
+        val status: String,
+        /** 失败时为什么（AiFailReason 的 wireName，P16-08）；其它情况、旧服务端为空 */
+        val reason: String? = null,
+    ) : WsEvent
 
     /**
      * 内置通知：和经 ntfy 发的推送内容一样，只发给要通知的那个人，

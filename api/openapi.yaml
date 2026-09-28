@@ -3439,6 +3439,13 @@ components:
         roomId: { $ref: '#/components/schemas/Uuid' }
         jobId: { $ref: '#/components/schemas/Uuid' }
         status: { type: string, enum: [done, failed] }
+        reason: { oneOf: [{ $ref: '#/components/schemas/AiFailReason' }, { type: 'null' }], description: 失败时为什么（P16-08）；其它情况为空 }
+    AiFailReason:
+      type: string
+      description: |
+        AI 任务失败的种类（P16-08）：quota 额度用完（本服务每月的额度或服务商那边的余额）、unreachable 连不上 AI 服务、
+        provider AI 服务报错或没给出回答、too_long 问题连同资料太长、other 其它。以后可能加新值，不认识的当 other。
+      enum: [quota, unreachable, provider, too_long, other]
     WsAiDelta:
       type: object
       description: |
@@ -4873,6 +4880,7 @@ components:
         createdAt: { $ref: '#/components/schemas/Instant' }
         finishedAt: { $ref: '#/components/schemas/NullableInstant' }
         resultText: { type: [string, 'null'], description: 写作助手（write_assist）的结果文字，只给发起的人看；其它情况为空（P9-04） }
+        failReason: { oneOf: [{ $ref: '#/components/schemas/AiFailReason' }, { type: 'null' }], description: 失败的种类（P16-08）；没失败时为空 }
     AiUsage:
       type: object
       required: [month, jobs, myInputTokens, myOutputTokens, monthUsedTokens, monthLimitTokens]

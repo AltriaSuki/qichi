@@ -557,6 +557,8 @@ object AiJobs : Table("ai_jobs") {
     val resultRef = text("result_ref").nullable()
     val resultText = text("result_text").nullable()
     val error = text("error").nullable()
+    /** 失败的种类（AiFailReason，P16-08） */
+    val failReason = text("fail_reason").nullable()
     val createdAt = timestamp("created_at")
     val updatedAt = timestamp("updated_at")
     val finishedAt = timestamp("finished_at").nullable()

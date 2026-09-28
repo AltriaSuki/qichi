@@ -262,6 +262,20 @@ enum class AiJobStatus {
     @SerialName("failed") Failed,
 }
 
+/**
+ * AI 任务为什么失败（P16-08）。接口里是字符串（AiJob.failReason、ai.done 的 reason），旧版不认识的值当 [Other]。
+ * quota：额度用完（本服务每月的额度，或服务商那边的余额）；unreachable：连不上 AI 服务；
+ * provider：AI 服务报错或没给出回答；too_long：问题（连同带上的资料）太长；other：其它。
+ */
+@Serializable
+enum class AiFailReason {
+    @SerialName("quota") Quota,
+    @SerialName("unreachable") Unreachable,
+    @SerialName("provider") Provider,
+    @SerialName("too_long") TooLong,
+    @SerialName("other") Other,
+}
+
 @Serializable
 enum class QuestionSource {
     @SerialName("ai") Ai,
