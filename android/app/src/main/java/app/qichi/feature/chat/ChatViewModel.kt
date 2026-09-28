@@ -481,7 +481,7 @@ class ChatViewModel @AssistedInject constructor(
 
     /** AI 的回答存成灵感（P14-04）：去掉来源编号，超长截到上限。 */
     fun saveAnswerAsIdea(m: Message) = viewModelScope.launch {
-        val idea = ideas.add(roomId, plainAiAnswer(m.body))
+        val idea = ideas.add(roomId, plainAiAnswer(m.body, markdown = false))
         _events.tryEmit(ChatEvent.Toast(if (idea != null) "存成灵感了" else "这条没有能存的内容"))
     }
 
