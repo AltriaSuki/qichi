@@ -117,3 +117,7 @@ data class UpdateMeRequest(
     /** 整套替换常用提示词（P14-05） */
     @EncodeDefault(EncodeDefault.Mode.NEVER) val readingPrompts: Patch<List<ReadingPrompt>> = Patch.Absent,
 )
+
+/** 注销账号（P16-07）：要输入当前密码确认。 */
+@Serializable
+data class DeleteAccountRequest(val password: String)

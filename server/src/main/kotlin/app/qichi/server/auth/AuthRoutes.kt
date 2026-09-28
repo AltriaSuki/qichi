@@ -5,6 +5,7 @@ import app.qichi.server.plugins.AUTH_JWT
 import app.qichi.server.plugins.clientIp
 import app.qichi.server.plugins.user
 import app.qichi.shared.api.ChangePasswordRequest
+import app.qichi.shared.api.DeleteAccountRequest
 import app.qichi.shared.api.LoginRequest
 import app.qichi.shared.api.RefreshRequest
 import app.qichi.shared.api.RegisterRequest
@@ -52,6 +53,12 @@ fun Route.authRoutes(ctx: AppContext) {
             }
             patch {
                 call.respond(ctx.me.update(call.user.userId, call.receive<UpdateMeRequest>()))
+            }
+            // 注销账号（P16-07）：删掉的房间里的文件在提交后从磁盘删
+            delete {
+                val paths = ctx.auth.deleteAccount(call.user, call.receive<DeleteAccountRequest>())
+                ctx.files.deleteStored(paths)
+                call.respond(HttpStatusCode.NoContent)
             }
             post("/password") {
                 call.respond(ctx.auth.changePassword(call.user, call.receive<ChangePasswordRequest>()))

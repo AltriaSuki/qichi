@@ -32,6 +32,7 @@ import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
+import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.insertIgnore
 import org.jetbrains.exposed.v1.jdbc.select
@@ -217,6 +218,62 @@ class RoomService(
         members = RoomRepository.activeMembers(roomId),
         lastSeq = RoomRepository.lastSeq(roomId),
     )
+
+    /** 退出房间（P16-07）：房间和内容留给另一个人。只剩自己时不能退出（要删掉就注销账号）。 */
+    suspend fun leave(userId: UUID, roomId: UUID) = db.tx {
+        requireMember(roomId, userId)
+        RoomRepository.lockRoom(roomId)
+        validate { check(RoomRepository.activeMembers(roomId).any { it.userId != userId }, "roomId", "房间里只有你一个人，不能退出") }
+        removeMember(this, roomId, userId)
+    }
+
+    /**
+     * 注销账号时处理每个房间（P16-07，在调用方的事务里）：有另一个人的，自己退出、内容留下；
+     * 只剩自己的，整个房间连同内容删掉。之前退出过的房间也记一次成员变化，好让对方看到「已注销的成员」。
+     * @return 要在事务提交后从磁盘删掉的文件
+     */
+    fun removeUserEverywhere(tx: Tx, userId: UUID): List<String> {
+        val paths = mutableListOf<String>()
+        val rows = RoomMembers.selectAll().where { RoomMembers.userId eq userId }.map { it[RoomMembers.roomId] to (it[RoomMembers.deletedAt] == null) }
+        for ((roomId, active) in rows) {
+            RoomRepository.lockRoom(roomId) ?: continue
+            val others = RoomRepository.activeMembers(roomId).any { it.userId != userId }
+            when {
+                others && active -> removeMember(tx, roomId, userId)
+                others || !active -> touchMember(tx, roomId, userId)
+                else -> {
+                    paths += Files.select(Files.storagePath).where { Files.roomId eq roomId }.map { it[Files.storagePath] }
+                    Rooms.deleteWhere { Rooms.id eq roomId }
+                }
+            }
+        }
+        return paths
+    }
+
+    private fun removeMember(tx: Tx, roomId: UUID, userId: UUID) {
+        val row = RoomRepository.activeMembership(roomId, userId) ?: return
+        val now = clock.instant()
+        val memberId = row[RoomMembers.id]
+        val seq = writer.change(tx, roomId, EntityType.Member, memberId, userId, now)
+        RoomMembers.update({ RoomMembers.id eq memberId }) {
+            it[deletedAt] = now
+            it[deletedBy] = userId
+            it[RoomMembers.seq] = seq
+            it[updatedAt] = now
+        }
+    }
+
+    /** 成员本身没变、显示名变了：记一次变化让对方同步到新的名字。 */
+    private fun touchMember(tx: Tx, roomId: UUID, userId: UUID) {
+        val memberId = RoomMembers.select(RoomMembers.id).where { (RoomMembers.roomId eq roomId) and (RoomMembers.userId eq userId) }
+            .singleOrNull()?.get(RoomMembers.id) ?: return
+        val now = clock.instant()
+        val seq = writer.change(tx, roomId, EntityType.Member, memberId, userId, now)
+        RoomMembers.update({ RoomMembers.id eq memberId }) {
+            it[RoomMembers.seq] = seq
+            it[updatedAt] = now
+        }
+    }
 
     /** 头像、主视觉只能用这个房间里的图片（专门上传的 [kind]，或聊天里的图片）。 */
     private fun requireImageInRoom(fileId: UUID, roomId: UUID, field: String, kind: FileKind) {

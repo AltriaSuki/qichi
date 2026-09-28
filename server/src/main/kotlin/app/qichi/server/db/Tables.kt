@@ -66,6 +66,8 @@ object Users : Table("users") {
     val passwordChangedAt = timestamp("password_changed_at").nullable()
     val createdAt = timestamp("created_at")
     val updatedAt = timestamp("updated_at")
+    /** 注销的时间（P16-07）；注销后用户名换成占位、密码作废、显示名是「已注销的成员」 */
+    val deletedAt = timestamp("deleted_at").nullable()
     override val primaryKey = PrimaryKey(id)
 }
 

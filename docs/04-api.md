@@ -109,6 +109,8 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | POST | `/auth/logout` | 作废当前刷新令牌 |
 | GET | `/me` | 当前用户与所在房间列表 |
 | PATCH | `/me` | 改显示名、头像、通知偏好（`notificationPrefs` 的键见 `shared/api/NotificationPrefs.kt`：各类开关、免打扰时段，以及免打扰按哪个时区算的 `timezone`——App 自动填自己手机的时区，为空时按房间时区，P16-10）、AI 能看什么（`aiPrefs`）、阅读的常用提示词（`readingPrompts`，整套替换，最多 20 条，id 不能重复） |
+| DELETE | `/me` | 注销账号（要当前密码，P16-07）：内容留在房间、署名「已注销的成员」，只剩自己的房间一起删掉，所有登录退出 |
+| POST | `/rooms/{roomId}/leave` | 退出房间（P16-07）：不删号，房间和内容留给另一个人；只剩自己时 400 |
 | POST | `/me/password` | 改密码（作废其它设备的登录） |
 | GET | `/me/sessions` · DELETE `/me/sessions/{id}` | 登录设备管理（P7，「安全」页）：每次登录一行，标出当前设备；删除 = 让那台设备退出登录 |
 

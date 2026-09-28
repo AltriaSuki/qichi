@@ -246,6 +246,22 @@ paths:
               schema: { $ref: '#/components/schemas/Me' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      tags: [me]
+      operationId: deleteAccount
+      summary: 注销账号（P16-07）
+      description: |
+        要当前密码（错了 401，和改密码一起限流）。写过的内容留在房间里，成员标为已移除、显示名改成「已注销的成员」；
+        只剩自己的房间连同内容、文件一起彻底删除。用户名换成 `deleted_` 开头的占位（原来的名字可以再注册），
+        所有登录立即退出，推送设备、通知偏好、AI 设置、常用提示词删掉。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeleteAccountRequest' }
+      responses:
+        '204': { description: 已注销 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /me/sessions:
     get:
@@ -351,6 +367,20 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Room' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/leave:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [rooms]
+      operationId: leaveRoom
+      summary: 退出房间（P16-07）
+      description: 不删号，只离开这个房间；房间和内容留给另一个人（成员标为已移除，产生一条 `member` 变化）。房间里只剩自己时 400。
+      responses:
+        '204': { description: 已退出 }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -3076,6 +3106,11 @@ components:
         createdAt: { $ref: '#/components/schemas/Instant' }
         lastUsedAt: { $ref: '#/components/schemas/Instant' }
         current: { type: boolean, description: 就是发出这次请求的设备 }
+    DeleteAccountRequest:
+      type: object
+      required: [password]
+      properties:
+        password: { type: string, minLength: 1, maxLength: 128 }
     ChangePasswordRequest:
       type: object
       required: [currentPassword, newPassword]

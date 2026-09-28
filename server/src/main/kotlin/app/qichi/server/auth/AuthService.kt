@@ -13,6 +13,7 @@ import app.qichi.server.rooms.RoomRepository
 import app.qichi.server.rooms.RoomService
 import app.qichi.shared.api.AuthTokens
 import app.qichi.shared.api.ChangePasswordRequest
+import app.qichi.shared.api.DeleteAccountRequest
 import app.qichi.shared.api.LoginSession
 import app.qichi.shared.api.LoginRequest
 import app.qichi.shared.api.PasswordResetCode
@@ -367,6 +368,56 @@ class AuthService(
         return fresh
     }
 
+    /**
+     * 注销账号（P16-07）：要当前密码。写过的内容留在房间里，署名改成「已注销的成员」；只剩自己的房间整个删掉；
+     * 用户名换成占位（原来的名字可以再注册）、密码作废、所有登录退出、推送设备和各种设置删掉。
+     * @return 事务提交后要从磁盘删掉的文件（删掉的房间里的）
+     */
+    suspend fun deleteAccount(principal: UserPrincipal, req: DeleteAccountRequest): List<String> {
+        val key = "password:${principal.userId}"
+        passwordThrottle.check(key)
+        val current = db.tx {
+            Users.select(Users.passwordHash).where { Users.id eq principal.userId }.single()[Users.passwordHash]
+        }
+        if (!hashing { hasher.verify(req.password, current) }) {
+            passwordThrottle.recordFailure(key)
+            throw ApiException(ProblemCode.Unauthorized, "密码不正确")
+        }
+        passwordThrottle.reset(key)
+        // 随便一串算出来的哈希：谁也不知道原文，等于作废
+        val unusable = hashing { hasher.hash(UuidV7.generate().toString() + UuidV7.generate()) }
+        var families: Set<UUID> = emptySet()
+        val paths = db.tx {
+            val now = clock.instant()
+            families = RefreshTokens.select(RefreshTokens.familyId)
+                .where { (RefreshTokens.userId eq principal.userId) and RefreshTokens.revokedAt.isNull() }
+                .map { it[RefreshTokens.familyId] }.toSet()
+            // 先改名字，房间里记的成员变化带出去的就是新名字
+            Users.update({ Users.id eq principal.userId }) {
+                it[username] = "deleted_" + UuidV7.generate().toString().replace("-", "").takeLast(20)
+                it[displayName] = DELETED_NAME
+                it[avatarFileId] = null
+                it[passwordHash] = unusable
+                it[passwordChangedAt] = now
+                it[notificationPrefs] = JsonObject(emptyMap())
+                it[aiPrefs] = JsonObject(emptyMap())
+                it[readingPrompts] = emptyList()
+                it[deletedAt] = now
+                it[updatedAt] = now
+            }
+            val paths = rooms.removeUserEverywhere(this, principal.userId)
+            RefreshTokens.update({ (RefreshTokens.userId eq principal.userId) and RefreshTokens.revokedAt.isNull() }) {
+                it[revokedAt] = now
+            }
+            Devices.deleteWhere { Devices.userId eq principal.userId }
+            PasswordResetCodes.deleteWhere { PasswordResetCodes.userId eq principal.userId }
+            paths
+        }
+        log.info("注销了一个账号，{} 次登录已退出", families.size)
+        onRevoked(principal.userId, families)
+        return paths
+    }
+
     /** 「安全」页：我的有效登录（每次登录一行），最近用过的在前。 */
     suspend fun sessions(principal: UserPrincipal): List<LoginSession> = db.tx(readOnly = true) {
         val now = clock.instant()
@@ -437,6 +488,9 @@ class AuthService(
     }
 
     private companion object {
+        /** 注销后的显示名（P16-07） */
+        const val DELETED_NAME = "已注销的成员"
+
         /** pg_advisory_xact_lock 的固定键：注册串行化 */
         const val REGISTER_LOCK_KEY = 7_140_001L
 
