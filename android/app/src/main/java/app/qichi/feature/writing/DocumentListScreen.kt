@@ -80,6 +80,9 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.PaddingValues
 
 /** 共同写作的文稿列表。列表与编辑器互斥：点开一篇就进入编辑器，返回回到列表。 */
 @Composable
@@ -122,32 +125,37 @@ fun DocumentListScreen(
                 // 分类筛选（和标签筛选一样的一排胶囊）
                 CategoryFilterRow(state.category, vm::onCategoryChange)
             }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
+            // 文稿多了也只画看得见的那些（P17-05）
+            val (pinned, rest) = state.shown.partition { it.doc.value.pinned }
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = Spacing.page)) {
                 if (state.loaded && state.documents.isEmpty()) {
-                    Text("还没有文稿。一封信、一份清单、一篇两个人一起写的东西，都可以从这里开始。",
-                        style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
-                    TextAction("写一篇", { creating = true })
-                } else if (state.documents.isNotEmpty()) {
-                    if (state.bodySearchOffline) {
-                        Text("离线时只搜标题。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.xs))
-                    }
-                    if (state.shown.isEmpty()) {
-                        Text(if (state.query.isNotBlank()) "没有找到。" else "这个分类下还没有文稿。长按一篇文稿可以给它分类。",
+                    item {
+                        Text("还没有文稿。一封信、一份清单、一篇两个人一起写的东西，都可以从这里开始。",
                             style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
                     }
+                    item { TextAction("写一篇", { creating = true }) }
+                } else if (state.documents.isNotEmpty()) {
+                    if (state.bodySearchOffline) {
+                        item { Text("离线时只搜标题。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.xs)) }
+                    }
+                    if (state.shown.isEmpty()) {
+                        item {
+                            Text(if (state.query.isNotBlank()) "没有找到。" else "这个分类下还没有文稿。长按一篇文稿可以给它分类。",
+                                style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
+                        }
+                    }
                 }
-                val (pinned, rest) = state.shown.partition { it.doc.value.pinned }
                 listOf(Triple("置顶", QichiIcons.Pin, colors.accent) to pinned, Triple("最近", QichiIcons.Clock, colors.personB) to rest).forEach { (head, hits) ->
                     if (hits.isEmpty()) return@forEach
-                    SectionLabel(head.first, Modifier.padding(top = Spacing.s), icon = head.second, tint = head.third)
-                    hits.forEachIndexed { i, hit ->
+                    item(key = "head-${head.first}") { SectionLabel(head.first, Modifier.padding(top = Spacing.s), icon = head.second, tint = head.third) }
+                    itemsIndexed(hits, key = { _, hit -> hit.doc.value.id.toString() }) { i, hit ->
                         val doc = hit.doc
                         DocumentRow(doc, doc.value.id in state.unsaved, state.zone, hit.snippet ?: state.previews[doc.value.id], first = i == 0,
                             onClick = { onOpen(doc.value.id) }, onLongClick = { organizing = doc.value })
                     }
-                    Spacer(Modifier.height(Spacing.m))
+                    item(key = "gap-${head.first}") { Spacer(Modifier.height(Spacing.m)) }
                 }
-                Spacer(Modifier.height(FabClearance))
+                item { Spacer(Modifier.height(FabClearance)) }
             }
         }
         Fab("新文稿", { creating = true })
