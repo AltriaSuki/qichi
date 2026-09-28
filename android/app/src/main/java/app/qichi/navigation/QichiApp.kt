@@ -103,6 +103,9 @@ fun QichiApp(
         }
     }
 
+    // 从别的 App 分享进来的（P16-03）：问放到哪里，选聊天就切到聊天
+    if (destination != null) ShareIntake(roomId, onOpenChat = { navigator.selectTab(TopTab.Chat) })
+
     val reduceMotion = QichiTheme.reduceMotion
     val shift = with(LocalDensity.current) { 8.dp.roundToPx() }
     val enter: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {

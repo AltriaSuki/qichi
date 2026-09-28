@@ -41,6 +41,18 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="qichi" android:host="room" />
             </intent-filter>
+            <!-- 从别的 App 分享文字、链接、照片进来（P16-03）：选「发到聊天」或「存成灵感」 -->
+            <intent-filter android:label="@string/share_label">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <intent-filter android:label="@string/share_label">
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
         </activity>
 
         <!-- 推送（UnifiedPush）：ntfy 把推送地址和推送内容交给它 -->

@@ -19,6 +19,7 @@ import app.qichi.core.ui.todayIn
 import app.qichi.core.data.MoodRepository
 import app.qichi.core.data.DocumentRepository
 import app.qichi.core.data.DraftStore
+import app.qichi.core.share.ShareInbox
 import app.qichi.core.data.FileRepository
 import app.qichi.core.data.IdeaRepository
 import app.qichi.core.data.People
@@ -156,6 +157,7 @@ class ChatViewModel @AssistedInject constructor(
     plans: PlanRepository,
     private val ideas: IdeaRepository,
     private val documents: DocumentRepository,
+    shareInbox: ShareInbox,
 ) : ViewModel() {
 
     val messages: Flow<PagingData<Local<Message>>> = chat.messages(roomId).cachedIn(viewModelScope)
@@ -239,6 +241,12 @@ class ChatViewModel @AssistedInject constructor(
         viewModelScope.launch {
             val saved = drafts.load(roomId, DraftStore.CHAT)
             if (saved != null && _draft.value.isEmpty()) _draft.value = saved
+            // 从别的 App 分享到聊天的（P16-03）：文字接在输入框里看一眼再发，照片开始上传。等草稿读完再放，免得被草稿盖掉
+            shareInbox.forChat.collect {
+                val shared = shareInbox.takeForChat(roomId) ?: return@collect
+                shared.text?.let { text -> onDraftChange(if (_draft.value.isBlank()) text else "${_draft.value}\n$text") }
+                if (shared.images.isNotEmpty()) attachImages(shared.images)
+            }
         }
     }
 
@@ -298,6 +306,39 @@ class ChatViewModel @AssistedInject constructor(
             }
             _uploads.update { it + upload }
             runUpload(upload)
+        }
+    }
+
+    /**
+     * 一次发几张照片（从相册多选、从别的 App 分享进来）：只有一张时和原来一样先写说明；
+     * 几张时不写说明，按顺序一张张上传发出（P16-03、P16-05）。
+     */
+    fun attachImages(uris: List<Uri>) {
+        when {
+            uris.isEmpty() -> return
+            uris.size == 1 -> return attach(uris.single(), asImage = true)
+        }
+        if (!network.isOnline.value) {
+            _events.tryEmit(ChatEvent.Toast(OFFLINE_ATTACH))
+            return
+        }
+        viewModelScope.launch {
+            var failed = 0
+            for (uri in uris) {
+                val attachment = try {
+                    preparer.image(uri)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    failed++
+                    continue
+                }
+                val upload = Upload(UuidV7.generate(), attachment)
+                _uploads.update { it + upload }
+                // 一张传完再传下一张：消息按这个顺序出现
+                runUpload(upload)
+            }
+            if (failed > 0) _events.emit(ChatEvent.Toast("有 $failed 张图片打不开，没有发出"))
         }
     }
 

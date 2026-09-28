@@ -13,16 +13,19 @@ import app.qichi.core.reading.ReaderFragments
 import app.qichi.core.data.DisplaySettingsStore
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sky
+import app.qichi.core.share.ShareInbox
+import app.qichi.core.share.sharedContent
 import app.qichi.navigation.DeepLink
 import app.qichi.navigation.QichiRoot
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
-/** 唯一的 Activity，承载整个 App 的导航。深链从 onCreate / onNewIntent 进来。是 FragmentActivity，因为阅读页用了 Readium 的 Fragment。 */
+/** 唯一的 Activity，承载整个 App 的导航。深链、别的 App 分享进来的内容（P16-03）从 onCreate / onNewIntent 进来。是 FragmentActivity，因为阅读页用了 Readium 的 Fragment。 */
 @AndroidEntryPoint
 class MainActivity : FragmentActivity() {
 
     @Inject lateinit var displaySettings: DisplaySettingsStore
+    @Inject lateinit var shareInbox: ShareInbox
 
     private var pendingLink by mutableStateOf<DeepLink?>(null)
 
@@ -32,7 +35,10 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         if (savedInstanceState != null) ReaderFragments.dropRestored(supportFragmentManager)
         enableEdgeToEdge()
-        if (savedInstanceState == null) pendingLink = DeepLink.parse(intent?.dataString)
+        if (savedInstanceState == null) {
+            pendingLink = DeepLink.parse(intent?.dataString)
+            intent?.sharedContent()?.let(shareInbox::offer)
+        }
         // 仅调试版：adb shell am start … --es qichi.sky dusk 固定天色，便于截图
         val skyOverride = if (BuildConfig.DEBUG) {
             when (intent?.getStringExtra("qichi.sky")) {
@@ -59,5 +65,6 @@ class MainActivity : FragmentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         DeepLink.parse(intent.dataString)?.let { pendingLink = it }
+        intent.sharedContent()?.let(shareInbox::offer)
     }
 }
