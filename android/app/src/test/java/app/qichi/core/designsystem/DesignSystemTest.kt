@@ -26,6 +26,20 @@ class DesignSystemTest {
     }
 
     @Test
+    fun `天色设置：跟着时间、跟手机深色模式、总是白天、总是深夜`() {
+        Sky.entries.forEach { t ->
+            assertEquals(t, skyFor(SkyMode.Auto, t, systemDark = true), "跟着时间时不管手机深色模式")
+            assertEquals(Sky.Day, skyFor(SkyMode.Light, t, systemDark = true))
+            assertEquals(Sky.Night, skyFor(SkyMode.Dark, t, systemDark = false))
+            assertEquals(Sky.Night, skyFor(SkyMode.System, t, systemDark = true))
+        }
+        // 跟手机、手机是浅色：白天照常按时间，夜里也用白天
+        assertEquals(Sky.Dawn, skyFor(SkyMode.System, Sky.Dawn, systemDark = false))
+        assertEquals(Sky.Dusk, skyFor(SkyMode.System, Sky.Dusk, systemDark = false))
+        assertEquals(Sky.Day, skyFor(SkyMode.System, Sky.Night, systemDark = false))
+    }
+
+    @Test
     fun `每种天色都有自己的配色，只有深夜是深色`() {
         val all = Sky.entries.map(::colorsFor)
         assertEquals(4, all.map { it.background }.toSet().size)
