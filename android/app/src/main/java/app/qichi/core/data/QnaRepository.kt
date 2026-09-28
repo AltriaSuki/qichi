@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.Clock
 import java.util.UUID
+import app.qichi.core.sync.offMain
 
 /** 问答读本机 Room；普通写操作先写 Room 与发件箱，同一个事务。 */
 class QnaRepository(
@@ -47,6 +48,7 @@ class QnaRepository(
     private inline fun <reified T : app.qichi.shared.api.SyncEntity> observe(roomId: UUID, type: EntityType): Flow<List<Local<T>>> =
         db.entities().observeByType(roomId.toString(), type.wireName)
             .map { rows -> rows.map { LocalStore.toLocal<T>(it) } }
+            .offMain()
 
     /** GET 会懒创建今日轮次；响应只用于写进本机数据库，界面依旧只订阅 Room。 */
     suspend fun refreshToday(roomId: UUID) {

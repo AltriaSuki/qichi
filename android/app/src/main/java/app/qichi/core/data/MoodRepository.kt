@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.Clock
 import java.util.UUID
+import app.qichi.core.sync.offMain
 
 /**
  * 心情与回应。所有写操作先落本机（PENDING）再经发件箱发出，离线也能记。
@@ -36,10 +37,12 @@ class MoodRepository(
     fun observeMoods(roomId: UUID): Flow<List<Local<Mood>>> =
         db.entities().observeByType(roomId.toString(), EntityType.Mood.wireName)
             .map { rows -> rows.map { LocalStore.toLocal<Mood>(it) }.sortedByDescending { it.value.createdAt } }
+            .offMain()
 
     fun observeReplies(roomId: UUID): Flow<List<Local<MoodReply>>> =
         db.entities().observeByType(roomId.toString(), EntityType.MoodResponse.wireName)
             .map { rows -> rows.map { LocalStore.toLocal<MoodReply>(it) } }
+            .offMain()
 
     suspend fun record(roomId: UUID, label: MoodLabel, intensity: Int, note: String?, needsComfort: Boolean): Mood {
         val now = clock.instant()

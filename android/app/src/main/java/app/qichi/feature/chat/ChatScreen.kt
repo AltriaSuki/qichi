@@ -71,10 +71,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -114,6 +114,8 @@ import app.qichi.core.designsystem.tsp
 import app.qichi.core.network.FileUrls
 import app.qichi.core.share.SHARE_MAX_IMAGES
 import app.qichi.core.sync.Local
+import app.qichi.core.ui.Markdown
+import app.qichi.core.ui.MarkdownView
 import app.qichi.core.ui.aiFailText
 import app.qichi.core.ui.chatDay
 import app.qichi.core.ui.feelingWord
@@ -818,7 +820,8 @@ private fun AiBlock(
 }
 
 /**
- * AI 回答：正文里的 [n] 是链接，点了打开引用的那条记录；有引用时下面可以展开「参考了几条资料」。
+ * AI 回答：按 Markdown 显示（标题、列表、粗体、代码块、表格……，不露出符号）。
+ * 正文里的 [n] 是链接，点了打开引用的那条记录；有引用时下面可以展开「参考了几条资料」。
  * 服务端只存正文里真的出现过的编号，找不到对应来源的 [n] 按普通文字显示。
  */
 @Composable
@@ -832,11 +835,11 @@ private fun AiAnswer(m: Message, onOpenSource: (SummarySource) -> Unit) {
             fontFamily = type.numeral.fontFamily, fontSize = 11.tsp, fontWeight = FontWeight.W500,
         ),
     )
-    val text = remember(m.body, byNumber, linkStyle) {
-        buildAnnotatedString {
+    val citations = remember(byNumber, linkStyle) {
+        fun AnnotatedString.Builder.(s: String) {
             var last = 0
-            citationPattern.findAll(m.body).forEach { match ->
-                append(m.body.substring(last, match.range.first))
+            citationPattern.findAll(s).forEach { match ->
+                append(s.substring(last, match.range.first))
                 val src = byNumber[match.groupValues[1].toInt()]
                 if (src == null) {
                     append(match.value)
@@ -848,10 +851,10 @@ private fun AiAnswer(m: Message, onOpenSource: (SummarySource) -> Unit) {
                 }
                 last = match.range.last + 1
             }
-            append(m.body.substring(last))
+            append(s.substring(last))
         }
     }
-    if (m.body.isNotEmpty()) Text(text, style = aiAnswerStyle(), modifier = Modifier.fillMaxWidth())
+    if (m.body.isNotEmpty()) AiMarkdown(m.body, plainText = citations)
     if (m.aiStopped) {
         Text(
             if (m.body.isEmpty()) "已停下，还没写出内容" else "已停下",
@@ -882,6 +885,10 @@ private fun AiAnswer(m: Message, onOpenSource: (SummarySource) -> Unit) {
 }
 
 private val citationPattern = Regex("\\[(\\d{1,3})]")
+
+@Composable
+private fun AiMarkdown(text: String, plainText: (AnnotatedString.Builder.(String) -> Unit)? = null) =
+    MarkdownView(text, 15.tsp, 1.75f, modifier = Modifier.fillMaxWidth(), style = aiAnswerStyle(), blockGap = 8.dp, plainText = plainText)
 
 @Composable
 private fun aiAnswerStyle() = QichiTheme.typography.body.copy(fontSize = 15.tsp, lineHeight = 26.25.tsp, color = QichiTheme.colors.ink)
@@ -921,7 +928,7 @@ private fun PendingAiItem(pending: PendingAi, askerName: String, onRetry: () -> 
                 }
                 else -> {
                     // 边生成边显示（P8-03）：引用编号和提议卡片等正式回答同步下来再出现
-                    if (!pending.partial.isNullOrEmpty()) Text(pending.partial, style = aiAnswerStyle(), modifier = Modifier.fillMaxWidth())
+                    if (!pending.partial.isNullOrEmpty()) AiMarkdown(pending.partial)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         ThinkingDots()
                         Text(
@@ -1062,7 +1069,7 @@ private fun MessageActions(
                 ReactionPicker(m.reactions[people.myUserId]) { kind -> onReact(kind); onDismiss() }
             }
             Text(
-                "${if (m.kind == MessageKind.Ai) "AI" else people.name(m.authorId)}：${m.body}",
+                if (m.kind == MessageKind.Ai) "AI：${Markdown.plain(m.body)}" else "${people.name(m.authorId)}：${m.body}",
                 style = type.caption.copy(color = colors.muted),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,

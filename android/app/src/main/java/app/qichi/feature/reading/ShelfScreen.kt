@@ -76,6 +76,9 @@ import app.qichi.shared.api.Book
 import app.qichi.shared.rules.Limits
 import java.time.LocalDate
 import java.util.UUID
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.PaddingValues
 
 private fun mb(bytes: Long) = "${(bytes / (1024 * 1024)).coerceAtLeast(if (bytes > 0) 1 else 0)} MB"
 
@@ -106,23 +109,32 @@ fun ShelfScreen(
         Column(Modifier.fillMaxSize()) {
             FeatureTopBar(Feature.Reading, onBack, actions = listOf(BarAction("离线下载", QichiIcons.Down, { cacheSheet = true })))
             adding?.let { Text("正在上传 ${(it * 100).toInt()}%", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(horizontal = Spacing.page)) }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = Spacing.page, end = Spacing.page, top = Spacing.xs)) {
+            // 书多了也只画看得见的那几排（P17-05）
+            // 在读：我最近读过、还没读完的那本
+            val current = state.books.filter { it.mine?.progress?.let { p -> p > 0 && p < .99 } == true }.maxByOrNull { it.mine!!.updatedAt }
+            val rest = state.books.filter { it != current }
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(start = Spacing.page, end = Spacing.page, top = Spacing.xs)) {
                 if (state.loaded && state.books.isEmpty()) {
-                    Text("书架还是空的。右下角可以放一本 EPUB 上来，两个人一起读。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
-                }
-                // 在读：我最近读过、还没读完的那本
-                val current = state.books.filter { it.mine?.progress?.let { p -> p > 0 && p < .99 } == true }.maxByOrNull { it.mine!!.updatedAt }
-                current?.let { item ->
-                    SectionLabel("在读", icon = QichiIcons.Bookmark, tint = colors.accent)
-                    CurrentBook(item, state.people, onClick = { onOpen(item.book.value.id) }, onLongClick = { menuFor = item })
-                    Spacer(Modifier.height(Spacing.xl))
-                }
-                val rest = state.books.filter { it != current }
-                if (rest.isNotEmpty()) {
-                    SectionLabel("书架", icon = QichiIcons.Book, tint = colors.personB) {
-                        Text("${rest.size}", style = type.numeral.copy(fontSize = 13.tsp, color = colors.muted))
+                    item {
+                        Text("书架还是空的。右下角可以放一本 EPUB 上来，两个人一起读。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
                     }
-                    rest.chunked(3).forEach { row ->
+                }
+                current?.let { reading ->
+                    item(key = "current") {
+                        Column {
+                            SectionLabel("在读", icon = QichiIcons.Bookmark, tint = colors.accent)
+                            CurrentBook(reading, state.people, onClick = { onOpen(reading.book.value.id) }, onLongClick = { menuFor = reading })
+                            Spacer(Modifier.height(Spacing.xl))
+                        }
+                    }
+                }
+                if (rest.isNotEmpty()) {
+                    item(key = "shelf-head") {
+                        SectionLabel("书架", icon = QichiIcons.Book, tint = colors.personB) {
+                            Text("${rest.size}", style = type.numeral.copy(fontSize = 13.tsp, color = colors.muted))
+                        }
+                    }
+                    items(rest.chunked(3), key = { row -> row.first().book.value.id.toString() }) { row ->
                         Box(Modifier.fillMaxWidth().padding(top = 10.dp)) {
                             // 木板：垫在封面底下
                             Box(Modifier.fillMaxWidth().padding(top = 118.dp).height(8.dp)
@@ -152,7 +164,7 @@ fun ShelfScreen(
                         }
                     }
                 }
-                Spacer(Modifier.height(FabClearance))
+                item { Spacer(Modifier.height(FabClearance)) }
             }
         }
         Fab("加书", { picker.launch(arrayOf("application/epub+zip")) }, enabled = adding == null)

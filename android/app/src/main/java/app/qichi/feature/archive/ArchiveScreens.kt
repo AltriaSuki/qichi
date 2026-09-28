@@ -93,6 +93,9 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.PaddingValues
 
 private val hm = DateTimeFormatter.ofPattern("HH:mm")
 
@@ -146,22 +149,28 @@ fun ArchiveListScreen(
                 }
             }
             val shown = state.shown.filter { tag == null || Tags.has(it.value.title + "\n" + it.value.body, tag!!) }
-            Column(
-                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = Spacing.cardPage, end = Spacing.cardPage, top = 6.dp),
+            // 条目多了也只画看得见的那些（P17-05）
+            LazyColumn(
+                Modifier.weight(1f),
+                contentPadding = PaddingValues(start = Spacing.cardPage, end = Spacing.cardPage, top = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
                 if (state.loaded && shown.isEmpty()) {
-                    Text(
-                        when {
-                            tag != null -> "#$tag 下面还没有档案。"
-                            state.filter == null -> "还没有档案。两个人慢慢确认下来的事——喜欢什么、说好了什么、在意什么——可以记在这里。"
-                            else -> "还没有「${state.filter!!.label}」。"
-                        },
-                        style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m),
-                    )
+                    item {
+                        Text(
+                            when {
+                                tag != null -> "#$tag 下面还没有档案。"
+                                state.filter == null -> "还没有档案。两个人慢慢确认下来的事——喜欢什么、说好了什么、在意什么——可以记在这里。"
+                                else -> "还没有「${state.filter!!.label}」。"
+                            },
+                            style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m),
+                        )
+                    }
                 }
-                shown.forEachIndexed { i, item -> FactCard(item, state.people, state.zone, i) { onOpen(item.value.id) } }
-                Spacer(Modifier.height(FabClearance))
+                itemsIndexed(shown, key = { _, item -> item.value.id.toString() }) { i, item ->
+                    FactCard(item, state.people, state.zone, i) { onOpen(item.value.id) }
+                }
+                item { Spacer(Modifier.height(FabClearance)) }
             }
         }
         Fab("新条目", { source = null; creating = true })
@@ -175,11 +184,11 @@ fun ArchiveListScreen(
             // 短消息直接当作那一句话；长消息取开头做标题，全文放进补充。
             // AI 的回答（P14-04）：问的那句话做标题，回答放进补充，去掉点不开的来源编号
             initialTitle = source?.let { m ->
-                if (m.kind == MessageKind.Ai) aiAnswerTitle(m.aiPrompt, Limits.ARCHIVE_TITLE_LENGTH.last, excerpt(plainAiAnswer(m.body), 30))
+                if (m.kind == MessageKind.Ai) aiAnswerTitle(m.aiPrompt, Limits.ARCHIVE_TITLE_LENGTH.last, excerpt(plainAiAnswer(m.body, markdown = false), 30))
                 else m.body.trim().let { if (it.length <= Limits.ARCHIVE_TITLE_LENGTH.last && '\n' !in it) it else excerpt(it, 30) }
             }.orEmpty(),
             initialBody = source?.let { m ->
-                if (m.kind == MessageKind.Ai) plainAiAnswer(m.body)
+                if (m.kind == MessageKind.Ai) plainAiAnswer(m.body, markdown = false)
                 else m.body.trim().takeIf { it.length > Limits.ARCHIVE_TITLE_LENGTH.last || '\n' in it }
             }.orEmpty(),
             source = source,

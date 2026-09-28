@@ -24,6 +24,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
+import app.qichi.core.sync.offMain
 
 /**
  * 待办的本机读写：先写本机（界面立即变化）再经发件箱发出，离线也能新建和完成。
@@ -42,6 +43,7 @@ class TodoRepository(
     fun observeTodos(roomId: UUID): Flow<List<Local<Todo>>> =
         db.entities().observeByType(roomId.toString(), EntityType.Todo.wireName)
             .map { rows -> rows.map { LocalStore.toLocal<Todo>(it) } }
+            .offMain()
 
     /** 按 id 取一条（桌面组件上勾掉、撤回时用，P15-02）；本机没有时为 null。 */
     suspend fun find(id: UUID): Todo? = store.get<Todo>(EntityType.Todo, id)?.value

@@ -112,6 +112,8 @@ import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 
 /** 选中了什么（还没写批注）：一段文字、一个单元格、一块区域、一张图片或整页。 */
 internal data class Selection(val page: Int, val kind: AnchorKind, val rect: NormRect?, val ref: String?, val quote: String?) {
@@ -254,22 +256,28 @@ fun ReviewScreen(
             tab, { tab = it },
             margin = PaddingValues(start = Spacing.page, end = Spacing.page, top = Spacing.sm, bottom = 4.dp),
         )
-        Column(Modifier.weight(0.42f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
-            if (tab == 0) {
+        if (tab == 0) {
+            // 批注多了也只画看得见的那些（P17-05）
+            LazyColumn(Modifier.weight(0.42f).fillMaxWidth(), contentPadding = PaddingValues(horizontal = Spacing.page)) {
                 if (state.annotations.isEmpty()) {
-                    Text("这一版还没有批注。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.s))
+                    item { Text("这一版还没有批注。", style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.s)) }
                 }
-                state.open.forEach { item ->
+                items(state.open, key = { it.value.id.toString() }) { item ->
                     AnnotationRow(item, state.people) {
                         detailId = item.value.id.toString()
                         scope.launch { pagerState.animateScrollToPage((item.value.anchor.page - 1).coerceIn(0, max(readyPages.size - 1, 0))) }
                     }
                 }
                 if (state.resolved.isNotEmpty()) {
-                    TextAction(if (showResolved) "收起已处理的" else "已处理的 ${state.resolved.size} 条", { showResolved = !showResolved }, color = colors.muted)
-                    if (showResolved) state.resolved.forEach { item -> AnnotationRow(item, state.people) { detailId = item.value.id.toString() } }
+                    item(key = "resolved-toggle") {
+                        TextAction(if (showResolved) "收起已处理的" else "已处理的 ${state.resolved.size} 条", { showResolved = !showResolved }, color = colors.muted)
+                    }
+                    if (showResolved) items(state.resolved, key = { it.value.id.toString() }) { item -> AnnotationRow(item, state.people) { detailId = item.value.id.toString() } }
                 }
-            } else {
+                item { Spacer(Modifier.height(Spacing.l)) }
+            }
+        } else {
+            Column(Modifier.weight(0.42f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = Spacing.page)) {
                 AiPanel(
                     state = state,
                     onAsk = { askingAi = true },
@@ -282,8 +290,8 @@ fun ReviewScreen(
                     showResolved = showResolvedFindings,
                     onToggleResolved = { showResolvedFindings = !showResolvedFindings },
                 )
+                Spacer(Modifier.height(Spacing.l))
             }
-            Spacer(Modifier.height(Spacing.l))
         }
     }
 

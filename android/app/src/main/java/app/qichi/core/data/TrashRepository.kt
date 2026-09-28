@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.map
 import java.net.URLEncoder
 import java.time.Instant
 import java.util.UUID
+import app.qichi.core.sync.offMain
 
 /** 回收站里的一项。 */
 data class TrashEntry(
@@ -101,7 +102,7 @@ class TrashRepository(
                     else -> null
                 }
             }.sortedByDescending { it.deletedAt }
-        }
+        }.offMain()
 
     /**
      * 打开回收站时（在线）从服务端补齐：这台手机装好之前就删掉的旧消息，本机原本没有。

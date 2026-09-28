@@ -91,22 +91,33 @@ class RealtimeClient(
         }
     }
 
-    private suspend fun handle(event: WsEvent) {
-        try {
-            when (event) {
-                is WsEvent.Hello -> event.rooms.forEach { syncEngine.pullIfBehind(it.roomId, it.lastSeq) }
-                is WsEvent.Changed -> syncEngine.pullIfBehind(event.roomId, event.seq)
-                is WsEvent.AiDone -> {
-                    _aiDone.tryEmit(event)
-                    syncEngine.pull(event.roomId)
-                }
-                is WsEvent.Notify -> _notifications.tryEmit(event)
-                is WsEvent.AiDelta -> _aiDeltas.tryEmit(event)
+    private fun handle(event: WsEvent) {
+        when (event) {
+            is WsEvent.Hello -> event.rooms.forEach { room -> pullInBackground { syncEngine.pullIfBehind(room.roomId, room.lastSeq) } }
+            is WsEvent.Changed -> pullInBackground { syncEngine.pullIfBehind(event.roomId, event.seq) }
+            is WsEvent.AiDone -> {
+                _aiDone.tryEmit(event)
+                pullInBackground { syncEngine.pull(event.roomId) }
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            // 拉取失败不影响连接；下次事件或定期同步会再拉
+            is WsEvent.Notify -> _notifications.tryEmit(event)
+            is WsEvent.AiDelta -> _aiDeltas.tryEmit(event)
+        }
+    }
+
+    /**
+     * 拉取另起一个协程，读消息的循环接着往下读（P17-02）：以前在这里等拉取做完，
+     * 这期间问 AI 的片段被堵在后面，回答看上去停一下再一口气跳出来。
+     * 同时来几个 changed 也没关系：拉取一个一个排队，排到时已经不落后的直接跳过（[SyncEngine.pullIfBehind]）。
+     */
+    private fun pullInBackground(block: suspend () -> Unit) {
+        scope.launch {
+            try {
+                block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // 拉取失败不影响连接；下次事件或定期同步会再拉
+            }
         }
     }
 

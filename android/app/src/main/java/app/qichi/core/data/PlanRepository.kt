@@ -31,6 +31,7 @@ import java.time.Clock
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
+import app.qichi.core.sync.offMain
 
 /**
  * 计划、阶段、里程碑、过程记录的本机读写：先写本机（界面立即变化）再经发件箱发出，离线也能改。
@@ -51,7 +52,7 @@ class PlanRepository(
     fun observeLogs(roomId: UUID): Flow<List<Local<PlanLog>>> = observe(roomId, EntityType.PlanLog)
 
     private fun <T : app.qichi.shared.api.SyncEntity> observe(roomId: UUID, type: EntityType): Flow<List<Local<T>>> =
-        db.entities().observeByType(roomId.toString(), type.wireName).map { rows -> rows.map { LocalStore.toLocal<T>(it) } }
+        db.entities().observeByType(roomId.toString(), type.wireName).map { rows -> rows.map { LocalStore.toLocal<T>(it) } }.offMain()
 
     // ── 计划 ──
 

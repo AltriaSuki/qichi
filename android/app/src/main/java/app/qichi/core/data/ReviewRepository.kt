@@ -52,6 +52,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import java.io.File
 import java.time.Clock
 import java.util.UUID
+import app.qichi.core.sync.offMain
 
 /** 审稿文件选择器里给的类型（系统文件选择器按它过滤）。 */
 val REVIEW_MIME_TYPES = arrayOf(
@@ -92,7 +93,7 @@ class ReviewRepository(
     private val pageDir: File get() = File(context.filesDir, "review-pages").apply { mkdirs() }
 
     private inline fun <reified T : SyncEntity> observe(roomId: UUID, type: EntityType): Flow<List<Local<T>>> =
-        db.entities().observeByType(roomId.toString(), type.wireName).map { rows -> rows.map { LocalStore.toLocal<T>(it) } }
+        db.entities().observeByType(roomId.toString(), type.wireName).map { rows -> rows.map { LocalStore.toLocal<T>(it) } }.offMain()
 
     fun observeDocuments(roomId: UUID): Flow<List<ReviewDocument>> =
         observe<ReviewDocument>(roomId, EntityType.ReviewDocument).map { l -> l.map { it.value }.filter { it.deletedAt == null }.sortedByDescending { it.updatedAt } }

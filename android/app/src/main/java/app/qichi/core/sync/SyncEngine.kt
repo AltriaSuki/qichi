@@ -54,7 +54,26 @@ class SyncEngine(
     suspend fun lastSeq(roomId: UUID): Long = db.syncState().get(roomId.toString())?.lastSeq ?: 0
 
     /** 拉取一个房间到最新。网络错误向上抛出（调用方决定是否稍后再试）。 */
-    suspend fun pull(roomId: UUID) = mutex.withLock {
+    suspend fun pull(roomId: UUID) = mutex.withLock { pullLocked(roomId) }
+
+    /**
+     * 只在本地 lastSeq 落后于 [seq] 时拉取（WebSocket 收到 changed、hello 时用）。
+     * 排到锁以后再比较（P17-06）：回到前台时 hello 和「全部拉一遍」同时来，后到的那个排队时前一个已经拉完了，不用再发一次请求。
+     */
+    suspend fun pullIfBehind(roomId: UUID, seq: Long) = mutex.withLock {
+        if (seq > lastSeq(roomId)) pullLocked(roomId)
+    }
+
+    /**
+     * 最近 [maxAgeMs] 之内拉过就不再拉（回到前台时「全部拉一遍」用，P17-06）：
+     * 实时通道连上时的 hello 已经先拉过的话，这里不再多发一次请求。
+     */
+    suspend fun pullIfStale(roomId: UUID, maxAgeMs: Long = FRESH_MS) = mutex.withLock {
+        val syncedAt = db.syncState().get(roomId.toString())?.lastSyncedAt
+        if (syncedAt == null || now() - syncedAt >= maxAgeMs) pullLocked(roomId)
+    }
+
+    private suspend fun pullLocked(roomId: UUID) {
         _syncing.value = true
         try {
             val state = db.syncState().get(roomId.toString())
@@ -77,15 +96,15 @@ class SyncEngine(
         }
     }
 
+    companion object {
+        /** 这么久之内拉过的算是新的 */
+        const val FRESH_MS = 10_000L
+    }
+
     private fun describe(e: Exception): String = when (e) {
         is ApiException -> "${e.userMessage}（${e.status}）"
         is SerializationException -> "收到的数据这个版本读不懂"
         else -> e.message ?: e::class.simpleName ?: "未知错误"
-    }
-
-    /** 只在本地 lastSeq 落后于 [seq] 时拉取（WebSocket 收到 changed 时用）。 */
-    suspend fun pullIfBehind(roomId: UUID, seq: Long) {
-        if (seq > lastSeq(roomId)) pull(roomId)
     }
 
     private suspend fun bootstrap(roomId: UUID) {

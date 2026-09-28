@@ -32,6 +32,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import java.util.UUID
+import app.qichi.core.sync.offMain
 
 /**
  * 「我」与房间：/me、建房间、邀请码（需要联网）；房间与成员从本机数据库读；改房间设置走发件箱（可离线）。
@@ -107,6 +108,7 @@ class RoomRepository(
     fun observeRoom(roomId: UUID): Flow<Room?> =
         db.entities().observe(EntityType.Room.wireName, roomId.toString())
             .map { row -> row?.let { LocalStore.toLocal<Room>(it).value } }
+            .offMain()
 
     /**
      * 房间成员，包括已经退出、注销的（deletedAt 不为空）：他们写过的内容还在，要显示名字（如「已注销的成员」，P16-07）。
@@ -115,6 +117,7 @@ class RoomRepository(
     fun observeMembers(roomId: UUID): Flow<List<Member>> =
         db.entities().observeAllByType(roomId.toString(), EntityType.Member.wireName)
             .map { rows -> rows.map { LocalStore.toLocal<Member>(it).value } }
+            .offMain()
 
     /** 改房间设置：本机立即生效，经发件箱发出（离线也可以改）。 */
     suspend fun updateRoom(roomId: UUID, change: UpdateRoomRequest) {

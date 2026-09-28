@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.Clock
 import java.util.UUID
+import app.qichi.core.sync.offMain
 
 /** 灵感：随手记，先写本机再经发件箱发出，离线也能记。 */
 class IdeaRepository(
@@ -32,6 +33,7 @@ class IdeaRepository(
     fun observeIdeas(roomId: UUID): Flow<List<Local<Idea>>> =
         db.entities().observeByType(roomId.toString(), EntityType.Idea.wireName)
             .map { rows -> rows.map { LocalStore.toLocal<Idea>(it) }.sortedByDescending { it.value.createdAt } }
+            .offMain()
 
     /** 空白不记；超长截到上限。 */
     suspend fun add(roomId: UUID, text: String): Idea? {

@@ -86,6 +86,9 @@ import app.qichi.shared.rules.Limits
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.PaddingValues
 
 private fun reviewText(d: Decision, today: LocalDate): String? = d.reviewDate?.let {
     if (!it.isAfter(today)) "该复查了" else "复查 ${relativeDay(it, today).first}"
@@ -110,17 +113,23 @@ fun DecisionListScreen(
     Box(Modifier.fillMaxSize().background(colors.background)) {
         Column(Modifier.fillMaxSize()) {
             FeatureTopBar(Feature.Decisions, onBack)
-            Column(
-                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = Spacing.cardPage, end = Spacing.cardPage, top = 10.dp),
+            // 条目多了也只画看得见的那些（P17-05）
+            LazyColumn(
+                Modifier.weight(1f),
+                contentPadding = PaddingValues(start = Spacing.cardPage, end = Spacing.cardPage, top = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(Spacing.ml),
             ) {
                 if (state.loaded && state.open.isEmpty() && state.decided.isEmpty()) {
-                    Text("还没有决定记录。要一起拿主意的事，可以把备选和各自在意的地方写下来，慢慢商量。",
-                        style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
-                    TextAction("记一个", { creating = true })
+                    item {
+                        Text("还没有决定记录。要一起拿主意的事，可以把备选和各自在意的地方写下来，慢慢商量。",
+                            style = type.caption.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.m))
+                    }
+                    item { TextAction("记一个", { creating = true }) }
                 }
-                (state.open + state.decided).forEachIndexed { i, it -> DecisionCard(it, state.people, state.today, i) { onOpen(it.value.id) } }
-                Spacer(Modifier.height(FabClearance))
+                itemsIndexed(state.open + state.decided, key = { _, it -> it.value.id.toString() }) { i, it ->
+                    DecisionCard(it, state.people, state.today, i) { onOpen(it.value.id) }
+                }
+                item { Spacer(Modifier.height(FabClearance)) }
             }
         }
         Fab("新决定", { creating = true })

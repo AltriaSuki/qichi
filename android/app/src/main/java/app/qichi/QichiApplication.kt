@@ -156,7 +156,8 @@ class QichiApplication : Application(), Configuration.Provider, SingletonImageLo
     private suspend fun pullAll() {
         for (room in db.syncState().roomIds()) {
             try {
-                syncEngine.pull(UUID.fromString(room))
+                // 实时通道连上时也会按 hello 拉：谁先拉完，另一个就不再发请求（P17-06）
+                syncEngine.pullIfStale(UUID.fromString(room))
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
