@@ -75,4 +75,49 @@ class MarkdownTest {
         val styled = Markdown.highlight("![日落](qichi-file:$id)", Color.Gray, 20.sp)
         assertEquals(listOf("![日落](qichi-file:$id)"), styled.spanStyles.filter { it.item.color == Color.Gray }.map { styled.text.substring(it.start, it.end) })
     }
+
+    @Test
+    fun `代码块原样保留，里面的符号不当标记；没写完的代码块算到结尾`() {
+        val blocks = Markdown.parse("看这段：\n```kotlin\nval a = **b**\n# 不是标题\n```\n结束")
+        assertEquals(Markdown.Block.Code("val a = **b**\n# 不是标题", 1), blocks[1])
+        assertEquals(Markdown.Block.Paragraph("结束", 5), blocks[2])
+        assertEquals(listOf(Markdown.Block.Code("写到一半", 0)), Markdown.parse("```\n写到一半"))
+    }
+
+    @Test
+    fun `表格：表头、分隔行、行；格子不够的补空`() {
+        val blocks = Markdown.parse("| 地方 | 预算 |\n|---|:--:|\n| 海边 | 3000 |\n| 山里 |\n之后")
+        assertEquals(Markdown.Block.Table(listOf("地方", "预算"), listOf(listOf("海边", "3000"), listOf("山里", "")), 0), blocks[0])
+        assertEquals(Markdown.Block.Paragraph("之后", 4), blocks[1])
+    }
+
+    @Test
+    fun `没有分隔行的竖线不算表格`() {
+        assertIs<Markdown.Block.Paragraph>(Markdown.parse("| 只是一行 |")[0])
+    }
+
+    @Test
+    fun `嵌套列表记下缩进`() {
+        val blocks = Markdown.parse("- 周末\n  - 买菜\n    1. 番茄")
+        assertEquals(listOf(0, 1, 2), blocks.map { (it as Markdown.Block.Item).indent })
+    }
+
+    @Test
+    fun `行内链接、删除线去掉符号，链接能点`() {
+        val styled = Markdown.inline("看[这里](https://example.com)，~~不去了~~", Color.Gray)
+        assertEquals("看这里，不去了", styled.text)
+        assertEquals(1, styled.getLinkAnnotations(0, styled.length).size)
+    }
+
+    @Test
+    fun `普通文字交给 plain 追加，粗体里的也是`() {
+        val styled = Markdown.inline("见[1]和**重点[2]**", Color.Gray) { append(it.replace(Regex("\\[\\d]"), "#")) }
+        assertEquals("见#和重点#", styled.text)
+    }
+
+    @Test
+    fun `纯文字：去掉所有标记`() {
+        val text = "## 建议\n\n- **早点**出门\n- 带`伞`\n\n> 慢慢来"
+        assertEquals("建议\n· 早点出门\n· 带伞\n慢慢来", Markdown.plain(text))
+    }
 }

@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,13 +33,17 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -48,8 +54,9 @@ import app.qichi.shared.rules.DocumentImages
 import java.util.UUID
 
 /**
- * 够用的 Markdown：标题（# ～ ######）、列表（- * 1.）、引用（>）、分隔线（---）、段落，
- * 行内的 **粗体**、*斜体*、`代码`。共同写作的预览、编辑器里的淡色标记、大纲都用它。
+ * 够用的 Markdown：标题（# ～ ######）、列表（- * 1.，可以缩进）、引用（>）、分隔线（---）、
+ * 代码块（```）、表格（| a | b |）、段落，行内的 **粗体**、*斜体*、~~删除线~~、`代码`、[链接](https://…)。
+ * 共同写作的预览、编辑器里的淡色标记、大纲、AI 的回答都用它。
  */
 object Markdown {
     sealed interface Block {
@@ -58,7 +65,8 @@ object Markdown {
 
         data class Heading(val level: Int, val text: String, override val line: Int) : Block
         data class Paragraph(val text: String, override val line: Int) : Block
-        data class Item(val marker: String, val text: String, override val line: Int) : Block
+        /** [indent] 缩进几层（行首每两个空格或一个制表符算一层），AI 的回答里常有嵌套列表 */
+        data class Item(val marker: String, val text: String, override val line: Int, val indent: Int = 0) : Block
 
         /** 照片：单独一行 ![说明](qichi-file:文件id)（P9-02） */
         data class Image(val fileId: UUID, val alt: String, override val line: Int) : Block
@@ -67,6 +75,12 @@ object Markdown {
         data class Task(val checked: Boolean, val text: String, override val line: Int) : Block
         data class Quote(val text: String, override val line: Int) : Block
         data class Rule(override val line: Int) : Block
+
+        /** ``` 围起来的代码，原样显示；没写完的（边生成边显示时）一直算到结尾 */
+        data class Code(val text: String, override val line: Int) : Block
+
+        /** 表格：第一行是表头，第二行 |---| 是分隔 */
+        data class Table(val header: List<String>, val rows: List<List<String>>, override val line: Int) : Block
     }
 
     private val heading = Regex("^(#{1,6})\\s+(.*)$")
@@ -75,6 +89,15 @@ object Markdown {
     private val ordered = Regex("^\\s*(\\d{1,3}[.)])\\s+(.*)$")
     private val quote = Regex("^>\\s?(.*)$")
     private val rule = Regex("^\\s*([-*_])(\\s*\\1){2,}\\s*$")
+    private val fence = Regex("^\\s*(```|~~~)")
+    private val tableRow = Regex("^\\s*\\|.*\\|\\s*$")
+    private val tableDivider = Regex("^\\s*\\|?(\\s*:?-{2,}:?\\s*\\|)+\\s*(:?-{2,}:?\\s*)?$")
+
+    private fun indentOf(line: String): Int =
+        line.takeWhile { it == ' ' || it == '\t' }.sumOf { if (it == '\t') 2 else 1 }.let { it / 2 }.coerceAtMost(4)
+
+    private fun cells(line: String): List<String> =
+        line.trim().removePrefix("|").removeSuffix("|").split('|').map { it.trim() }
 
     fun parse(text: String): List<Block> {
         val lines = text.lines()
@@ -85,9 +108,33 @@ object Markdown {
             if (paragraph.isNotEmpty()) blocks += Block.Paragraph(paragraph.toString(), paragraphStart)
             paragraph.clear()
         }
-        lines.forEachIndexed { i, raw ->
+        var i = 0
+        while (i < lines.size) {
+            val raw = lines[i]
             val line = raw.trimEnd()
             when {
+                fence.containsMatchIn(line) -> {
+                    flush()
+                    val marker = fence.find(line)!!.groupValues[1]
+                    val start = i
+                    val code = mutableListOf<String>()
+                    i++
+                    while (i < lines.size && !lines[i].trimStart().startsWith(marker)) code += lines[i++]
+                    blocks += Block.Code(code.joinToString("\n").trimEnd(), start)
+                }
+                tableRow.matches(line) && i + 1 < lines.size && tableDivider.matches(lines[i + 1].trimEnd()) -> {
+                    flush()
+                    val start = i
+                    val header = cells(line)
+                    i += 2
+                    val rows = mutableListOf<List<String>>()
+                    while (i < lines.size && tableRow.matches(lines[i].trimEnd())) rows += cells(lines[i++]).let { r ->
+                        // 少的补空格子，多的去掉
+                        List(header.size) { r.getOrElse(it) { "" } }
+                    }
+                    i--
+                    blocks += Block.Table(header, rows, start)
+                }
                 line.isBlank() -> flush()
                 rule.matches(line) -> { flush(); blocks += Block.Rule(i) }
                 heading.matches(line) -> { flush(); heading.find(line)!!.let { blocks += Block.Heading(it.groupValues[1].length, it.groupValues[2].trim(), i) } }
@@ -97,8 +144,8 @@ object Markdown {
                     blocks += Block.Image(UUID.fromString(m.groupValues[2]), m.groupValues[1], i)
                 }
                 task.matches(line) -> { flush(); task.find(line)!!.let { blocks += Block.Task(it.groupValues[1] != " ", it.groupValues[2], i) } }
-                bullet.matches(line) -> { flush(); bullet.find(line)!!.let { blocks += Block.Item("·", it.groupValues[2], i) } }
-                ordered.matches(line) -> { flush(); ordered.find(line)!!.let { blocks += Block.Item(it.groupValues[1], it.groupValues[2], i) } }
+                bullet.matches(line) -> { flush(); indentOf(line).let { n -> bullet.find(line)!!.let { blocks += Block.Item(if (n == 0) "·" else "◦", it.groupValues[2], i, n) } } }
+                ordered.matches(line) -> { flush(); ordered.find(line)!!.let { blocks += Block.Item(it.groupValues[1], it.groupValues[2], i, indentOf(line)) } }
                 quote.matches(line) -> {
                     flush()
                     val body = quote.find(line)!!.groupValues[1]
@@ -115,6 +162,7 @@ object Markdown {
                     paragraph.append(line.trim())
                 }
             }
+            i++
         }
         flush()
         return blocks
@@ -123,22 +171,50 @@ object Markdown {
     /** 大纲：所有标题。 */
     fun headings(text: String): List<Block.Heading> = parse(text).filterIsInstance<Block.Heading>()
 
-    private val inlinePattern = Regex("\\*\\*(.+?)\\*\\*|\\*(.+?)\\*|`(.+?)`")
+    private val inlinePattern = Regex("`(.+?)`|\\[([^\\]]+)]\\((https?://[^)\\s]+)\\)|\\*\\*(.+?)\\*\\*|~~(.+?)~~|\\*(.+?)\\*")
 
-    /** 行内样式：粗体、斜体、代码；标记符号本身去掉。 */
-    fun inline(text: String, codeColor: Color): AnnotatedString = buildAnnotatedString {
+    /**
+     * 行内样式：代码、链接、粗体、删除线、斜体；标记符号本身去掉。
+     * 普通文字交给 [plain] 追加（AI 的回答用它把来源编号 [n] 换成可以点的小标签）。
+     */
+    fun inline(
+        text: String,
+        codeColor: Color,
+        linkColor: Color = codeColor,
+        plain: AnnotatedString.Builder.(String) -> Unit = { append(it) },
+    ): AnnotatedString = buildAnnotatedString {
         var last = 0
         for (m in inlinePattern.findAll(text)) {
-            append(text.substring(last, m.range.first))
+            plain(text.substring(last, m.range.first))
             when {
-                m.groups[1] != null -> withStyle(SpanStyle(fontWeight = FontWeight.W500)) { append(m.groupValues[1]) }
-                m.groups[2] != null -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(m.groupValues[2]) }
-                else -> withStyle(SpanStyle(color = codeColor, letterSpacing = 0.em)) { append(m.groupValues[3]) }
+                m.groups[1] != null -> withStyle(SpanStyle(color = codeColor, letterSpacing = 0.em)) { append(m.groupValues[1]) }
+                m.groups[2] != null -> withLink(LinkAnnotation.Url(m.groupValues[3], TextLinkStyles(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)))) {
+                    append(m.groupValues[2])
+                }
+                m.groups[4] != null -> withStyle(SpanStyle(fontWeight = FontWeight.W500)) { plain(m.groupValues[4]) }
+                m.groups[5] != null -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) { plain(m.groupValues[5]) }
+                else -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { plain(m.groupValues[6]) }
             }
             last = m.range.last + 1
         }
-        append(text.substring(last))
+        plain(text.substring(last))
     }
+
+    /** 去掉所有标记的纯文字（一行预览、存成灵感和档案时用），块与块之间换行。 */
+    fun plain(text: String): String = parse(text).joinToString("\n") { b ->
+        fun t(s: String) = inline(s, Color.Unspecified).text
+        when (b) {
+            is Block.Heading -> t(b.text)
+            is Block.Paragraph -> t(b.text)
+            is Block.Item -> "  ".repeat(b.indent) + (if (b.marker == "·" || b.marker == "◦") "· " else b.marker + " ") + t(b.text)
+            is Block.Task -> (if (b.checked) "✓ " else "□ ") + t(b.text)
+            is Block.Quote -> t(b.text)
+            is Block.Image -> "（${b.alt.ifBlank { "照片" }}）"
+            is Block.Rule -> ""
+            is Block.Code -> b.text
+            is Block.Table -> (listOf(b.header) + b.rows).joinToString("\n") { row -> row.joinToString("　") { t(it) } }
+        }
+    }.trim()
 
     /**
      * 编辑器里的原文着色：不改动任何字符（光标位置不受影响），只把标题行放大、
@@ -173,6 +249,8 @@ object Markdown {
  * [onToggleTask] 不为空时勾选框可以点（参数是那一行在原文里的行号）。
  * [image] 画一张照片（文稿里用）；为空时照片只显示成「（照片）」这样的一行字。
  * [comments] 不为空时，长按一块可以留言，有留言的块旁边显示条数（P9-03）。
+ * [style] 不为空时用它做正文样式（AI 的回答沿用聊天里的字）；[blockGap] 段落之间的空；
+ * [plainText] 普通文字怎么追加（见 [Markdown.inline]）。
  */
 @Composable
 fun MarkdownView(
@@ -183,24 +261,28 @@ fun MarkdownView(
     onToggleTask: ((Int) -> Unit)? = null,
     image: (@Composable (fileId: UUID, alt: String) -> Unit)? = null,
     comments: BlockComments? = null,
+    style: TextStyle? = null,
+    blockGap: Dp = 14.dp,
+    plainText: (AnnotatedString.Builder.(String) -> Unit)? = null,
 ) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
-    val body = type.body.copy(fontSize = fontSize, lineHeight = fontSize * lineHeight, fontWeight = FontWeight.W300, letterSpacing = 0.03.em, color = colors.ink)
+    val body = style ?: type.body.copy(fontSize = fontSize, lineHeight = fontSize * lineHeight, fontWeight = FontWeight.W300, letterSpacing = 0.03.em, color = colors.ink)
     val blocks = remember(text) { Markdown.parse(text) }
+    fun inline(s: String) = if (plainText == null) Markdown.inline(s, colors.muted, colors.accent) else Markdown.inline(s, colors.muted, colors.accent, plainText)
     Column(modifier) {
         blocks.forEachIndexed { index, block ->
             CommentableBlock(index, block, comments, body) {
                 when (block) {
                     is Markdown.Block.Heading -> Text(
-                        Markdown.inline(block.text, colors.muted),
+                        inline(block.text),
                         style = body.copy(fontSize = fontSize * (if (block.level <= 2) 1.3f else 1.12f), lineHeight = fontSize * 1.3f * 1.6f, letterSpacing = 0.12.em),
                         modifier = Modifier.padding(top = 10.dp, bottom = 6.dp).semantics { heading() },
                     )
-                    is Markdown.Block.Paragraph -> Text(Markdown.inline(block.text, colors.muted), style = body, modifier = Modifier.padding(bottom = 14.dp))
-                    is Markdown.Block.Item -> Row(Modifier.fillMaxWidth()) {
+                    is Markdown.Block.Paragraph -> Text(inline(block.text), style = body, modifier = Modifier.padding(bottom = blockGap))
+                    is Markdown.Block.Item -> Row(Modifier.fillMaxWidth().padding(start = (block.indent * 18).dp)) {
                         Text(block.marker, style = body.copy(color = colors.faint), modifier = Modifier.widthIn(min = 22.dp))
-                        Text(Markdown.inline(block.text, colors.muted), style = body, modifier = Modifier.weight(1f))
+                        Text(inline(block.text), style = body, modifier = Modifier.weight(1f))
                     }
                     is Markdown.Block.Image -> Box(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 14.dp)) {
                         if (image != null) {
@@ -228,16 +310,52 @@ fun MarkdownView(
                             if (block.checked) Text("✓", style = body.copy(fontSize = fontSize * 0.7f, lineHeight = fontSize * 0.8f, color = colors.paper))
                         }
                         Text(
-                            Markdown.inline(block.text, colors.muted),
+                            inline(block.text),
                             style = if (block.checked) body.copy(color = colors.muted, textDecoration = TextDecoration.LineThrough) else body,
                             modifier = Modifier.weight(1f),
                         )
                     }
                     is Markdown.Block.Quote -> Row(Modifier.padding(vertical = 6.dp).height(IntrinsicSize.Min)) {
                         Box(Modifier.width(2.dp).fillMaxHeight().background(colors.line2))
-                        Text(Markdown.inline(block.text, colors.muted), style = body.copy(color = colors.muted), modifier = Modifier.padding(start = 14.dp))
+                        Text(inline(block.text), style = body.copy(color = colors.muted), modifier = Modifier.padding(start = 14.dp))
                     }
                     is Markdown.Block.Rule -> Box(Modifier.padding(vertical = 18.dp).fillMaxWidth().height(1.dp).background(colors.line))
+                    // 代码不折行，太宽可以左右滑
+                    is Markdown.Block.Code -> Box(
+                        Modifier.padding(top = 4.dp, bottom = blockGap).fillMaxWidth().clip(QichiShapes.card)
+                            .background(colors.line.copy(alpha = 0.5f))
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        Text(
+                            block.text,
+                            style = body.copy(fontFamily = type.numeral.fontFamily, fontSize = body.fontSize * 0.85f, lineHeight = body.fontSize * 1.5f, letterSpacing = 0.em),
+                            softWrap = false,
+                        )
+                    }
+                    is Markdown.Block.Table -> MarkdownTable(block, body, blockGap, ::inline)
+                }
+            }
+        }
+    }
+}
+
+/** 表格：每列一样宽，放不下就折行；表头加粗，行与行之间细线。 */
+@Composable
+private fun MarkdownTable(block: Markdown.Block.Table, body: TextStyle, blockGap: Dp, inline: (String) -> AnnotatedString) {
+    val colors = QichiTheme.colors
+    val cellStyle = body.copy(fontSize = body.fontSize * 0.9f, lineHeight = body.fontSize * 0.9f * 1.5f)
+    Column(Modifier.padding(top = 4.dp, bottom = blockGap).fillMaxWidth().border(1.dp, colors.line, QichiShapes.card)) {
+        (listOf(block.header) + block.rows).forEachIndexed { r, row ->
+            if (r > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(colors.line))
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                row.forEachIndexed { c, cell ->
+                    if (c > 0) Box(Modifier.width(1.dp).fillMaxHeight().background(colors.line))
+                    Text(
+                        inline(cell),
+                        style = if (r == 0) cellStyle.copy(fontWeight = FontWeight.W500) else cellStyle,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 6.dp),
+                    )
                 }
             }
         }

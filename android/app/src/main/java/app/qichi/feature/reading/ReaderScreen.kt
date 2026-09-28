@@ -82,6 +82,7 @@ import app.qichi.core.designsystem.component.decor.Ribbon
 import app.qichi.core.designsystem.dashedDivider
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
+import app.qichi.core.ui.MarkdownView
 import app.qichi.shared.api.Highlight
 import app.qichi.shared.model.HighlightKind
 import app.qichi.shared.model.ReadExplainMode
@@ -485,7 +486,7 @@ private fun HighlightSheet(h: Highlight, people: People, vm: ReaderViewModel, on
         }
         Text("「${h.text}」", style = type.bodyLarge.copy(color = colors.ink))
         if (h.kind == HighlightKind.Ai) {
-            h.note?.let { Text(it, style = type.body.copy(color = colors.ink)) }
+            h.note?.let { MarkdownView(it, type.body.fontSize, 1.7f, style = type.body.copy(color = colors.ink), blockGap = 8.dp) }
             if (mine) {
                 SwitchRow("共同可见", shared, { shared = it; vm.updateHighlight(h, h.note, it) })
                 TextAction("删除", { deleting = true }, color = colors.muted)

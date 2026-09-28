@@ -175,11 +175,11 @@ fun ArchiveListScreen(
             // 短消息直接当作那一句话；长消息取开头做标题，全文放进补充。
             // AI 的回答（P14-04）：问的那句话做标题，回答放进补充，去掉点不开的来源编号
             initialTitle = source?.let { m ->
-                if (m.kind == MessageKind.Ai) aiAnswerTitle(m.aiPrompt, Limits.ARCHIVE_TITLE_LENGTH.last, excerpt(plainAiAnswer(m.body), 30))
+                if (m.kind == MessageKind.Ai) aiAnswerTitle(m.aiPrompt, Limits.ARCHIVE_TITLE_LENGTH.last, excerpt(plainAiAnswer(m.body, markdown = false), 30))
                 else m.body.trim().let { if (it.length <= Limits.ARCHIVE_TITLE_LENGTH.last && '\n' !in it) it else excerpt(it, 30) }
             }.orEmpty(),
             initialBody = source?.let { m ->
-                if (m.kind == MessageKind.Ai) plainAiAnswer(m.body)
+                if (m.kind == MessageKind.Ai) plainAiAnswer(m.body, markdown = false)
                 else m.body.trim().takeIf { it.length > Limits.ARCHIVE_TITLE_LENGTH.last || '\n' in it }
             }.orEmpty(),
             source = source,
