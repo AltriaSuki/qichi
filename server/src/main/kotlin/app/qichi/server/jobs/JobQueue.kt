@@ -59,10 +59,12 @@ typealias GiveUpHandler = suspend (QueuedJob, String) -> Unit
 /**
  * 任务分道（P13-14）：每一道有自己的工作协程，一道里再慢也不会挡住别的道。
  * 文档转换、生成预览又慢又吃内存，放在自己那一道、一次只做一个；问 AI 那一道有两个工作协程，
- * 两个人同时问、或者一边在生成总结，也不用排队等。
+ * 两个人同时问也不用排队等。总结、审稿这类输出长、一次要几分钟的 AI 活在 [AiLong] 那一道，
+ * 两份总结一起生成时问 AI 也不会被挡住（P19-06）。
  */
 enum class JobLane(val workers: Int) {
     Ai(2),
+    AiLong(1),
     Files(1),
     Other(1),
 }

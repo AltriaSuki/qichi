@@ -143,10 +143,11 @@ class AiService(
         queue.register(JOB_CHAT, ::giveUp, JobLane.Ai) { job -> answerInChat(job) }
         queue.register(JOB_QUESTION, ::giveUp, JobLane.Ai) { job -> suggestQuestion(job) }
         queue.register(JOB_READ, ::giveUp, JobLane.Ai) { job -> explainReading(job) }
-        queue.register(JOB_SUMMARY, ::giveUp, JobLane.Ai) { job -> summarize(job) }
+        // 总结、审稿一次要几分钟，放在自己那一道，不挡住有人在等的问 AI、阅读、写作助手（P19-06）
+        queue.register(JOB_SUMMARY, ::giveUp, JobLane.AiLong) { job -> summarize(job) }
         // 年度检查放弃了也要接着排下一次，不然每年一次的回顾就断了
         queue.register(JOB_YEARLY_CHECK, { _, _ -> ensureYearlyCheck() }) { _ -> yearlyCheck() }
-        queue.register(JOB_REVIEW, ::giveUp, JobLane.Ai) { job -> reviewFindings(job) }
+        queue.register(JOB_REVIEW, ::giveUp, JobLane.AiLong) { job -> reviewFindings(job) }
         queue.register(JOB_WRITE, ::giveUp, JobLane.Ai) { job -> writeAssist(job) }
     }
 
@@ -294,7 +295,7 @@ class AiService(
             return fail(jobId, roomId, "没有得到回答", e.reason)
         }
         // 查过资料的回答也不标编号（存成标记旁边的一段话，点不开来源）；一直只想查、一个字没写时算没得到回答
-        val answer = result.text.replace(CITATION, "").trim()
+        val answer = result.text.replace(CITATION, "").trim().let { if (result.truncated) it + CUT_OFF else it }
         if (answer.isEmpty()) return fail(jobId, roomId, "没有得到回答")
         db.tx {
             val now = clock.instant()
@@ -396,7 +397,7 @@ class AiService(
             ),
         )
         val result = try {
-            gateway.complete(AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)), maxTokens = REVIEW_MAX_TOKENS))
+            gateway.complete(AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)), maxTokens = REVIEW_MAX_TOKENS, timeoutMillis = BACKGROUND_TIMEOUT_MS))
         } catch (e: AiProviderException) {
             log.warn("审稿 AI 失败（第 {} 次）：{}", job.attempts, e.message)
             if (e.retryable && !job.isLastAttempt) throw e
@@ -552,7 +553,12 @@ class AiService(
                 "length" to (if (kind == SummaryKind.Year) "1200" else "500"),
             ))
             val result = try {
-                gateway.complete(AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)), maxTokens = if (kind == SummaryKind.Year) 2000 else 1000))
+                gateway.complete(
+                    AiRequest(
+                        rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)),
+                        maxTokens = if (kind == SummaryKind.Year) YEAR_SUMMARY_MAX_TOKENS else SUMMARY_MAX_TOKENS, timeoutMillis = BACKGROUND_TIMEOUT_MS,
+                    ),
+                )
             } catch (e: AiProviderException) {
                 log.warn("生成总结失败（第 {} 次）：{}", job.attempts, e.message)
                 if (e.retryable && !job.isLastAttempt) throw e
@@ -647,7 +653,7 @@ class AiService(
                 .ifEmpty { "（还没有聊天记录）" },
         ))
         val result = try {
-            gateway.complete(AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)), maxTokens = 120))
+            gateway.complete(AiRequest(rendered.system, listOf(AiMessage(AiMessage.Role.User, rendered.user)), maxTokens = QUESTION_MAX_TOKENS))
         } catch (e: AiProviderException) {
             log.warn("AI 出题失败（第 {} 次）：{}", job.attempts, e.message)
             if (e.retryable && !job.isLastAttempt) throw e
@@ -769,13 +775,17 @@ class AiService(
         val rendered = prompts.render(name, vars)
         val result = try {
             completeLookingUp(
-                gateway, rendered.system, rendered.user,
-                if (req.mode == WriteAssistMode.Draft) DRAFT_MAX_TOKENS else WRITE_MAX_TOKENS, tools, "写作助手",
+                gateway, rendered.system, rendered.user, writeMaxTokens(req), tools, "写作助手", timeoutMillis = BACKGROUND_TIMEOUT_MS,
             )
         } catch (e: AiProviderException) {
             log.warn("写作助手失败（第 {} 次）：{}", job.attempts, e.message)
             if (e.retryable && !job.isLastAttempt) throw e
             return fail(jobId, roomId, "没有得到结果", e.reason)
+        }
+        // 润色、改错字、缩短没写完就不给：点「用这个」会把选中的整段换成半段
+        if (result.truncated && req.mode in REWRITE_MODES) {
+            log.warn("写作助手（{}）写到长度上限被截断，不给半截的结果", req.mode.wireName)
+            return fail(jobId, roomId, "结果太长没写完")
         }
         val text = result.text.replace(CITATION, "").trim().removePrefix("```markdown").removePrefix("```").removeSuffix("```").trim()
         if (text.isEmpty()) return fail(jobId, roomId, "没有得到结果")
@@ -801,12 +811,15 @@ class AiService(
      * 直到它直接回答；最多 [TOOL_ROUNDS] 轮，轮数或时间用完时不许再查（和问 AI 一样，见 answerInChat）。
      * 没有 [tools] 就是一次普通的请求。返回最后一轮的结果，用量是几轮加起来的；最后还是只想查、一个字没写时文字是空的。
      */
-    private suspend fun completeLookingUp(gateway: AiGateway, system: String, user: String, maxTokens: Int, tools: RoomTools?, what: String): AiResult {
-        if (tools == null) return gateway.complete(AiRequest(system, listOf(AiMessage(AiMessage.Role.User, user)), maxTokens = maxTokens))
+    private suspend fun completeLookingUp(
+        gateway: AiGateway, system: String, user: String, maxTokens: Int, tools: RoomTools?, what: String,
+        timeoutMillis: Long = CHAT_TIMEOUT_MS,
+    ): AiResult {
+        if (tools == null) return gateway.complete(AiRequest(system, listOf(AiMessage(AiMessage.Role.User, user)), maxTokens = maxTokens, timeoutMillis = timeoutMillis))
         val messages = mutableListOf(AiMessage(AiMessage.Role.User, user))
         var tokensIn = 0
         var tokensOut = 0
-        val deadline = System.currentTimeMillis() + CHAT_TIMEOUT_MS
+        val deadline = System.currentTimeMillis() + timeoutMillis
         for (round in 0..TOOL_ROUNDS) {
             val remaining = deadline - System.currentTimeMillis()
             val last = round == TOOL_ROUNDS || remaining < LAST_ROUND_MS
@@ -1098,7 +1111,8 @@ class AiService(
         // 最后一轮还是只想查、一个字没写：告诉他们没整理出来
         val text = result.text.ifBlank { if (result.toolCalls.isNotEmpty()) GAVE_UP else result.text }
         val parsed = AiActionParser(zone, names.entries.associate { (id, name) -> name to id }, input.plans).parse(text)
-        val answer = RoomContext.renumber(parsed.text.ifBlank { if (parsed.actions.isEmpty()) text else "可以记下这些：" }, book.all)
+        val shown = parsed.text.ifBlank { if (parsed.actions.isEmpty()) text else "可以记下这些：" }
+        val answer = RoomContext.renumber(if (result.truncated && result.text.isNotBlank()) shown + CUT_OFF else shown, book.all)
         db.tx {
             insertAnswer(jobId, roomId, askerId, prompt, answer.body, answer.sources, parsed.actions, stopped = false)
             finishJob(jobId, result.model, tokensIn, tokensOut)
@@ -1220,16 +1234,39 @@ class AiService(
         const val JOB_YEARLY_CHECK = "ai.yearly_check"
         const val JOB_REVIEW = "ai.review_findings"
         const val JOB_WRITE = "ai.write_assist"
-        private const val WRITE_MAX_TOKENS = 1_500
-        private const val DRAFT_MAX_TOKENS = 2_500
-        private const val REVIEW_MAX_TOKENS = 3000
+        /*
+         * 回答长度上限（token）。只是上限，用多少算多少；gpt-6-sol 这类「先想再答」的模型想的部分也算在里面，
+         * 以前给得太紧（出题 120、问 AI 800、改错字 1500），长一点的回答会被截断，想得久了甚至一个字都没有。
+         */
+        private const val WRITE_MAX_TOKENS = 2_000
+        private const val DRAFT_MAX_TOKENS = 5_000
+        private const val REVIEW_MAX_TOKENS = 8_000
+        private const val SUMMARY_MAX_TOKENS = 2_500
+        private const val YEAR_SUMMARY_MAX_TOKENS = 5_000
+        private const val QUESTION_MAX_TOKENS = 800
+
+        /** 总结、审稿、写作助手这类后台活最多等 5 分钟（输出长，不像问 AI 有人盯着） */
+        private const val BACKGROUND_TIMEOUT_MS = 300_000L
+
+        /** 改写选中文字的几种：结果和原文差不多长 */
+        private val REWRITE_MODES = setOf(WriteAssistMode.Polish, WriteAssistMode.Proofread, WriteAssistMode.Shorten)
+
+        /** 写到上限被截断时接在后面，让人知道没写完 */
+        const val CUT_OFF = "……（写得太长，没写完）"
+
+        /** 改写选中的文字时按原文长短给上限：一个汉字大约一到两个 token，再留出想的余地 */
+        internal fun writeMaxTokens(req: AiWriteRequest): Int = when (req.mode) {
+            WriteAssistMode.Draft -> DRAFT_MAX_TOKENS
+            in REWRITE_MODES -> maxOf(WRITE_MAX_TOKENS, req.text.orEmpty().length * 2 + 1_000)
+            else -> WRITE_MAX_TOKENS
+        }
         private val YEARLY_CHECK_EVERY: java.time.Duration = java.time.Duration.ofHours(6)
         private const val READ_TEXT_MAX = 2000
         private const val READ_CONTEXT_MAX = 500
         private const val COMPARE_NOTES = 20
         const val PROMPT_MAX = 2000
         private const val CHAT_ATTEMPTS = 2
-        private const val CHAT_MAX_TOKENS = 800
+        private const val CHAT_MAX_TOKENS = 2_000
 
         /** 问 AI 最多等 3 分钟（边生成边显示，等的时候看得到进度） */
         private const val CHAT_TIMEOUT_MS = 180_000L

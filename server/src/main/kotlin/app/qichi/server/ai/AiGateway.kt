@@ -79,13 +79,17 @@ data class AiRequest(
     }
 }
 
-/** 模型这一轮的回复。[toolCalls] 非空表示它要先查资料，[text] 可能为空。 */
+/**
+ * 模型这一轮的回复。[toolCalls] 非空表示它要先查资料，[text] 可能为空。
+ * [truncated]：写到 maxTokens 被截断了（服务商报 length / max_tokens）；会「先想再答」的模型可能想完就用光了，一个字都没写。
+ */
 data class AiResult(
     val text: String,
     val inputTokens: Int,
     val outputTokens: Int,
     val model: String,
     val toolCalls: List<AiToolCall> = emptyList(),
+    val truncated: Boolean = false,
 )
 
 /**
@@ -119,7 +123,7 @@ interface AiGateway {
         const val OPENAI_COMPATIBLE = "openai-compatible"
         const val ANTHROPIC = "anthropic"
 
-        /** 没配置 AI 时返回 null（AI 接口返回 ai_unavailable）。 */
+        /** 没配置 AI 时返回 null（AI 接口返回 ai_unavailable）。外面包一层 [ResilientGateway]。 */
         fun fromConfig(config: AiConfig, engine: HttpClientEngine = CIO.create()): AiGateway? {
             if (!config.isConfigured) return null
             val http = HttpClient(engine) {
@@ -129,11 +133,12 @@ interface AiGateway {
                     requestTimeoutMillis = 120_000
                 }
             }
-            return when (config.provider) {
+            val provider = when (config.provider) {
                 OPENAI_COMPATIBLE -> OpenAiCompatibleProvider(config.baseUrl!!, config.apiKey!!, config.model!!, http)
                 ANTHROPIC -> AnthropicProvider(config.baseUrl!!, config.apiKey!!, config.model!!, http)
                 else -> null
             }
+            return provider?.let(::ResilientGateway)
         }
     }
 }
@@ -298,10 +303,13 @@ class OpenAiCompatibleProvider(
 
     private fun result(text: String): AiResult {
         val root = parse(text)
-        val message = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject?.get("message") as? JsonObject
+        val choice = root["choices"]?.jsonArray?.firstOrNull()?.jsonObject
+        val message = choice?.get("message") as? JsonObject
         val content = message?.get("content")?.jsonPrimitive?.contentOrNull
         val calls = (message?.get("tool_calls") as? JsonArray).orEmpty().mapIndexedNotNull { i, el -> toolCall(el, i) }
-        if (content == null && calls.isEmpty()) throw AiProviderException("响应里没有回答", retryable = false)
+        val truncated = choice?.get("finish_reason")?.jsonPrimitive?.contentOrNull == "length"
+        // 长度用光了、一个字都没写：交给 ResilientGateway 放宽上限再问一次
+        if (content == null && calls.isEmpty() && !truncated) throw AiProviderException("响应里没有回答", retryable = false)
         val usage = root["usage"]?.jsonObject
         return AiResult(
             text = content.orEmpty().trim(),
@@ -309,6 +317,7 @@ class OpenAiCompatibleProvider(
             outputTokens = usage?.get("completion_tokens")?.jsonPrimitive?.intOrNull ?: 0,
             model = root["model"]?.jsonPrimitive?.contentOrNull ?: model,
             toolCalls = calls,
+            truncated = truncated,
         )
     }
 
@@ -329,13 +338,16 @@ class OpenAiCompatibleProvider(
             var tokensIn = 0
             var tokensOut = 0
             var usedModel = model
+            var truncated = false
             readEvents(response) { obj ->
                 obj["model"]?.jsonPrimitive?.contentOrNull?.let { usedModel = it }
                 (obj["usage"] as? JsonObject)?.let { u ->
                     tokensIn = u["prompt_tokens"]?.jsonPrimitive?.intOrNull ?: tokensIn
                     tokensOut = u["completion_tokens"]?.jsonPrimitive?.intOrNull ?: tokensOut
                 }
-                val delta = (obj["choices"] as? JsonArray)?.firstOrNull()?.jsonObject?.get("delta") as? JsonObject
+                val choice = (obj["choices"] as? JsonArray)?.firstOrNull() as? JsonObject
+                if (choice?.get("finish_reason")?.jsonPrimitive?.contentOrNull == "length") truncated = true
+                val delta = choice?.get("delta") as? JsonObject
                 val piece = delta?.get("content")?.jsonPrimitive?.contentOrNull
                 if (!piece.isNullOrEmpty()) {
                     sb.append(piece)
@@ -352,8 +364,8 @@ class OpenAiCompatibleProvider(
                 }
             }
             val toolCalls = calls.toCalls()
-            if (sb.isBlank() && toolCalls.isEmpty()) throw AiProviderException("响应里没有回答", retryable = true)
-            AiResult(sb.toString().trim(), tokensIn, tokensOut, usedModel, toolCalls)
+            if (sb.isBlank() && toolCalls.isEmpty() && !truncated) throw AiProviderException("响应里没有回答", retryable = true)
+            AiResult(sb.toString().trim(), tokensIn, tokensOut, usedModel, toolCalls, truncated)
         }
     }
 }
@@ -457,7 +469,8 @@ class AnthropicProvider(
             val name = b["name"]?.jsonPrimitive?.contentOrNull ?: return@mapIndexedNotNull null
             AiToolCall(b["id"]?.jsonPrimitive?.contentOrNull ?: "call_$i", name, (b["input"] as? JsonObject)?.toString() ?: "{}")
         }
-        if (content.isBlank() && calls.isEmpty()) throw AiProviderException("响应里没有回答", retryable = false)
+        val truncated = root["stop_reason"]?.jsonPrimitive?.contentOrNull == "max_tokens"
+        if (content.isBlank() && calls.isEmpty() && !truncated) throw AiProviderException("响应里没有回答", retryable = false)
         val usage = root["usage"]?.jsonObject
         return AiResult(
             text = content.trim(),
@@ -465,6 +478,7 @@ class AnthropicProvider(
             outputTokens = usage?.get("output_tokens")?.jsonPrimitive?.int ?: 0,
             model = root["model"]?.jsonPrimitive?.contentOrNull ?: model,
             toolCalls = calls,
+            truncated = truncated,
         )
     }
 
@@ -484,6 +498,7 @@ class AnthropicProvider(
             var tokensIn = 0
             var tokensOut = 0
             var usedModel = model
+            var truncated = false
             readEvents(response) { obj ->
                 val index = obj["index"]?.jsonPrimitive?.intOrNull ?: 0
                 when (obj["type"]?.jsonPrimitive?.contentOrNull) {
@@ -509,13 +524,16 @@ class AnthropicProvider(
                             "input_json_delta" -> delta["partial_json"]?.jsonPrimitive?.contentOrNull?.let { calls[index]?.arguments?.append(it) }
                         }
                     }
-                    "message_delta" -> tokensOut = obj["usage"]?.jsonObject?.get("output_tokens")?.jsonPrimitive?.intOrNull ?: tokensOut
+                    "message_delta" -> {
+                        tokensOut = obj["usage"]?.jsonObject?.get("output_tokens")?.jsonPrimitive?.intOrNull ?: tokensOut
+                        if ((obj["delta"] as? JsonObject)?.get("stop_reason")?.jsonPrimitive?.contentOrNull == "max_tokens") truncated = true
+                    }
                     "error" -> throw AiProviderException("anthropic 流式出错：${obj["error"]?.toString()?.take(200)}", retryable = true)
                 }
             }
             val toolCalls = calls.toCalls()
-            if (sb.isBlank() && toolCalls.isEmpty()) throw AiProviderException("响应里没有回答", retryable = true)
-            AiResult(sb.toString().trim(), tokensIn, tokensOut, usedModel, toolCalls)
+            if (sb.isBlank() && toolCalls.isEmpty() && !truncated) throw AiProviderException("响应里没有回答", retryable = true)
+            AiResult(sb.toString().trim(), tokensIn, tokensOut, usedModel, toolCalls, truncated)
         }
     }
 }

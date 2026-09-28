@@ -102,4 +102,28 @@ class WriteAssistTest {
             api.outsider(aqi).post(path, AiWriteRequest(UuidV7.generate(), WriteAssistMode.Polish, "x")).assertProblem(HttpStatusCode.NotFound, ProblemCode.NotFound)
         }
     }
+
+    @Test fun `改错字写到长度上限被截断：不给半截结果，任务失败；上限按选中的长短给`() {
+        val ctx = testContext(clock = clock, aiGateway = gateway)
+        serverTest(ctx) { client ->
+            val (aqi, _, room) = Api(client).pair()
+            val selected = "错".repeat(3_000)
+            gateway.answer = "对".repeat(1_000)
+            gateway.truncated = true
+            val jobId = UuidV7.generate()
+            aqi.post("/api/v1/rooms/$room/ai/write-assist", AiWriteRequest(jobId, WriteAssistMode.Proofread, selected))
+            ctx.jobs.drain()
+            assertTrue(gateway.requests.single().maxTokens >= selected.length * 2, "上限跟着原文长短走")
+            val job = aqi.get("/api/v1/rooms/$room/ai/jobs/$jobId").body<AiJob>()
+            assertEquals(AiJobStatus.Failed, job.status)
+            assertNull(job.resultText)
+
+            // 起草稿截断了照样给（本来就要自己改）
+            val draft = UuidV7.generate()
+            aqi.post("/api/v1/rooms/$room/ai/write-assist", AiWriteRequest(draft, WriteAssistMode.Draft, genre = DraftGenre.Letter,
+                rangeStart = LocalDate.parse("2026-09-20"), rangeEnd = LocalDate.parse("2026-09-24")))
+            ctx.jobs.drain()
+            assertEquals(AiJobStatus.Done, aqi.get("/api/v1/rooms/$room/ai/jobs/$draft").body<AiJob>().status)
+        }
+    }
 }
