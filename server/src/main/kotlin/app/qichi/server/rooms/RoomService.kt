@@ -199,6 +199,21 @@ class RoomService(
 
     private fun addMember(tx: Tx, roomId: UUID, userId: UUID, role: MemberRole) {
         val now = clock.instant()
+        // 退出过又被邀请回来（P16-07）：原来那一行恢复成有效成员，写过的内容接着算他的
+        val previous = RoomMembers.select(RoomMembers.id).where { (RoomMembers.roomId eq roomId) and (RoomMembers.userId eq userId) }
+            .singleOrNull()?.get(RoomMembers.id)
+        if (previous != null) {
+            val seq = writer.change(tx, roomId, EntityType.Member, previous, userId, now)
+            RoomMembers.update({ RoomMembers.id eq previous }) {
+                it[deletedAt] = null
+                it[deletedBy] = null
+                it[RoomMembers.role] = role.wireName
+                it[joinedAt] = now
+                it[RoomMembers.seq] = seq
+                it[updatedAt] = now
+            }
+            return
+        }
         val memberId = UuidV7.generate()
         val seq = writer.change(tx, roomId, EntityType.Member, memberId, userId, now)
         RoomMembers.insert {

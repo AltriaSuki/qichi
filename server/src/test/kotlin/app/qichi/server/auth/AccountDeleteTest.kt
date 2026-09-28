@@ -90,5 +90,11 @@ class AccountDeleteTest {
         assertEquals(1, detail.members.size)
         assertTrue(owner.get("/api/v1/rooms/$roomId/messages").body<MessagePage>().messages.any { it.id == said.id })
         owner.post("/api/v1/rooms/$roomId/leave").assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
+
+        // 对方再邀请回来：还是原来的成员，写过的内容接着算他的
+        val invite = owner.post("/api/v1/rooms/$roomId/invites").body<Invite>()
+        assertEquals(HttpStatusCode.OK, member.post("/api/v1/invites/accept", app.qichi.shared.api.AcceptInviteRequest(invite.code)).status)
+        assertEquals(2, owner.get("/api/v1/rooms/$roomId").body<RoomDetail>().members.size)
+        assertEquals(said.id, member.get("/api/v1/rooms/$roomId/messages").body<MessagePage>().messages.single { it.id == said.id }.id)
     }
 }
