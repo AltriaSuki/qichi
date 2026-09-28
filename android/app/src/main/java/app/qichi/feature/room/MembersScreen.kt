@@ -14,6 +14,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -29,6 +32,7 @@ import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Sizes
 import app.qichi.core.designsystem.Spacing
+import app.qichi.core.designsystem.component.ConfirmDialog
 import app.qichi.core.designsystem.component.ItemTopBar
 import app.qichi.core.designsystem.component.Person
 import app.qichi.core.designsystem.component.PersonMark
@@ -42,6 +46,7 @@ import app.qichi.core.ui.dotDate
 import app.qichi.core.ui.toFormError
 import app.qichi.shared.api.Invite
 import app.qichi.shared.api.Member
+import app.qichi.shared.api.PasswordResetCode
 import app.qichi.shared.api.Room
 import app.qichi.shared.model.MemberRole
 import app.qichi.shared.rules.Limits
@@ -93,6 +98,22 @@ class MembersViewModel @AssistedInject constructor(
         MembersState(room, members, session.currentUserId, inv, b, err)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MembersState(myUserId = session.currentUserId))
 
+    /** 刚给对方生成的重置码（对方的名字 + 码），只在这一页上显示（P16-04） */
+    private val _resetCode = MutableStateFlow<Pair<String, PasswordResetCode>?>(null)
+    val resetCode: StateFlow<Pair<String, PasswordResetCode>?> = _resetCode
+
+    fun createResetCode(member: Member) {
+        if (busy.value) return
+        busy.value = true
+        error.value = null
+        viewModelScope.launch {
+            runCatching { rooms.createResetCode(roomId, member.userId) }
+                .onSuccess { _resetCode.value = member.displayName to it }
+                .onFailure { e -> error.value = e.toFormError().message ?: "生成失败" }
+            busy.update { false }
+        }
+    }
+
     fun generateInvite() {
         if (busy.value) return
         busy.value = true
@@ -112,6 +133,7 @@ class MembersViewModel @AssistedInject constructor(
 }
 
 private val expiryFormat = DateTimeFormatter.ofPattern("M 月 d 日")
+private val timeFormat = DateTimeFormatter.ofPattern("HH:mm")
 
 @Composable
 fun MembersScreen(
@@ -120,6 +142,8 @@ fun MembersScreen(
     viewModel: MembersViewModel = hiltViewModel<MembersViewModel, MembersViewModel.Factory>(key = roomId.toString()) { it.create(roomId) },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val resetCode by viewModel.resetCode.collectAsStateWithLifecycle()
+    var confirmReset by remember { mutableStateOf<Member?>(null) }
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val context = LocalContext.current
@@ -155,6 +179,25 @@ fun MembersScreen(
                             style = type.numeral.copy(color = colors.muted),
                         )
                     }
+                }
+                // 对方忘了密码：给 TA 生成一个重置码（P16-04）
+                state.members.firstOrNull { it.userId != state.myUserId }?.let { partner ->
+                    TextAction("帮 TA 重置密码", onClick = { confirmReset = partner }, color = colors.muted)
+                }
+            }
+
+            resetCode?.let { (name, code) ->
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    SectionLabel("${name}的重置码")
+                    Text(
+                        text = code.code,
+                        style = type.numeral.copy(
+                            fontSize = 40.tsp, letterSpacing = 0.18.em, color = colors.ink,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Normal, fontFeatureSettings = "lnum",
+                        ),
+                    )
+                    val until = code.expiresAt.atZone(ZoneId.systemDefault()).format(timeFormat)
+                    Text("告诉 TA，在登录页点「忘了密码」输入。$until 前有效，只能用一次。", style = type.caption.copy(color = colors.muted))
                 }
             }
 
@@ -192,6 +235,17 @@ fun MembersScreen(
                     state.error?.let { Text(it, style = type.caption.copy(color = colors.accent)) }
                 }
             }
+            if (!state.canInvite) state.error?.let { Text(it, style = type.caption.copy(color = colors.accent)) }
         }
+    }
+
+    confirmReset?.let { partner ->
+        ConfirmDialog(
+            title = "帮${partner.displayName}重置密码？",
+            text = "会生成一个 15 分钟内有效的重置码。${partner.displayName}用它设了新密码以后，TA 所有手机上的登录都要重新登录。",
+            confirmLabel = "生成重置码",
+            onConfirm = { viewModel.createResetCode(partner) },
+            onDismiss = { confirmReset = null },
+        )
     }
 }

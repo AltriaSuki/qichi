@@ -13,6 +13,7 @@ import app.qichi.core.sync.SyncScheduler
 import app.qichi.shared.api.AcceptInviteRequest
 import app.qichi.shared.api.CreateRoomRequest
 import app.qichi.shared.api.Invite
+import app.qichi.shared.api.PasswordResetCode
 import app.qichi.shared.api.AiUsage
 import app.qichi.shared.api.Me
 import app.qichi.shared.api.Member
@@ -76,6 +77,9 @@ class RoomRepository(
     }
 
     suspend fun createInvite(roomId: UUID): Invite = api.post("rooms/$roomId/invites")
+
+    /** 给忘了密码的另一个人生成重置码（P16-04）：只在这次回应里出现，要在线。 */
+    suspend fun createResetCode(roomId: UUID, userId: UUID): PasswordResetCode = api.post("rooms/$roomId/members/$userId/password-reset")
 
     private suspend fun enterRoom(roomId: UUID) {
         profile.setCurrentRoom(roomId)
