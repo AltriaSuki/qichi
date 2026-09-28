@@ -115,6 +115,8 @@ fun QichiRoot(
             }
             // 内置更新：有新版本时的对话框
             app.qichi.core.update.UpdateDialog()
+            // 安卓 13 起要先同意才能弹通知：进主界面时问一次
+            app.qichi.core.push.NotificationPermission.AskOnce()
         }
     }
 }
