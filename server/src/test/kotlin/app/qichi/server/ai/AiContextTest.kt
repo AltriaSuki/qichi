@@ -8,6 +8,7 @@ import app.qichi.server.testConfig
 import app.qichi.server.testContext
 import app.qichi.shared.api.AiChatRequest
 import app.qichi.shared.api.AiPrefs
+import app.qichi.shared.api.CompleteTodoRequest
 import app.qichi.shared.api.CreateArchiveItemRequest
 import app.qichi.shared.api.CreateEventRequest
 import app.qichi.shared.api.CreateIdeaRequest
@@ -96,6 +97,35 @@ class AiContextTest {
             assertEquals(event.id, answer.aiSources[0].id)
             assertEquals("message", answer.aiSources[1].type)
             assertEquals(old.id, answer.aiSources[1].id)
+        }
+    }
+
+    @Test
+    fun `AI 自己查时的常备资料：跨过今天的全天日程、没做完的待办照给，过去的、做完的不给（P19-07 在数据库里就筛掉）`() {
+        val ctx = testContext(clock = clock, aiGateway = gateway)
+        serverTest(ctx) { client ->
+            val (aqi, _, roomId) = Api(client).pair()
+            aqi.post("/api/v1/rooms/$roomId/events", CreateEventRequest(UuidV7.generate(), "去年的旅行", allDay = false,
+                startsAt = Instant.parse("2025-09-26T00:00:00Z"), endsAt = Instant.parse("2025-09-26T02:00:00Z")))
+            aqi.post("/api/v1/rooms/$roomId/events", CreateEventRequest(UuidV7.generate(), "昨天的会", allDay = false,
+                startsAt = Instant.parse("2026-09-23T02:00:00Z"), endsAt = Instant.parse("2026-09-23T03:00:00Z")))
+            aqi.post("/api/v1/rooms/$roomId/events", CreateEventRequest(UuidV7.generate(), "国庆前的年假", allDay = true,
+                startDate = LocalDate.parse("2026-09-22"), endDate = LocalDate.parse("2026-09-25")))
+            aqi.post("/api/v1/rooms/$roomId/events", CreateEventRequest(UuidV7.generate(), "今天早上的晨跑", allDay = false,
+                startsAt = Instant.parse("2026-09-23T23:00:00Z"), endsAt = Instant.parse("2026-09-23T23:30:00Z")))
+            aqi.post("/api/v1/rooms/$roomId/todos", CreateTodoRequest(UuidV7.generate(), "买菜"))
+            val done = aqi.post("/api/v1/rooms/$roomId/todos", CreateTodoRequest(UuidV7.generate(), "交房租")).body<app.qichi.shared.api.Todo>()
+            aqi.post("/api/v1/rooms/$roomId/todos/${done.id}/complete", CompleteTodoRequest())
+
+            aqi.post("/api/v1/rooms/$roomId/ai/chat", AiChatRequest(UuidV7.generate(), "这周怎么安排？"))
+            ctx.jobs.drain()
+            val user = gateway.requests.first().messages.first().content
+            assertTrue(user.contains("国庆前的年假"), user)
+            assertTrue(user.contains("今天早上的晨跑"), "今天已经过了的时刻也算今天")
+            assertTrue(user.contains("买菜"))
+            assertFalse(user.contains("去年的旅行"))
+            assertFalse(user.contains("昨天的会"))
+            assertFalse(user.contains("交房租"))
         }
     }
 
