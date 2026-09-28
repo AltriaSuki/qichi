@@ -1,5 +1,6 @@
 package app.qichi
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
@@ -85,6 +86,8 @@ class MainActivity : FragmentActivity() {
         intent.sharedContent()?.let(shareInbox::offer)
     }
 
-    // 阅读页打开了「音量键翻页」时，音量键先交给它
+    // 阅读页打开了「音量键翻页」时，音量键先交给它。
+    // lint 把 ComponentActivity 上的 @RestrictTo 误套到了 Activity 的公开方法上（已知误报），这里忽略
+    @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean = PageKeys.dispatch(event) || super.dispatchKeyEvent(event)
 }
