@@ -199,6 +199,7 @@ object Events : SyncedTable("events") {
     val participantIds = array<UUID>("participant_ids", UUIDColumnType())
     val createdBy = javaUUID("created_by")
     val icsUid = text("ics_uid").nullable()
+    val remindMinutes = integer("remind_minutes").nullable()
     override val creator get() = createdBy
 }
 

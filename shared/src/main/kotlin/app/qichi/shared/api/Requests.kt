@@ -76,6 +76,8 @@ data class CreateEventRequest(
     val startDate: Day? = null,
     val endDate: Day? = null,
     val participantIds: List<Id> = emptyList(),
+    /** null = 不提醒（旧版 App 不带这个字段，也就不提醒） */
+    val remindMinutes: Int? = null,
 )
 
 @OptIn(ExperimentalSerializationApi::class)
@@ -90,6 +92,7 @@ data class UpdateEventRequest(
     @EncodeDefault(EncodeDefault.Mode.NEVER) val startDate: Patch<Day?> = Patch.Absent,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val endDate: Patch<Day?> = Patch.Absent,
     @EncodeDefault(EncodeDefault.Mode.NEVER) val participantIds: Patch<List<Id>> = Patch.Absent,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val remindMinutes: Patch<Int?> = Patch.Absent,
 )
 
 @Serializable

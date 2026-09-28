@@ -4203,6 +4203,13 @@ components:
               items: { $ref: '#/components/schemas/Uuid' }
             createdBy: { $ref: '#/components/schemas/Uuid' }
             icsUid: { type: [string, 'null'] }
+            remindMinutes: { $ref: '#/components/schemas/EventRemindMinutes' }
+    EventRemindMinutes:
+      description: |
+        提前多久提醒（分钟）：0 准时、5、15、60、1440（1 天）；`null` = 不提醒。旧数据和旧版 App 建的日程没有这个字段，按 `null`。
+        全天日程：小于 1440 是当天早上 9 点，1440 是前一天早上 9 点（房间时区）。提醒由手机本地排，服务端只存和同步。
+      type: [integer, 'null']
+      enum: [0, 5, 15, 60, 1440, null]
     CreateEventRequest:
       type: object
       required: [id, title, allDay]
@@ -4219,6 +4226,7 @@ components:
         participantIds:
           type: array
           items: { $ref: '#/components/schemas/Uuid' }
+        remindMinutes: { $ref: '#/components/schemas/EventRemindMinutes' }
     UpdateEventRequest:
       type: object
       minProperties: 1
@@ -4234,6 +4242,7 @@ components:
         participantIds:
           type: array
           items: { $ref: '#/components/schemas/Uuid' }
+        remindMinutes: { $ref: '#/components/schemas/EventRemindMinutes' }
 
     # ── 聊天 ──
     MessageKind:

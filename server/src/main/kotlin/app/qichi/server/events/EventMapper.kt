@@ -23,4 +23,5 @@ fun ResultRow.toEvent() = Event(
     participantIds = this[Events.participantIds],
     createdBy = this[Events.createdBy],
     icsUid = this[Events.icsUid],
+    remindMinutes = this[Events.remindMinutes],
 )

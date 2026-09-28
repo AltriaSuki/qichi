@@ -43,6 +43,7 @@ class EventService(
         val startDate: LocalDate?,
         val endDate: LocalDate?,
         val participantIds: List<UUID>,
+        val remindMinutes: Int?,
     )
 
     private fun Validator.checkShape(s: Shape, roomId: UUID) {
@@ -59,6 +60,7 @@ class EventService(
             if (s.startsAt != null && s.endsAt != null) check(!s.endsAt.isBefore(s.startsAt), "endsAt", "结束不能早于开始")
         }
         check(s.participantIds.all { RoomRepository.isMember(roomId, it) }, "participantIds", "参与者必须是房间里的人")
+        check(s.remindMinutes == null || s.remindMinutes in Limits.EVENT_REMIND_MINUTES, "remindMinutes", "提醒只能是准时、提前 5 分钟、15 分钟、1 小时或 1 天")
     }
 
     suspend fun create(userId: UUID, roomId: UUID, req: CreateEventRequest): Pair<Event, Boolean> = db.tx {
@@ -75,6 +77,7 @@ class EventService(
             allDay = req.allDay,
             startsAt = req.startsAt, endsAt = req.endsAt, startDate = req.startDate, endDate = req.endDate,
             participantIds = req.participantIds.distinct(),
+            remindMinutes = req.remindMinutes,
         )
         validate { checkShape(shape, roomId) }
         return writes.create(tx, roomId, userId, EntityType.Event, req.id, Events, ::event) {
@@ -87,6 +90,7 @@ class EventService(
             it[Events.startDate] = shape.startDate
             it[Events.endDate] = shape.endDate
             it[Events.participantIds] = shape.participantIds
+            it[Events.remindMinutes] = shape.remindMinutes
             it[Events.createdBy] = userId
         }
     }
@@ -106,6 +110,7 @@ class EventService(
             startDate = req.startDate.or(current.startDate),
             endDate = req.endDate.or(current.endDate),
             participantIds = req.participantIds.or(current.participantIds).distinct(),
+            remindMinutes = req.remindMinutes.or(current.remindMinutes),
         )
         validate { checkShape(shape, roomId) }
         writes.update(this, roomId, userId, EntityType.Event, id, Events) {
@@ -118,6 +123,7 @@ class EventService(
             it[Events.startDate] = shape.startDate
             it[Events.endDate] = shape.endDate
             it[Events.participantIds] = shape.participantIds
+            it[Events.remindMinutes] = shape.remindMinutes
         }
         event(id)!!
     }

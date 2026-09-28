@@ -163,4 +163,9 @@ data class Event(
     val participantIds: List<Id>,
     val createdBy: Id,
     val icsUid: String?,
+    /**
+     * 提前多久提醒（分钟，取值见 Limits.EVENT_REMIND_MINUTES），null = 不提醒。
+     * 全天日程：小于 1 天时是当天早上 9 点，1 天是前一天早上 9 点（按房间时区）。提醒由手机本地排（P16-01）。
+     */
+    val remindMinutes: Int? = null,
 ) : SyncEntity

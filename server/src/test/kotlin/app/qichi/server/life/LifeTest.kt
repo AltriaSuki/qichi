@@ -18,12 +18,15 @@ import app.qichi.shared.api.Me
 import app.qichi.shared.api.Mood
 import app.qichi.shared.api.MoodReply
 import app.qichi.shared.api.Patch
+import app.qichi.shared.api.QichiJson
+import app.qichi.shared.api.SyncResponse
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.isNull
 import app.qichi.shared.api.Todo
 import app.qichi.shared.api.UpdateEventRequest
 import app.qichi.shared.api.UpdateRoomRequest
 import app.qichi.shared.api.UpdateTodoRequest
+import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.MoodLabel
 import app.qichi.shared.model.MoodReplyKind
 import app.qichi.shared.model.ProblemCode
@@ -33,6 +36,7 @@ import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.json.decodeFromJsonElement
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import java.time.Instant
@@ -261,6 +265,36 @@ class LifeTest {
             .assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
 
         assertNotNull(owner.delete("/api/v1/rooms/$roomId/events/$id").body<Event>().deletedAt)
+    }
+
+    @Test
+    fun `日程提醒：新建和修改时保存、同步里带上，不在允许的几档里 400，不带就是不提醒`() = serverTest { client ->
+        val (owner, member, roomId) = Api(client).pair()
+        val id = UuidV7.generate()
+        val created = owner.post(
+            "/api/v1/rooms/$roomId/events",
+            CreateEventRequest(id, "看牙", allDay = false, startsAt = Instant.parse("2026-10-02T02:00:00Z"), endsAt = Instant.parse("2026-10-02T03:00:00Z"), remindMinutes = 15),
+        ).body<Event>()
+        assertEquals(15, created.remindMinutes)
+
+        // 旧版 App 不带这个字段：不提醒
+        val old = owner.post("/api/v1/rooms/$roomId/events", CreateEventRequest(UuidV7.generate(), "x", allDay = true, startDate = LocalDate.now(), endDate = LocalDate.now())).body<Event>()
+        assertNull(old.remindMinutes)
+
+        owner.post("/api/v1/rooms/$roomId/events", CreateEventRequest(UuidV7.generate(), "x", allDay = true, startDate = LocalDate.now(), endDate = LocalDate.now(), remindMinutes = 7))
+            .assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
+        member.patch("/api/v1/rooms/$roomId/events/$id", UpdateEventRequest(remindMinutes = Patch.of(-5)))
+            .assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
+
+        assertEquals(1440, member.patch("/api/v1/rooms/$roomId/events/$id", UpdateEventRequest(remindMinutes = Patch.of(1440))).body<Event>().remindMinutes)
+        // 只改标题不动提醒
+        assertEquals(1440, member.patch("/api/v1/rooms/$roomId/events/$id", UpdateEventRequest(title = Patch.of("看牙医"))).body<Event>().remindMinutes)
+        assertNull(owner.patch("/api/v1/rooms/$roomId/events/$id", UpdateEventRequest(remindMinutes = Patch.of(null))).body<Event>().remindMinutes)
+        owner.patch("/api/v1/rooms/$roomId/events/$id", UpdateEventRequest(remindMinutes = Patch.of(60)))
+
+        val synced = member.get("/api/v1/rooms/$roomId/sync?since=0").body<SyncResponse>().changes
+            .single { it.type == EntityType.Event && it.id == id }
+        assertEquals(60, QichiJson.decodeFromJsonElement<Event>(synced.data!!).remindMinutes)
     }
 
     @Test
