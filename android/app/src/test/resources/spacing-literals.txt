@@ -5,7 +5,7 @@ calendar/CalendarMonthScreen.kt	12
 calendar/EventListScreen.kt	1
 chat/ChatAiActions.kt	6
 chat/ChatAttachments.kt	11
-chat/ChatScreen.kt	56
+chat/ChatScreen.kt	55
 chat/ChatSearch.kt	12
 decisions/DecisionScreens.kt	13
 ideas/IdeasScreen.kt	12

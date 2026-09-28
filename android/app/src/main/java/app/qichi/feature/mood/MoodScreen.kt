@@ -72,9 +72,12 @@ import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.sync.Local
+import app.qichi.core.ui.dayTime
 import app.qichi.core.ui.displayName
 import app.qichi.core.ui.feelingWord
 import app.qichi.core.ui.icon
+import app.qichi.core.ui.isRecent
+import app.qichi.core.ui.todayIn
 import app.qichi.shared.api.Mood
 import app.qichi.shared.api.MoodReply
 import app.qichi.shared.model.MoodLabel
@@ -85,7 +88,6 @@ import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -251,7 +253,7 @@ fun MoodScreen(
             state.partnerMood?.let { mood ->
                 Column(Modifier.padding(top = 4.dp)) {
                     SectionLabel(state.people.name(mood.value.authorId)) { MoodTime(mood.value, zone) }
-                    MoodCard(mood.value, state.people) {
+                    MoodCard(mood.value, state.people, zone) {
                         FlowRow(Modifier.padding(top = Spacing.s), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             MoodReplyKind.entries.forEach { kind ->
                                 val given = state.myRepliesToPartner.any { it.kind == kind }
@@ -265,7 +267,7 @@ fun MoodScreen(
             state.myMood?.let { mood ->
                 Column {
                     SectionLabel("我") { MoodTime(mood.value, zone) }
-                    MoodCard(mood.value, state.people, pending = mood.isPending) {
+                    MoodCard(mood.value, state.people, zone, pending = mood.isPending) {
                         state.repliesToMe.forEach { reply ->
                             Row(Modifier.padding(top = Spacing.xs), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 PersonMark(state.people.markChar(reply.authorId), state.people.person(reply.authorId), size = 18.dp)
@@ -355,16 +357,15 @@ private fun IntensityPicker(value: Int, onChange: (Int) -> Unit) {
     }
 }
 
+/** 记下的时刻；不是今天的带上「昨天」或日期（这里只显示最近一条，可能是几天前的）。 */
 @Composable
 private fun MoodTime(mood: Mood, zone: ZoneId) {
-    Text(mood.createdAt.atZone(zone).format(HM), style = QichiTheme.typography.numeral.copy(fontSize = 12.tsp, color = QichiTheme.colors.muted))
+    Text(dayTime(mood.createdAt, zone, todayIn(zone)), style = QichiTheme.typography.numeral.copy(fontSize = 12.tsp, color = QichiTheme.colors.muted))
 }
-
-private val HM = DateTimeFormatter.ofPattern("HH:mm")
 
 /** 一张心情卡：谁的颜色淡淡衬底；人物标记、心情词、强度、右边心情图标；需要安慰时角上一张贴纸。 */
 @Composable
-private fun MoodCard(mood: Mood, people: People, pending: Boolean = false, below: @Composable () -> Unit) {
+private fun MoodCard(mood: Mood, people: People, zone: ZoneId, pending: Boolean = false, below: @Composable () -> Unit) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val tint = people.person(mood.authorId).color()
@@ -389,6 +390,7 @@ private fun MoodCard(mood: Mood, people: People, pending: Boolean = false, below
             mood.note?.let { Text(it, style = type.body.copy(color = colors.muted), modifier = Modifier.padding(top = Spacing.xs)) }
             below()
         }
-        if (mood.needsComfort) Sticker("需要安慰", Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-12).dp), rotation = 5f)
+        // 「需要安慰」只贴在今天、昨天的心情上：过了几天还贴着，像是一直没人理
+        if (mood.needsComfort && isRecent(mood.createdAt, zone, todayIn(zone))) Sticker("需要安慰", Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-12).dp), rotation = 5f)
     }
 }
