@@ -55,6 +55,7 @@ import app.qichi.shared.api.QuestionSuggestRequest
 import app.qichi.shared.api.ReviewPage
 import app.qichi.shared.model.AiActionStatus
 import app.qichi.shared.model.AiJobKind
+import app.qichi.shared.model.AiFailReason
 import app.qichi.shared.model.AiJobStatus
 import app.qichi.shared.model.DraftGenre
 import app.qichi.shared.model.EntityType
@@ -160,6 +161,7 @@ class AiService(
             AiJobs.update({ AiJobs.id eq jobId }) {
                 it[AiJobs.status] = AiJobStatus.Failed.wireName
                 it[error] = "没有得到结果"
+                it[failReason] = AiFailReason.Other.wireName
                 it[finishedAt] = now
                 it[updatedAt] = now
             }
@@ -167,7 +169,7 @@ class AiService(
         } ?: return
         log.warn("AI 任务 {} 放弃：{}", jobId, reason)
         stopRequested -= jobId
-        realtime.aiDone(roomId, jobId, AiJobStatus.Failed.wireName)
+        realtime.aiDone(roomId, jobId, AiJobStatus.Failed.wireName, AiFailReason.Other.wireName)
     }
 
     /** 问 AI（聊天里）。同一 jobId 再次请求：失败的重新排队，其余返回当前状态。 */
@@ -289,7 +291,7 @@ class AiService(
         } catch (e: AiProviderException) {
             log.warn("阅读 AI 失败（第 {} 次）：{}", job.attempts, e.message)
             if (e.retryable && !job.isLastAttempt) throw e
-            return fail(jobId, roomId, "没有得到回答")
+            return fail(jobId, roomId, "没有得到回答", e.reason)
         }
         // 查过资料的回答也不标编号（存成标记旁边的一段话，点不开来源）；一直只想查、一个字没写时算没得到回答
         val answer = result.text.replace(CITATION, "").trim()
@@ -398,7 +400,7 @@ class AiService(
         } catch (e: AiProviderException) {
             log.warn("审稿 AI 失败（第 {} 次）：{}", job.attempts, e.message)
             if (e.retryable && !job.isLastAttempt) throw e
-            return fail(jobId, roomId, "AI 没有给出结果")
+            return fail(jobId, roomId, "AI 没有给出结果", e.reason)
         }
         // 已经记下过的（证据原文一样）不再重复
         val knownQuotes = input.known.map { f -> f.evidence.map { FindingParser.compact(it.quote) }.toSet() }
@@ -491,6 +493,7 @@ class AiService(
             AiJobs.update({ AiJobs.id eq jobId }) {
                 it[AiJobs.status] = AiJobStatus.Queued.wireName
                 it[error] = null
+                it[failReason] = null
                 it[finishedAt] = null
                 it[updatedAt] = clock.instant()
             }
@@ -553,7 +556,7 @@ class AiService(
             } catch (e: AiProviderException) {
                 log.warn("生成总结失败（第 {} 次）：{}", job.attempts, e.message)
                 if (e.retryable && !job.isLastAttempt) throw e
-                return fail(jobId, roomId, "没有得到总结")
+                return fail(jobId, roomId, "没有得到总结", e.reason)
             }
             body = result.text.trim()
             model = result.model
@@ -648,7 +651,7 @@ class AiService(
         } catch (e: AiProviderException) {
             log.warn("AI 出题失败（第 {} 次）：{}", job.attempts, e.message)
             if (e.retryable && !job.isLastAttempt) throw e
-            return fail(jobId, roomId, "没有得到题目")
+            return fail(jobId, roomId, "没有得到题目", e.reason)
         }
         val question = result.text.lineSequence()
             .map { it.trim().removePrefix("问题：").trim().trim('"', '“', '”') }
@@ -772,7 +775,7 @@ class AiService(
         } catch (e: AiProviderException) {
             log.warn("写作助手失败（第 {} 次）：{}", job.attempts, e.message)
             if (e.retryable && !job.isLastAttempt) throw e
-            return fail(jobId, roomId, "没有得到结果")
+            return fail(jobId, roomId, "没有得到结果", e.reason)
         }
         val text = result.text.replace(CITATION, "").trim().removePrefix("```markdown").removePrefix("```").removeSuffix("```").trim()
         if (text.isEmpty()) return fail(jobId, roomId, "没有得到结果")
@@ -1065,7 +1068,7 @@ class AiService(
             log.warn("问 AI 失败（第 {} 次）：{}", job.attempts, e.message)
             if (e.retryable && !job.isLastAttempt) throw e
             stopRequested -= jobId
-            return fail(jobId, roomId, "没有得到回答")
+            return fail(jobId, roomId, "没有得到回答", e.reason)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -1161,17 +1164,19 @@ class AiService(
         }
     }
 
-    private suspend fun fail(jobId: UUID, roomId: UUID, reason: String) {
+    /** 标成失败并通知；[kind] 是失败的种类（P16-08），App 据此说清原因、决定给不给「重试」。 */
+    private suspend fun fail(jobId: UUID, roomId: UUID, reason: String, kind: AiFailReason = AiFailReason.Other) {
         db.tx {
             val now = clock.instant()
             AiJobs.update({ AiJobs.id eq jobId }) {
                 it[status] = AiJobStatus.Failed.wireName
                 it[error] = reason
+                it[failReason] = kind.wireName
                 it[finishedAt] = now
                 it[updatedAt] = now
             }
         }
-        realtime.aiDone(roomId, jobId, AiJobStatus.Failed.wireName)
+        realtime.aiDone(roomId, jobId, AiJobStatus.Failed.wireName, kind.wireName)
     }
 
     /** 本月（UTC）整个服务已用的 token。 */
@@ -1201,6 +1206,7 @@ class AiService(
         outputTokens = this[AiJobs.outputTokens],
         resultRef = this[AiJobs.resultRef],
         error = this[AiJobs.error],
+        failReason = this[AiJobs.failReason],
         createdAt = this[AiJobs.createdAt],
         finishedAt = this[AiJobs.finishedAt],
         resultText = this[AiJobs.resultText]?.takeIf { viewer != null && this[AiJobs.requestedBy] == viewer },

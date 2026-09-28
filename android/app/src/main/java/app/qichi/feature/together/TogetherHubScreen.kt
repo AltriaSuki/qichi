@@ -53,11 +53,13 @@ import app.qichi.core.designsystem.Feature
 import app.qichi.core.designsystem.QichiShapes
 import app.qichi.core.designsystem.QichiTheme
 import app.qichi.core.designsystem.Spacing
+import app.qichi.core.designsystem.Sizes
 import app.qichi.core.designsystem.component.FeatureTile
 import app.qichi.core.designsystem.component.MainTopBar
 import app.qichi.core.designsystem.component.PersonMarks
 import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.Segmented
+import app.qichi.core.designsystem.component.IconAction
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.component.color
 import app.qichi.core.designsystem.component.decor.HandNote
@@ -94,7 +96,12 @@ fun TogetherHubScreen(
     onOpenItem: (Page, String) -> Unit = { _, _ -> },
     /** 底部的快速记灵感；为空时不显示 */
     onAddIdea: ((String) -> Unit)? = null,
+    /** 这一组功能的先后（P16-09）；默认按目录顺序 */
+    pages: List<Page> = Page.inGroup(group),
+    /** 调整顺序：上下挪一位、按最常用的排、恢复默认；为空时不给调 */
+    arranging: HubArranging? = null,
 ) {
+    var editing by rememberSaveable(group) { mutableStateOf(false) }
     val colors = QichiTheme.colors
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
@@ -130,8 +137,15 @@ fun TogetherHubScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = Spacing.page),
         ) {
-            Page.inGroup(group).forEachIndexed { i, page ->
-                HubRow(page, counts[page], first = i == 0) { onOpen(page) }
+            pages.forEachIndexed { i, page ->
+                if (editing && arranging != null) {
+                    ArrangeRow(page, first = i == 0, canUp = i > 0, canDown = i < pages.lastIndex, onMove = { delta -> arranging.onMove(page, delta) })
+                } else {
+                    HubRow(page, counts[page], first = i == 0) { onOpen(page) }
+                }
+            }
+            if (arranging != null) {
+                ArrangeActions(editing, onEdit = { editing = it }, onSortByUsage = arranging.onSortByUsage, onReset = arranging.onReset)
             }
             if (group == TogetherGroup.Create && (recent.document != null || recent.topic != null)) {
                 RecentSection(recent, people, onOpenItem)
@@ -139,6 +153,52 @@ fun TogetherHubScreen(
             Spacer(Modifier.size(Spacing.l))
         }
         if (onAddIdea != null && group == TogetherGroup.Life) IdeaCapture(onAddIdea)
+    }
+}
+
+/** 调整「一起」里功能先后要用的动作（P16-09）。 */
+class HubArranging(
+    val onMove: (Page, Int) -> Unit,
+    val onSortByUsage: () -> Unit,
+    val onReset: () -> Unit,
+)
+
+/** 调整顺序时的一行：色块、名字，右边上移、下移。 */
+@Composable
+private fun ArrangeRow(page: Page, first: Boolean, canUp: Boolean, canDown: Boolean, onMove: (Int) -> Unit) {
+    val colors = QichiTheme.colors
+    val type = QichiTheme.typography
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .then(if (first) Modifier else Modifier.dashedDivider(colors, atTop = true))
+            .heightIn(min = Sizes.listRowTall),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        FeatureTile(page.feature)
+        Text(page.title, style = type.bodyLarge.copy(color = colors.ink), modifier = Modifier.weight(1f))
+        IconAction(QichiIcons.Up, contentDescription = "把「${page.title}」往前挪", onClick = { onMove(-1) }, enabled = canUp, tint = if (canUp) colors.ink else colors.faint)
+        IconAction(QichiIcons.Down, contentDescription = "把「${page.title}」往后挪", onClick = { onMove(1) }, enabled = canDown, tint = if (canDown) colors.ink else colors.faint)
+    }
+}
+
+/** 列表下面：「调整顺序」；调整时「按我最常用的排」「恢复默认」「好了」。 */
+@Composable
+private fun ArrangeActions(editing: Boolean, onEdit: (Boolean) -> Unit, onSortByUsage: () -> Unit, onReset: () -> Unit) {
+    val colors = QichiTheme.colors
+    Row(
+        Modifier.fillMaxWidth().padding(top = Spacing.xs),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (editing) {
+            TextAction("按我最常用的排", onClick = onSortByUsage)
+            TextAction("恢复默认", onClick = onReset, color = colors.muted)
+            TextAction("好了", onClick = { onEdit(false) })
+        } else {
+            TextAction("调整顺序", onClick = { onEdit(true) }, color = colors.muted)
+        }
     }
 }
 

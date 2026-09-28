@@ -23,6 +23,8 @@ data class AuthUiState(
     val password: String = "",
     val displayName: String = "",
     val inviteCode: String = "",
+    /** 忘了密码时对方给的重置码（P16-04） */
+    val resetCode: String = "",
     val submitting: Boolean = false,
     val error: FormError = FormError(),
     /** 登录被动失效、本机内容还留着时的提示（P13-08） */
@@ -54,7 +56,26 @@ class AuthViewModel @Inject constructor(
     fun onDisplayName(v: String) = _state.update { it.copy(displayName = v, error = FormError()) }
     fun onInviteCode(v: String) = _state.update { it.copy(inviteCode = v.uppercase().filter { c -> c.isLetterOrDigit() }.take(Limits.INVITE_LENGTH), error = FormError()) }
 
+    fun onResetCode(v: String) = _state.update { it.copy(resetCode = v.uppercase().filter { c -> c.isLetterOrDigit() }.take(Limits.INVITE_LENGTH), error = FormError()) }
+
+    /** 忘了密码：用户名 + 对方给的重置码 + 新密码，成功后直接登录（P16-04）。 */
+    fun resetPassword() {
+        val s = _state.value
+        val fields = buildMap {
+            if (s.username.isBlank()) put("username", "请填写用户名")
+            if (s.resetCode.length != Limits.INVITE_LENGTH) put("resetCode", "重置码是 8 位")
+            if (s.password.length !in Limits.PASSWORD_LENGTH) put("password", "新密码至少 8 位")
+        }
+        if (fields.isNotEmpty()) return _state.update { it.copy(error = FormError(fields)) }
+        resetting = true
+        submit { session.resetPassword(s.username, s.resetCode, s.password) }
+    }
+
+    /** 这次提交是不是在重置密码（出错时的说法不一样） */
+    private var resetting = false
+
     fun login() {
+        resetting = false
         val s = _state.value
         val fields = buildMap {
             if (s.username.isBlank()) put("username", "请填写用户名")
@@ -65,6 +86,7 @@ class AuthViewModel @Inject constructor(
     }
 
     fun register() {
+        resetting = false
         val s = _state.value
         val fields = buildMap {
             if (s.displayName.trim().length !in Limits.DISPLAY_NAME_LENGTH) put("displayName", "显示名 1–32 个字")
@@ -118,7 +140,8 @@ class AuthViewModel @Inject constructor(
         ProblemCode.InviteInvalid -> FormError(mapOf("inviteCode" to "邀请码无效或已过期"))
         ProblemCode.UsernameTaken -> FormError(mapOf("username" to "这个用户名已经有人用了"))
         ProblemCode.RoomFull -> FormError(mapOf("inviteCode" to "这个房间已经有两个人了"))
-        ProblemCode.Unauthorized -> FormError(message = "用户名或密码不正确")
+        ProblemCode.Unauthorized ->
+            if (resetting) FormError(mapOf("resetCode" to "重置码不对或已经过期，请对方再生成一个")) else FormError(message = "用户名或密码不正确")
         ProblemCode.RateLimited -> FormError(message = "尝试次数太多，请过一会儿再试")
         else -> e.toFormError()
     }

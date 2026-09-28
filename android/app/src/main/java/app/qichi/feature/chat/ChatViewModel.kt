@@ -19,6 +19,7 @@ import app.qichi.core.ui.todayIn
 import app.qichi.core.data.MoodRepository
 import app.qichi.core.data.DocumentRepository
 import app.qichi.core.data.DraftStore
+import app.qichi.core.share.ShareInbox
 import app.qichi.core.data.FileRepository
 import app.qichi.core.data.IdeaRepository
 import app.qichi.core.data.People
@@ -36,6 +37,7 @@ import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.AiAction
 import app.qichi.shared.api.Document
 import app.qichi.shared.api.Message
+import app.qichi.shared.model.BoardReactionKind
 import app.qichi.shared.model.AiJobStatus
 import app.qichi.shared.model.ProblemCode
 import app.qichi.shared.model.wireName
@@ -92,6 +94,8 @@ data class PendingAi(
     val stopping: Boolean = false,
     /** AI 正在查什么，如「正在查：日历 9/26–10/3」（P11）；开始写回答后为空 */
     val status: String? = null,
+    /** 失败的种类（AiFailReason 的 wireName，P16-08）；旧服务端不给时为空 */
+    val failReason: String? = null,
 )
 
 /**
@@ -158,6 +162,7 @@ class ChatViewModel @AssistedInject constructor(
     plans: PlanRepository,
     private val ideas: IdeaRepository,
     private val documents: DocumentRepository,
+    shareInbox: ShareInbox,
 ) : ViewModel() {
 
     // 解析消息 JSON 的那一步跟着缓存所在的协程跑：放在后台线程，不占界面线程（P17-01）
@@ -228,7 +233,7 @@ class ChatViewModel @AssistedInject constructor(
         // AI 任务结束的实时通知：失败就在原位置显示「没有得到回答」
         viewModelScope.launch {
             realtime.aiDone.collect { event ->
-                if (event.roomId == roomId && event.status == AiJobStatus.Failed.wireName) markAiFailed(event.jobId)
+                if (event.roomId == roomId && event.status == AiJobStatus.Failed.wireName) markAiFailed(event.jobId, event.reason)
             }
         }
         // 边生成边显示：自己在等的提问，把到目前为止的回答显示出来（回答同步下来后整条换成正式的消息）
@@ -242,6 +247,12 @@ class ChatViewModel @AssistedInject constructor(
         viewModelScope.launch {
             val saved = drafts.load(roomId, DraftStore.CHAT)
             if (saved != null && _draft.value.isEmpty()) _draft.value = saved
+            // 从别的 App 分享到聊天的（P16-03）：文字接在输入框里看一眼再发，照片开始上传。等草稿读完再放，免得被草稿盖掉
+            shareInbox.forChat.collect {
+                val shared = shareInbox.takeForChat(roomId) ?: return@collect
+                shared.text?.let { text -> onDraftChange(if (_draft.value.isBlank()) text else "${_draft.value}\n$text") }
+                if (shared.images.isNotEmpty()) attachImages(shared.images)
+            }
         }
     }
 
@@ -301,6 +312,39 @@ class ChatViewModel @AssistedInject constructor(
             }
             _uploads.update { it + upload }
             runUpload(upload)
+        }
+    }
+
+    /**
+     * 一次发几张照片（从相册多选、从别的 App 分享进来）：只有一张时和原来一样先写说明；
+     * 几张时不写说明，按顺序一张张上传发出（P16-03、P16-05）。
+     */
+    fun attachImages(uris: List<Uri>) {
+        when {
+            uris.isEmpty() -> return
+            uris.size == 1 -> return attach(uris.single(), asImage = true)
+        }
+        if (!network.isOnline.value) {
+            _events.tryEmit(ChatEvent.Toast(OFFLINE_ATTACH))
+            return
+        }
+        viewModelScope.launch {
+            var failed = 0
+            for (uri in uris) {
+                val attachment = try {
+                    preparer.image(uri)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    failed++
+                    continue
+                }
+                val upload = Upload(UuidV7.generate(), attachment)
+                _uploads.update { it + upload }
+                // 一张传完再传下一张：消息按这个顺序出现
+                runUpload(upload)
+            }
+            if (failed > 0) _events.emit(ChatEvent.Toast("有 $failed 张图片打不开，没有发出"))
         }
     }
 
@@ -373,6 +417,15 @@ class ChatViewModel @AssistedInject constructor(
 
     /** 撤回自己的消息（不可恢复，界面先确认）。 */
     fun retract(message: Message) = viewModelScope.launch { chat.retract(message) }
+
+    /** 改自己发的文字（P16-05）。空的不改。 */
+    fun edit(message: Message, text: String) = viewModelScope.launch {
+        if (text.isBlank()) return@launch
+        chat.edit(message, text)
+    }
+
+    /** 回应一条消息；再点同一个 = 收回（P16-05）。 */
+    fun react(message: Message, kind: BoardReactionKind?) = viewModelScope.launch { chat.react(message, kind) }
 
     /** 删除进回收站。 */
     fun delete(message: Message) = viewModelScope.launch {
@@ -503,7 +556,7 @@ class ChatViewModel @AssistedInject constructor(
             _events.tryEmit(ChatEvent.Toast("离线时不能问 AI"))
             return
         }
-        _pendingAi.update { list -> list.map { if (it.jobId == jobId) it.copy(failed = false, partial = null, status = null) else it } }
+        _pendingAi.update { list -> list.map { if (it.jobId == jobId) it.copy(failed = false, partial = null, status = null, failReason = null) else it } }
         submitAi(pending)
     }
 
@@ -558,27 +611,28 @@ class ChatViewModel @AssistedInject constructor(
             }
             // 实时通道断了也不怕：每隔几秒问一次任务状态。最多等 [AI_WAIT_MAX_MS]（服务端卡住时不会一直转），
             // 之后显示「没有得到回答 · 重试」；回答同步下来时由 answerWatchers 收起这一项（P13-03）
-            withTimeoutOrNull(AI_WAIT_MAX_MS) { pollUntilFailed(pending.jobId) }
-            markAiFailed(pending.jobId)
+            val reason = withTimeoutOrNull(AI_WAIT_MAX_MS) { pollUntilFailed(pending.jobId) }
+            markAiFailed(pending.jobId, reason)
         }
     }
 
-    /** 每隔几秒问一次任务状态，直到服务端说失败为止；完成了就拉取一次，让回答同步下来。 */
-    private suspend fun pollUntilFailed(jobId: UUID) {
+    /** 每隔几秒问一次任务状态，直到服务端说失败为止（返回失败的种类）；完成了就拉取一次，让回答同步下来。 */
+    private suspend fun pollUntilFailed(jobId: UUID): String? {
         while (true) {
             delay(AI_POLL_MS)
             val job = runCatching { chat.aiJob(roomId, jobId) }.getOrNull() ?: continue
             when (job.status) {
-                AiJobStatus.Failed -> return
+                AiJobStatus.Failed -> return job.failReason
                 AiJobStatus.Done -> runCatching { syncEngine.pull(roomId) }
                 else -> Unit
             }
         }
     }
 
-    private fun markAiFailed(jobId: UUID) {
+    private fun markAiFailed(jobId: UUID, reason: String? = null) {
         aiWatchers.remove(jobId)?.cancel()
-        _pendingAi.update { list -> list.map { if (it.jobId == jobId) it.copy(failed = true) else it } }
+        // 已经知道原因的不要被后到的「不知道」盖掉（实时通知和轮询都可能先到）
+        _pendingAi.update { list -> list.map { if (it.jobId == jobId) it.copy(failed = true, failReason = reason ?: it.failReason) else it } }
     }
 
     fun startReply(message: Message) {

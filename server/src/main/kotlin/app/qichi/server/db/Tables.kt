@@ -9,6 +9,7 @@ import app.qichi.shared.api.ReadingPrompt
 import app.qichi.shared.api.AiActionDraft
 import app.qichi.shared.api.SummarySource
 import app.qichi.shared.api.TextBlock
+import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonObject
@@ -43,6 +44,16 @@ abstract class SyncedTable(name: String) : Table(name) {
     open val creator: Column<*>? get() = null
 }
 
+/** 忘了密码时的一次性重置码（P16-04）：每人最多一个，只存哈希。 */
+object PasswordResetCodes : Table("password_reset_codes") {
+    val userId = javaUUID("user_id")
+    val codeHash = text("code_hash")
+    val createdBy = javaUUID("created_by").nullable()
+    val expiresAt = timestamp("expires_at")
+    val createdAt = timestamp("created_at")
+    override val primaryKey = PrimaryKey(userId)
+}
+
 object Users : Table("users") {
     val id = javaUUID("id")
     val username = text("username")
@@ -55,6 +66,8 @@ object Users : Table("users") {
     val passwordChangedAt = timestamp("password_changed_at").nullable()
     val createdAt = timestamp("created_at")
     val updatedAt = timestamp("updated_at")
+    /** 注销的时间（P16-07）；注销后用户名换成占位、密码作废、显示名是「已注销的成员」 */
+    val deletedAt = timestamp("deleted_at").nullable()
     override val primaryKey = PrimaryKey(id)
 }
 
@@ -148,6 +161,9 @@ object Messages : SyncedTable("messages") {
     val aiSources = jsonb("ai_sources", QichiJson, ListSerializer(SummarySource.serializer())).default(emptyList())
     val aiStopped = bool("ai_stopped").default(false)
     val aiAskedBy = javaUUID("ai_asked_by").nullable()
+    val editedAt = timestamp("edited_at").nullable()
+    /** 用户 id → 回应（like / hug / support），每人最多一个（P16-05） */
+    val reactions = jsonb("reactions", QichiJson, MapSerializer(String.serializer(), String.serializer())).default(emptyMap())
 }
 
 object ReadMarkers : SyncedTable("read_markers") {
@@ -199,6 +215,7 @@ object Events : SyncedTable("events") {
     val participantIds = array<UUID>("participant_ids", UUIDColumnType())
     val createdBy = javaUUID("created_by")
     val icsUid = text("ics_uid").nullable()
+    val remindMinutes = integer("remind_minutes").nullable()
     override val creator get() = createdBy
 }
 
@@ -542,6 +559,8 @@ object AiJobs : Table("ai_jobs") {
     val resultRef = text("result_ref").nullable()
     val resultText = text("result_text").nullable()
     val error = text("error").nullable()
+    /** 失败的种类（AiFailReason，P16-08） */
+    val failReason = text("fail_reason").nullable()
     val createdAt = timestamp("created_at")
     val updatedAt = timestamp("updated_at")
     val finishedAt = timestamp("finished_at").nullable()

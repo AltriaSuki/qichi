@@ -86,6 +86,15 @@ class AiGatewayTest {
         val unauthorized = assertFailsWith<AiProviderException> { provider(HttpStatusCode.Unauthorized).complete(request) }
         assertFalse(unauthorized.retryable)
         assertFalse(unauthorized.message!!.contains("\"k\""), "日志里不带密钥")
+        // 余额用完的 429 重试也没用；连不上算「连不上」（P16-08）
+        val broke = OpenAiCompatibleProvider("https://api.example.com", "k", "m", HttpClient(MockEngine {
+            respond("""{"error":{"code":"insufficient_quota"}}""", HttpStatusCode.TooManyRequests, json)
+        }))
+        val quota = assertFailsWith<AiProviderException> { broke.complete(request) }
+        assertFalse(quota.retryable)
+        assertEquals(app.qichi.shared.model.AiFailReason.Quota, quota.reason)
+        val offline = OpenAiCompatibleProvider("https://api.example.com", "k", "m", HttpClient(MockEngine { throw java.io.IOException("断网") }))
+        assertEquals(app.qichi.shared.model.AiFailReason.Unreachable, assertFailsWith<AiProviderException> { offline.complete(request) }.reason)
     }
 
     @Test

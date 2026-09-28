@@ -30,8 +30,17 @@ fun Route.roomRoutes(ctx: AppContext) {
             patch {
                 call.respond(ctx.rooms.update(call.user.userId, call.uuidParam("roomId"), call.receive<UpdateRoomRequest>()))
             }
+            // 退出房间（P16-07）：房间和内容留给另一个人
+            post("/leave") {
+                ctx.rooms.leave(call.user.userId, call.uuidParam("roomId"))
+                call.respond(HttpStatusCode.NoContent)
+            }
             post("/invites") {
                 call.respond(HttpStatusCode.Created, ctx.rooms.createInvite(call.user.userId, call.uuidParam("roomId")))
+            }
+            // 给忘了密码的另一个人生成重置码（P16-04）
+            post("/members/{userId}/password-reset") {
+                call.respond(HttpStatusCode.Created, ctx.auth.createResetCode(call.user.userId, call.uuidParam("roomId"), call.uuidParam("userId")))
             }
         }
         post("/invites/accept") {

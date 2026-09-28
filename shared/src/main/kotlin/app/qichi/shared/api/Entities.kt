@@ -1,5 +1,6 @@
 package app.qichi.shared.api
 
+import app.qichi.shared.model.BoardReactionKind
 import app.qichi.shared.model.FileKind
 import app.qichi.shared.model.MessageKind
 import app.qichi.shared.model.MoodLabel
@@ -61,6 +62,10 @@ data class Message(
     val aiAskedBy: Id? = null,
     /** AI 回答被提问的人中途停下了（正文是停下时已写出的部分）；其它消息为 false */
     val aiStopped: Boolean = false,
+    /** 作者改过文字（24 小时内，P16-05）；没改过为空 */
+    val editedAt: Timestamp? = null,
+    /** 每个人给这条消息的回应（每人最多一个，P16-05） */
+    val reactions: Map<Id, BoardReactionKind> = emptyMap(),
 ) : SyncEntity
 
 /** 只同步给本人（不做已读回执）。 */
@@ -163,4 +168,9 @@ data class Event(
     val participantIds: List<Id>,
     val createdBy: Id,
     val icsUid: String?,
+    /**
+     * 提前多久提醒（分钟，取值见 Limits.EVENT_REMIND_MINUTES），null = 不提醒。
+     * 全天日程：小于 1 天时是当天早上 9 点，1 天是前一天早上 9 点（按房间时区）。提醒由手机本地排（P16-01）。
+     */
+    val remindMinutes: Int? = null,
 ) : SyncEntity

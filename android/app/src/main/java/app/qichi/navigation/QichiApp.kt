@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -103,6 +104,9 @@ fun QichiApp(
         }
     }
 
+    // 从别的 App 分享进来的（P16-03）：问放到哪里，选聊天就切到聊天
+    if (destination != null) ShareIntake(roomId, onOpenChat = { navigator.selectTab(TopTab.Chat) })
+
     val reduceMotion = QichiTheme.reduceMotion
     val shift = with(LocalDensity.current) { 8.dp.roundToPx() }
     val enter: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
@@ -166,9 +170,19 @@ fun QichiApp(
                         val counts by hub.counts.collectAsStateWithLifecycle()
                         val hubPeople by hub.people.collectAsStateWithLifecycle()
                         val recent by hub.recent.collectAsStateWithLifecycle()
+                        val hubOrder by hub.order.collectAsStateWithLifecycle()
                         TogetherHubScreen(
-                            group = group, onGroupChange = { group = it }, onOpen = { navigator.open(it) }, counts = counts,
+                            group = group, onGroupChange = { group = it },
+                            onOpen = { hub.recordOpen(it); navigator.open(it) }, counts = counts,
                             people = hubPeople, recent = recent, onOpenItem = { page, id -> navigator.open(page, id) }, onAddIdea = hub::addIdea,
+                            pages = hubOrder[group] ?: Page.inGroup(group),
+                            arranging = remember(hub, group) {
+                                app.qichi.feature.together.HubArranging(
+                                    onMove = { page, delta -> hub.move(group, page, delta) },
+                                    onSortByUsage = { hub.sortByUsage(group) },
+                                    onReset = { hub.resetOrder(group) },
+                                )
+                            },
                         )
                     },
                     meHome = { MeScreen(roomId = LocalRoomId.current, onOpen = { navigator.open(it) }) },
@@ -275,6 +289,14 @@ fun QichiApp(
                     mePage = { entry ->
                         val route = entry.toRoute<MePage>()
                         when (route.page) {
+                            Page.Search -> {
+                                val searchRoom = LocalRoomId.current
+                                app.qichi.feature.me.SearchScreen(roomId = searchRoom, onBack = navigator::back, onOpen = { hit ->
+                                    // 留言打开主题后滚到那一条；其它和 AI 引用的来源一样跳过去
+                                    val post = hit.focusId
+                                    if (post != null) navigator.open(Page.Board, "${hit.source.id}:$post") else navigator.openSource(searchRoom, hit.source)
+                                })
+                            }
                             Page.Members -> MembersScreen(roomId = LocalRoomId.current, onBack = navigator::back)
                             Page.Profile -> ProfileScreen(onBack = navigator::back)
                             Page.Display -> DisplayScreen(onBack = navigator::back)

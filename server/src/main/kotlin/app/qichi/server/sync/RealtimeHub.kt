@@ -54,8 +54,8 @@ class RealtimeHub : ChangeNotifier {
         flow.emit(RoomEvent(change.roomId, WsEvent.Changed(change.roomId, change.seq), onlyFor))
     }
 
-    suspend fun aiDone(roomId: UUID, jobId: UUID, status: String) {
-        flow.emit(RoomEvent(roomId, WsEvent.AiDone(roomId, jobId, status)))
+    suspend fun aiDone(roomId: UUID, jobId: UUID, status: String, reason: String? = null) {
+        flow.emit(RoomEvent(roomId, WsEvent.AiDone(roomId, jobId, status, reason)))
     }
 
     /** 内置通知：只发给 [userId] 带了 caps=notify 的连接。 */

@@ -4,4 +4,6 @@
     <!-- 桌面待办组件（P15-02）：在添加组件的列表里显示 -->
     <string name="widget_todo_label">今天的待办</string>
     <string name="widget_todo_description">列出今天到期和过期的待办，在桌面上就能勾掉</string>
+    <!-- 别的 App 的分享菜单里显示的名字（P16-03） -->
+    <string name="share_label">栖迟</string>
 </resources>

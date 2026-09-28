@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -64,11 +66,14 @@ import app.qichi.core.designsystem.component.SectionLabel
 import app.qichi.core.designsystem.component.TextAction
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
+import app.qichi.core.reminder.REMIND_CHOICES
+import app.qichi.core.reminder.remindLabel
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.chinese
 import app.qichi.core.ui.dotDate
 import app.qichi.core.ui.relativeDay
 import app.qichi.shared.api.Event
+import app.qichi.shared.rules.Limits
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -187,7 +192,7 @@ private fun EventRow(item: Local<Event>, people: People, zone: ZoneId, day: Loca
 
 private enum class Who { Both, Me, Partner }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun EventEditor(
     existing: Event?,
@@ -221,6 +226,7 @@ private fun EventEditor(
             },
         )
     }
+    var remind by remember { mutableStateOf(if (existing == null) Limits.EVENT_REMIND_DEFAULT else existing.remindMinutes) }
     var picking by remember { mutableStateOf<String?>(null) }
 
     val startsAt = startDate.atTime(startTime).atZone(zone).toInstant()
@@ -274,6 +280,17 @@ private fun EventEditor(
                     people.partner?.let { ChoicePill(it.displayName, who == Who.Partner, { who = Who.Partner }, Modifier.weight(1f)) }
                 }
             }
+            Column {
+                SectionLabel("提醒")
+                // 全天日程只有「当天 9 点」「前一天 9 点」两种时刻，其余几档合成一个
+                val choices = if (allDay) listOf(null, Limits.EVENT_REMIND_DEFAULT, 1440) else REMIND_CHOICES
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.xs), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    choices.forEach { m ->
+                        val selected = if (allDay && m != null && remind != null) (m >= 1440) == (remind!! >= 1440) else m == remind
+                        ChoicePill(remindLabel(m, allDay), selected, { remind = m })
+                    }
+                }
+            }
             QichiTextField(value = location, onValueChange = { location = it }, label = "地点")
             QichiTextField(value = note, onValueChange = { note = it }, label = "备注", singleLine = false)
             PrimaryButton("保存", enabled = valid, modifier = Modifier.fillMaxWidth(), onClick = {
@@ -284,9 +301,9 @@ private fun EventEditor(
                 }
                 onSave(
                     if (allDay) {
-                        EventDraft(title, true, startDate = startDate, endDate = endDate, location = location, note = note, participantIds = participants)
+                        EventDraft(title, true, startDate = startDate, endDate = endDate, location = location, note = note, participantIds = participants, remindMinutes = remind)
                     } else {
-                        EventDraft(title, false, startsAt = startsAt, endsAt = endsAt, location = location, note = note, participantIds = participants)
+                        EventDraft(title, false, startsAt = startsAt, endsAt = endsAt, location = location, note = note, participantIds = participants, remindMinutes = remind)
                     },
                 )
             })

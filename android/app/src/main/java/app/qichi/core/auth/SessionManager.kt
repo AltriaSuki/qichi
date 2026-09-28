@@ -7,6 +7,7 @@ import app.qichi.shared.api.LoginRequest
 import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.RefreshRequest
 import app.qichi.shared.api.RegisterRequest
+import app.qichi.shared.api.ResetPasswordRequest
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
@@ -129,6 +130,16 @@ class SessionManager(
         val tokens = api.post<AuthTokens>(
             "auth/login",
             LoginRequest(username.trim().lowercase(), password, deviceName),
+            auth = false,
+        )
+        return signIn(tokens)
+    }
+
+    /** 忘了密码：用对方给的重置码设新密码，成功后直接登录（P16-04）。 */
+    suspend fun resetPassword(username: String, code: String, newPassword: String): SignInResult {
+        val tokens = api.post<AuthTokens>(
+            "auth/password-reset",
+            ResetPasswordRequest(username.trim().lowercase(), code.trim().uppercase(), newPassword, deviceName),
             auth = false,
         )
         return signIn(tokens)

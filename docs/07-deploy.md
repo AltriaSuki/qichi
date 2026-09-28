@@ -84,6 +84,13 @@ curl https://qichi.你的域名.com/api/v1/health
 
 之后服务器不再接受没有邀请码的注册。
 
+**忘了密码**（P16-04）：平时由另一个人在「我的 → 成员与邀请」里点对方的「帮 TA 重置密码」生成重置码，忘了的人在登录页点「忘了密码」输入。
+两个人都忘了时，在服务器上生成（不会重启服务，15 分钟有效）：
+
+```bash
+cd /opt/qichi/deploy && docker compose run --rm --no-deps server reset-code 用户名
+```
+
 ## 6. 更新
 
 ```bash

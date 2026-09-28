@@ -9,6 +9,7 @@ import app.qichi.core.network.get
 import app.qichi.core.network.post
 import app.qichi.shared.api.AuthTokens
 import app.qichi.shared.api.ChangePasswordRequest
+import app.qichi.shared.api.DeleteAccountRequest
 import app.qichi.shared.api.LoginSession
 import app.qichi.shared.api.AiPrefs
 import app.qichi.shared.api.NotificationPrefs
@@ -17,6 +18,7 @@ import app.qichi.shared.api.ReadingPrompt
 import app.qichi.shared.api.UpdateMeRequest
 import io.ktor.http.HttpMethod
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import java.util.UUID
 
 /**
@@ -47,8 +49,28 @@ class AccountRepository(
         session.replaceTokens(tokens)
     }
 
+    /**
+     * 注销账号（P16-07，需要联网）：服务端确认密码后注销，这台手机随即登出、清掉本机数据。
+     * 密码不对时抛 ApiException（401），什么都不变。
+     */
+    suspend fun deleteAccount(password: String) {
+        api.execute(HttpMethod.Delete, "me", DeleteAccountRequest(password))
+        session.logout()
+    }
+
     suspend fun updateNotifications(prefs: NotificationPrefs) {
         rooms.updateMe(UpdateMeRequest(notificationPrefs = Patch.of(prefs.toJson())))
+    }
+
+    /**
+     * 免打扰按自己手机的时区算（P16-10）：服务器上记的和手机现在的不一样时改过去。
+     * 每次回到前台看一次（出差、换了时区后打开 App 就会更新）；没联网就下次再说。
+     */
+    suspend fun reportPhoneZone(zone: String) {
+        val me = rooms.me.first() ?: return
+        val prefs = NotificationPrefs.from(me.user.notificationPrefs)
+        if (prefs.timezone == zone) return
+        updateNotifications(prefs.copy(timezone = zone))
     }
 
     suspend fun updateAiPrefs(prefs: AiPrefs) {

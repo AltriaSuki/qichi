@@ -90,7 +90,7 @@
 1. 客户端 `POST …/ai/{kind}`，带 `jobId`（客户端生成）和参数 → 服务端立即返回 **202** `{jobId, status:"queued"}`
 2. 服务端在后台调用大模型，结果写进对应实体（例如一条 `kind = "ai"` 的消息、一批待采纳的问题、一份总结）；问 AI 边生成边经 `ai.delta` 推送进度。等待上限按功能分开：问 AI 3 分钟，其它 2 分钟
 3. 通过 WebSocket 发 `ai.done`，并照常产生 `changed`；客户端拉取同步即可看到结果
-4. 失败时 `ai_jobs.status = failed`，客户端在原位置显示「没有得到回答，重试」
+4. 失败时 `ai_jobs.status = failed`，`fail_reason` 记下种类（quota 额度用完 / unreachable 连不上 / provider 服务商报错 / too_long 太长 / other），`ai.done` 带 `reason`；客户端在原位置说清原因，能重试的给「重试」（额度用完、太长不给，P16-08）
 
 AI 请求**不进离线发件箱**；离线时按钮置灰。
 
@@ -108,7 +108,9 @@ AI 请求**不进离线发件箱**；离线时按钮置灰。
 | POST | `/auth/refresh` | 刷新令牌 |
 | POST | `/auth/logout` | 作废当前刷新令牌 |
 | GET | `/me` | 当前用户与所在房间列表 |
-| PATCH | `/me` | 改显示名、头像、通知偏好（`notificationPrefs` 的键见 `shared/api/NotificationPrefs.kt`：各类开关与免打扰时段）、AI 能看什么（`aiPrefs`）、阅读的常用提示词（`readingPrompts`，整套替换，最多 20 条，id 不能重复） |
+| PATCH | `/me` | 改显示名、头像、通知偏好（`notificationPrefs` 的键见 `shared/api/NotificationPrefs.kt`：各类开关、免打扰时段，以及免打扰按哪个时区算的 `timezone`——App 自动填自己手机的时区，为空时按房间时区，P16-10）、AI 能看什么（`aiPrefs`）、阅读的常用提示词（`readingPrompts`，整套替换，最多 20 条，id 不能重复） |
+| DELETE | `/me` | 注销账号（要当前密码，P16-07）：内容留在房间、署名「已注销的成员」，只剩自己的房间一起删掉，所有登录退出 |
+| POST | `/rooms/{roomId}/leave` | 退出房间（P16-07）：不删号，房间和内容留给另一个人；只剩自己时 400 |
 | POST | `/me/password` | 改密码（作废其它设备的登录） |
 | GET | `/me/sessions` · DELETE `/me/sessions/{id}` | 登录设备管理（P7，「安全」页）：每次登录一行，标出当前设备；删除 = 让那台设备退出登录 |
 

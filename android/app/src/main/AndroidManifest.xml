@@ -12,6 +12,9 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- 内置更新：下载新版本后交给系统安装 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 到点提醒（P16-01）：日程、待办准点响。安卓 13 起日历类 App 声明 USE_EXACT_ALARM 就有；12 要 SCHEDULE_EXACT_ALARM -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <application
         android:name=".QichiApplication"
@@ -38,6 +41,18 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="qichi" android:host="room" />
             </intent-filter>
+            <!-- 从别的 App 分享文字、链接、照片进来（P16-03）：选「发到聊天」或「存成灵感」 -->
+            <intent-filter android:label="@string/share_label">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <intent-filter android:label="@string/share_label">
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
         </activity>
 
         <!-- 推送（UnifiedPush）：ntfy 把推送地址和推送内容交给它 -->
@@ -62,6 +77,11 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!-- 到点提醒的闹钟（P16-01） -->
+        <receiver
+            android:name=".core.reminder.ReminderReceiver"
+            android:exported="false" />
 
         <!-- 在通知上直接回复聊天消息 -->
         <receiver

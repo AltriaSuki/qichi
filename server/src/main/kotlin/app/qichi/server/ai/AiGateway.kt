@@ -1,6 +1,7 @@
 package app.qichi.server.ai
 
 import app.qichi.server.config.AiConfig
+import app.qichi.shared.model.AiFailReason
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.cio.CIO
@@ -91,7 +92,12 @@ data class AiResult(
  * 大模型调用失败。[retryable] 为 true 表示可以稍后再试（限流、服务暂时不可用、网络问题）。
  * message 只给日志看，不含密钥。
  */
-class AiProviderException(message: String, val retryable: Boolean) : Exception(message)
+/** [reason]：失败的种类，写进 ai_jobs 让 App 说清原因（P16-08）。 */
+class AiProviderException(
+    message: String,
+    val retryable: Boolean,
+    val reason: AiFailReason = AiFailReason.Provider,
+) : Exception(message)
 
 /**
  * AI 网关（docs/02-architecture.md「AI 网关」）：一个接口，两种实现，按 AI_PROVIDER 选择。
@@ -136,9 +142,27 @@ private val json = Json { ignoreUnknownKeys = true }
 
 /** 状态码到「能不能重试」：限流与服务端错误可以，其它 4xx（密钥错、参数错）不行。 */
 private fun failure(provider: String, status: HttpStatusCode, body: String): AiProviderException {
-    val retryable = status == HttpStatusCode.TooManyRequests || status.value >= 500
-    return AiProviderException("$provider 返回 ${status.value}：${body.take(300)}", retryable)
+    val reason = failReason(status, body)
+    // 余额用完的 429 重试也没用
+    val retryable = reason != AiFailReason.Quota && (status == HttpStatusCode.TooManyRequests || status.value >= 500)
+    return AiProviderException("$provider 返回 ${status.value}：${body.take(300)}", retryable, reason)
 }
+
+/**
+ * 服务商报错的种类（P16-08）：余额或配额用完算「额度」，上下文超长算「太长」，其它算服务商报错。
+ * 各家的写法不一样，按状态码和错误里的关键词认。
+ */
+internal fun failReason(status: HttpStatusCode, body: String): AiFailReason {
+    val text = body.lowercase()
+    return when {
+        status == HttpStatusCode.PaymentRequired || QUOTA_WORDS.any { it in text } -> AiFailReason.Quota
+        status == HttpStatusCode.PayloadTooLarge || TOO_LONG_WORDS.any { it in text } -> AiFailReason.TooLong
+        else -> AiFailReason.Provider
+    }
+}
+
+private val QUOTA_WORDS = listOf("insufficient_quota", "insufficient balance", "insufficient_balance", "quota exceeded", "exceeded your current quota", "credit balance", "余额不足", "欠费")
+private val TOO_LONG_WORDS = listOf("context_length_exceeded", "maximum context length", "prompt is too long", "too many tokens", "context window", "input is too long", "超出最大长度", "超过最大长度")
 
 /** 请求级的等待上限；测试里的客户端没装 HttpTimeout 时不设。 */
 private fun HttpRequestBuilder.limits(http: HttpClient, request: AiRequest, streaming: Boolean) {
@@ -184,7 +208,7 @@ private suspend fun <T> connecting(block: suspend () -> T): T = try {
 } catch (e: kotlinx.coroutines.CancellationException) {
     throw e
 } catch (e: Exception) {
-    throw AiProviderException("连接模型服务失败：${e.javaClass.simpleName}", retryable = true)
+    throw AiProviderException("连接模型服务失败：${e.javaClass.simpleName}", retryable = true, reason = AiFailReason.Unreachable)
 }
 
 /** 大多数模型服务兼容的 /chat/completions 格式（OpenAI、DeepSeek、通义、Kimi、智谱……）。 */

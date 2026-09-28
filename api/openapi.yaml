@@ -150,6 +150,31 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }    # 用户名或密码不正确
         '429': { $ref: '#/components/responses/RateLimited' }
 
+  /auth/password-reset:
+    post:
+      tags: [auth]
+      operationId: resetPassword
+      summary: 用重置码设新密码（忘了密码，P16-04）
+      description: |
+        重置码由房间里的另一个人生成（`POST /rooms/{roomId}/members/{userId}/password-reset`），
+        或在服务器上用 `qichi-server reset-code 用户名` 生成；15 分钟有效，用过就作废。
+        成功后这个账号所有的登录（包括别的手机）都退出，这台设备直接登录。和登录一样按用户名、按 IP 限流。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResetPasswordRequest' }
+      responses:
+        '200':
+          description: 已设新密码并登录
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }    # 用户名或重置码不对、已过期
+        '429': { $ref: '#/components/responses/RateLimited' }
+
   /auth/refresh:
     post:
       tags: [auth]
@@ -220,6 +245,22 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Me' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      tags: [me]
+      operationId: deleteAccount
+      summary: 注销账号（P16-07）
+      description: |
+        要当前密码（错了 401，和改密码一起限流）。写过的内容留在房间里，成员标为已移除、显示名改成「已注销的成员」；
+        只剩自己的房间连同内容、文件一起彻底删除。用户名换成 `deleted_` 开头的占位（原来的名字可以再注册），
+        所有登录立即退出，推送设备、通知偏好、AI 设置、常用提示词删掉。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeleteAccountRequest' }
+      responses:
+        '204': { description: 已注销 }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /me/sessions:
@@ -330,6 +371,20 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /rooms/{roomId}/leave:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+    post:
+      tags: [rooms]
+      operationId: leaveRoom
+      summary: 退出房间（P16-07）
+      description: 不删号，只离开这个房间；房间和内容留给另一个人（成员标为已移除，产生一条 `member` 变化）。房间里只剩自己时 400。
+      responses:
+        '204': { description: 已退出 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /rooms/{roomId}/invites:
     parameters:
       - $ref: '#/components/parameters/RoomId'
@@ -350,6 +405,30 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+
+  /rooms/{roomId}/members/{userId}/password-reset:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - name: userId
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Uuid' }
+    post:
+      tags: [rooms]
+      operationId: createPasswordResetCode
+      summary: 给忘了密码的另一个人生成重置码（P16-04）
+      description: |
+        只能给同一个房间里的另一个人（给自己 400，对方不在这个房间 404）。8 位，字符和邀请码一样，15 分钟有效；
+        再生成就换掉旧的。码只在这次回应里出现，服务端只存哈希。
+      responses:
+        '201':
+          description: 新的重置码
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PasswordResetCode' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /invites/accept:
     post:
@@ -817,6 +896,44 @@ paths:
       description: 两位成员都可以删除房间里的任何消息；可以从回收站恢复。
       responses:
         '200': { $ref: '#/components/responses/MessageOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [messages]
+      operationId: editMessage
+      summary: 改自己发的文字消息（P16-05）
+      description: |
+        只有作者（否则 403）、只有文字消息、撤回和删除的不能改、发出 24 小时内（否则 400）。
+        填 `editedAt`，改前的不保留；回复了它的消息的 `replyExcerpt` 跟着换。内容没变时原样返回、不产生变化。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EditMessageRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /rooms/{roomId}/messages/{id}/reaction:
+    parameters:
+      - $ref: '#/components/parameters/RoomId'
+      - $ref: '#/components/parameters/Id'
+    put:
+      tags: [messages]
+      operationId: setMessageReaction
+      summary: 给一条消息回应或收回（P16-05）
+      description: 每人最多一个回应，换一种就是改；`kind` 为 null 收回。撤回的消息不能回应（400）。没变时原样返回、不产生变化。撤回时回应一起清掉。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetMessageReactionRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -2989,12 +3106,31 @@ components:
         createdAt: { $ref: '#/components/schemas/Instant' }
         lastUsedAt: { $ref: '#/components/schemas/Instant' }
         current: { type: boolean, description: 就是发出这次请求的设备 }
+    DeleteAccountRequest:
+      type: object
+      required: [password]
+      properties:
+        password: { type: string, minLength: 1, maxLength: 128 }
     ChangePasswordRequest:
       type: object
       required: [currentPassword, newPassword]
       properties:
         currentPassword: { type: string, minLength: 1, maxLength: 128 }
         newPassword: { $ref: '#/components/schemas/Password' }
+    ResetPasswordRequest:
+      type: object
+      required: [username, code, newPassword]
+      properties:
+        username: { type: string, minLength: 1, maxLength: 32 }
+        code: { type: string, minLength: 1, maxLength: 16, description: 不分大小写 }
+        newPassword: { $ref: '#/components/schemas/Password' }
+        deviceName: { type: string, maxLength: 64 }
+    PasswordResetCode:
+      type: object
+      required: [code, expiresAt]
+      properties:
+        code: { type: string, pattern: '^[A-Z2-9]{8}$', example: K7PQ2XRM }
+        expiresAt: { $ref: '#/components/schemas/Instant' }
     AuthTokens:
       type: object
       required: [accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt]
@@ -3338,6 +3474,13 @@ components:
         roomId: { $ref: '#/components/schemas/Uuid' }
         jobId: { $ref: '#/components/schemas/Uuid' }
         status: { type: string, enum: [done, failed] }
+        reason: { oneOf: [{ $ref: '#/components/schemas/AiFailReason' }, { type: 'null' }], description: 失败时为什么（P16-08）；其它情况为空 }
+    AiFailReason:
+      type: string
+      description: |
+        AI 任务失败的种类（P16-08）：quota 额度用完（本服务每月的额度或服务商那边的余额）、unreachable 连不上 AI 服务、
+        provider AI 服务报错或没给出回答、too_long 问题连同资料太长、other 其它。以后可能加新值，不认识的当 other。
+      enum: [quota, unreachable, provider, too_long, other]
     WsAiDelta:
       type: object
       description: |
@@ -4203,6 +4346,13 @@ components:
               items: { $ref: '#/components/schemas/Uuid' }
             createdBy: { $ref: '#/components/schemas/Uuid' }
             icsUid: { type: [string, 'null'] }
+            remindMinutes: { $ref: '#/components/schemas/EventRemindMinutes' }
+    EventRemindMinutes:
+      description: |
+        提前多久提醒（分钟）：0 准时、5、15、60、1440（1 天）；`null` = 不提醒。旧数据和旧版 App 建的日程没有这个字段，按 `null`。
+        全天日程：小于 1440 是当天早上 9 点，1440 是前一天早上 9 点（房间时区）。提醒由手机本地排，服务端只存和同步。
+      type: [integer, 'null']
+      enum: [0, 5, 15, 60, 1440, null]
     CreateEventRequest:
       type: object
       required: [id, title, allDay]
@@ -4219,6 +4369,7 @@ components:
         participantIds:
           type: array
           items: { $ref: '#/components/schemas/Uuid' }
+        remindMinutes: { $ref: '#/components/schemas/EventRemindMinutes' }
     UpdateEventRequest:
       type: object
       minProperties: 1
@@ -4234,6 +4385,7 @@ components:
         participantIds:
           type: array
           items: { $ref: '#/components/schemas/Uuid' }
+        remindMinutes: { $ref: '#/components/schemas/EventRemindMinutes' }
 
     # ── 聊天 ──
     MessageKind:
@@ -4297,6 +4449,26 @@ components:
             aiStopped:
               type: boolean
               description: AI 回答是被提问的人中途停下的（正文是停下时已经写出来的部分，可能为空）；其它消息为 false（P10-04）
+            editedAt:
+              $ref: '#/components/schemas/NullableInstant'
+              description: 作者改过文字的时间（P16-05）；没改过为空。旧数据没有这个字段，按空
+            reactions:
+              type: object
+              description: 用户 id → 回应（每人最多一个，P16-05）。旧数据没有这个字段，按空对象
+              additionalProperties: { $ref: '#/components/schemas/BoardReactionKind' }
+    EditMessageRequest:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 10000 }
+    SetMessageReactionRequest:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          oneOf:
+            - $ref: '#/components/schemas/BoardReactionKind'
+            - type: 'null'
     RenameTagRequest:
       type: object
       required: [from, to]
@@ -4743,6 +4915,7 @@ components:
         createdAt: { $ref: '#/components/schemas/Instant' }
         finishedAt: { $ref: '#/components/schemas/NullableInstant' }
         resultText: { type: [string, 'null'], description: 写作助手（write_assist）的结果文字，只给发起的人看；其它情况为空（P9-04） }
+        failReason: { oneOf: [{ $ref: '#/components/schemas/AiFailReason' }, { type: 'null' }], description: 失败的种类（P16-08）；没失败时为空 }
     AiUsage:
       type: object
       required: [month, jobs, myInputTokens, myOutputTokens, monthUsedTokens, monthLimitTokens]

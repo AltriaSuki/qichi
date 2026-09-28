@@ -27,7 +27,7 @@
 
 | 表 | 用途 | 关键字段 |
 |---|---|---|
-| `users` | 账号 | `username` 唯一、`password_hash`（Argon2id）、`display_name`、`avatar_file_id`、`notification_prefs`、`ai_prefs`（AI 能看到哪些资料，缺的键按 true） |
+| `users` | 账号 | `username` 唯一、`password_hash`（Argon2id）、`display_name`、`avatar_file_id`、`notification_prefs`、`ai_prefs`（AI 能看到哪些资料，缺的键按 true）、`deleted_at`（注销时间，P16-07：用户名换成 `deleted_` 占位、密码作废、显示名「已注销的成员」，行不删，写过的内容还指着它） |
 | `refresh_tokens` | 刷新令牌 | 只存哈希；`family_id`（同一次登录 = 一台设备，重复使用检测时整组作废）、`device_name`、`expires_at`、`revoked_at`、`replaced_by`（轮换链）。过期超过 30 天的每天清掉（P13-18） |
 | `rooms` | 房间 | `name`、`avatar_file_id`、`hero_file_id`（今天页主视觉）、`anniversary`、`timezone`、`last_seq` |
 | `room_members` | 成员 | `role`：owner / member；每房间最多 2 人（服务端校验） |
@@ -39,7 +39,7 @@
 | `moods` | 心情 | `label`、`intensity` 1–10、`note`、`needs_comfort` |
 | `mood_responses` | 对心情的回应（接口与代码里叫 `MoodReply`，避免和 HTTP response 混淆） | `kind`：here（我在这里）/ hug（给你一个拥抱）/ ready（等你准备好） |
 | `todos` | 待办 | `assignee_id`（空 = 两人）、`parent_id`（子任务，只有一层）、`due_date` 或 `due_at`、`recurrence`（RRULE）、`recurrence_prev_id`（由哪一次完成生成，唯一，防止重复生成）、`done_at/by` |
-| `events` | 日程 | 定时：`starts_at`、`ends_at`；全天（`all_day`）：`start_date`、`end_date`（含首尾，按房间时区）；`participant_ids`（空 = 两人）、`ics_uid`（导入去重） |
+| `events` | 日程 | 定时：`starts_at`、`ends_at`；全天（`all_day`）：`start_date`、`end_date`（含首尾，按房间时区）；`participant_ids`（空 = 两人）、`ics_uid`（导入去重）、`remind_minutes`（提前多久提醒，空 = 不提醒；提醒由手机本地排） |
 | `devices` | 推送设备 | `provider`：fcm / unifiedpush（目前只用 unifiedpush）；`token` = 推送地址。所属登录作废或整次过期后删掉 |
 
 `entity_type` 取值（与 `shared/model/EntityType` 一致）：
@@ -64,7 +64,7 @@
 | `rooms` 增加列 | `ics_token`（只读订阅链接用的随机令牌，可重置） |
 | `ideas` | 灵感：`author_id`、`body` |
 | `jobs` | 任务队列：`kind`、`payload` jsonb、`status`（queued / running / done / failed）、`run_at`、`attempts`、`last_error`、`locked_at`。做完 7 天、失败 30 天后每天清掉（P13-18） |
-| `ai_jobs` | AI 调用记录：`room_id`、`requested_by`、`kind`（chat_answer / question_suggest / read_explain / review_findings / summary / yearly_review）、`status`、`model`、`input_tokens`、`output_tokens`、`result_ref`（结果写到了哪个实体）、`error`、时间戳 |
+| `ai_jobs` | AI 调用记录：`room_id`、`requested_by`、`kind`（chat_answer / question_suggest / read_explain / review_findings / summary / yearly_review）、`status`、`model`、`input_tokens`、`output_tokens`、`result_ref`（结果写到了哪个实体）、`error`、`fail_reason`（失败的种类，P16-08）、时间戳 |
 
 ### 第 5 阶段：共同写作、留言
 

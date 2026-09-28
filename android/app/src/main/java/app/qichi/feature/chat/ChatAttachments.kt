@@ -3,6 +3,7 @@ package app.qichi.feature.chat
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -65,6 +66,7 @@ import app.qichi.core.network.FileUrls
 import app.qichi.core.ui.formatBytes
 import app.qichi.shared.api.FileMeta
 import app.qichi.shared.model.FileKind
+import app.qichi.core.share.SHARE_MAX_IMAGES
 import app.qichi.shared.rules.Limits
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
@@ -196,11 +198,12 @@ internal fun UploadItem(upload: Upload, maxWidth: Dp, onRetry: () -> Unit, onCan
 /** 「+」：选图片或文件。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun AttachSheet(onDismiss: () -> Unit, onImage: () -> Unit, onFile: () -> Unit) {
+internal fun AttachSheet(onDismiss: () -> Unit, onImage: () -> Unit, onCamera: () -> Unit, onFile: () -> Unit) {
     val colors = QichiTheme.colors
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.paper) {
         Column(Modifier.padding(start = 28.dp, end = 28.dp, bottom = 28.dp)) {
-            SheetRow("图片") { onImage(); onDismiss() }
+            SheetRow("图片（一次最多 $SHARE_MAX_IMAGES 张）") { onImage(); onDismiss() }
+            SheetRow("拍照") { onCamera(); onDismiss() }
             SheetRow("文件") { onFile(); onDismiss() }
         }
     }
@@ -218,6 +221,19 @@ private fun SheetRow(label: String, onClick: () -> Unit) {
             .padding(vertical = 13.dp),
     )
 }
+
+/**
+ * 拍照要写到的文件（缓存目录 camera/，FileProvider 交给相机应用）。顺手清掉一天前拍的：
+ * 发出去之前照片已经压缩复制过一份，原图留着没用。
+ */
+internal fun newCameraFile(context: Context): File {
+    val dir = File(context.cacheDir, "camera").apply { mkdirs() }
+    val dayAgo = System.currentTimeMillis() - 24 * 3600_000L
+    dir.listFiles()?.filter { it.lastModified() < dayAgo }?.forEach { it.delete() }
+    return File(dir, "photo-${System.currentTimeMillis()}.jpg")
+}
+
+internal fun cameraUri(context: Context, file: File): Uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
 
 /** 全屏看图（聊天里的图片）。 */
 @Composable

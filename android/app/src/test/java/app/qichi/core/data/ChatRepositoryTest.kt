@@ -21,16 +21,19 @@ import app.qichi.shared.api.AiAction
 import app.qichi.shared.api.AiActionDraft
 import app.qichi.shared.api.AiChatRequest
 import app.qichi.shared.api.AiJobAccepted
+import app.qichi.shared.api.EditMessageRequest
 import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.MessagePage
 import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.ReadMarker
 import app.qichi.shared.api.SendMessageRequest
+import app.qichi.shared.api.SetMessageReactionRequest
 import app.qichi.shared.api.UpdateReadMarkerRequest
 import app.qichi.shared.model.AiActionKind
 import app.qichi.shared.model.AiActionStatus
 import app.qichi.shared.model.AiJobStatus
+import app.qichi.shared.model.BoardReactionKind
 import app.qichi.shared.model.EntityType
 import app.qichi.shared.model.FileKind
 import app.qichi.shared.model.MessageKind
@@ -103,6 +106,32 @@ class ChatRepositoryTest {
 
         // 最新一条就是它（待发送的排在最下面）
         assertEquals(sent.id, chat.observeNewest(roomId).first()!!.value.id)
+    }
+
+    @Test
+    fun `改文字和回应：本机先显示（已编辑、我的回应），发件箱里是 PATCH 和 PUT；再点同一个回应是收回（P16-05）`() = runTest {
+        val mine = serverMessage(8, "周六出发", author = me)
+        store.applyServer(mine)
+
+        chat.edit(mine, "  周日出发 ")
+        val edited = store.get<Message>(EntityType.Message, mine.id)!!
+        assertTrue(edited.isPending)
+        assertEquals("周日出发", edited.value.body)
+        assertTrue(edited.value.editedAt != null)
+        val patch = db.outbox().all().single()
+        assertEquals("rooms/$roomId/messages/${mine.id}", patch.path)
+        assertEquals("周日出发", QichiJson.decodeFromString(EditMessageRequest.serializer(), patch.bodyJson!!).body)
+
+        val theirs = serverMessage(9, "好呀")
+        store.applyServer(theirs)
+        chat.react(theirs, BoardReactionKind.Hug)
+        val reacted = store.get<Message>(EntityType.Message, theirs.id)!!.value
+        assertEquals(mapOf(me to BoardReactionKind.Hug), reacted.reactions)
+        chat.react(reacted, null)
+        assertTrue(store.get<Message>(EntityType.Message, theirs.id)!!.value.reactions.isEmpty())
+        val puts = db.outbox().all().filter { it.path == "rooms/$roomId/messages/${theirs.id}/reaction" }
+        assertTrue(puts.isNotEmpty())
+        assertEquals(null, QichiJson.decodeFromString(SetMessageReactionRequest.serializer(), puts.last().bodyJson!!).kind)
     }
 
     @Test

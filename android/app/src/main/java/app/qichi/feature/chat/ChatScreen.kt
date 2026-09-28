@@ -1,6 +1,8 @@
 package app.qichi.feature.chat
 
+import android.content.ActivityNotFoundException
 import android.content.ClipData
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -110,9 +112,11 @@ import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.liftFlat
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.network.FileUrls
+import app.qichi.core.share.SHARE_MAX_IMAGES
 import app.qichi.core.sync.Local
 import app.qichi.core.ui.Markdown
 import app.qichi.core.ui.MarkdownView
+import app.qichi.core.ui.aiFailText
 import app.qichi.core.ui.chatDay
 import app.qichi.core.ui.feelingWord
 import app.qichi.core.ui.scrollToItemMotion
@@ -123,8 +127,10 @@ import app.qichi.shared.api.FileMeta
 import app.qichi.shared.api.Message
 import app.qichi.shared.api.Mood
 import app.qichi.shared.api.SummarySource
+import app.qichi.shared.model.BoardReactionKind
 import app.qichi.shared.model.MessageKind
 import app.qichi.shared.rules.MessageRules
+import java.io.File
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -195,11 +201,20 @@ fun ChatScreen(
         if (dividerAfter == null && newestSeq > 0) dividerAfter = if (newestSeq > read) read else Long.MAX_VALUE
     }
     var retracting by remember { mutableStateOf<Message?>(null) }
+    var editing by remember { mutableStateOf<Message?>(null) }
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
     var attaching by remember { mutableStateOf(false) }
     var viewing by remember { mutableStateOf<FileMeta?>(null) }
-    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        uri?.let { viewModel.attach(it, asImage = true) }
+    // 一次最多选 9 张（P16-05）：一张走写说明的流程，几张就依次上传
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(SHARE_MAX_IMAGES)) { uris ->
+        if (uris.isNotEmpty()) viewModel.attachImages(uris)
+    }
+    // 直接拍照：相机应用写进缓存里的文件，拍好了和选的一张照片一样
+    var cameraPath by rememberSaveable { mutableStateOf<String?>(null) }
+    val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val path = cameraPath
+        cameraPath = null
+        if (ok && path != null) viewModel.attach(Uri.fromFile(File(path)), asImage = true)
     }
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { viewModel.attach(it, asImage = false) }
@@ -399,6 +414,16 @@ fun ChatScreen(
         AttachSheet(
             onDismiss = { attaching = false },
             onImage = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            onCamera = {
+                val file = newCameraFile(context)
+                cameraPath = file.path
+                try {
+                    takePicture.launch(cameraUri(context, file))
+                } catch (_: ActivityNotFoundException) {
+                    cameraPath = null
+                    Toast.makeText(context, "手机上没有能拍照的应用", Toast.LENGTH_SHORT).show()
+                }
+            },
             onFile = { pickFile.launch(arrayOf("*/*")) },
         )
     }
@@ -424,7 +449,12 @@ fun ChatScreen(
             onSaveDocument = {
                 viewModel.saveAnswerAsDocument(target.value) { doc -> onOpenSource(SummarySource(0, "document", doc.id, doc.title, Instant.now())) }
             },
+            onEdit = { editing = target.value },
+            onReact = { kind -> viewModel.react(target.value, kind) },
         )
+    }
+    editing?.let { message ->
+        EditMessageSheet(message, onSave = { text -> viewModel.edit(message, text) }, onDismiss = { editing = null })
     }
     retracting?.let { message ->
         ConfirmDialog(
@@ -585,6 +615,7 @@ private fun MessageBody(
                 }
                 else -> TextBubble(local, mine, people, maxBubble, onLongPress = onLongPress, onQuoteClick = onQuoteClick)
             }
+            ReactionChips(m.reactions, people, alignEnd = mine)
             when {
                 local.isFailed -> FailedActions(onRetry = { onRetry(m) }, onAbandon = { onAbandon(m) })
                 !local.isPending && !groupedWithNewer -> TimeLabel(m, mine, zone)
@@ -681,6 +712,9 @@ private fun TextBubble(
         ) {
             if (m.replyToId != null || m.replyExcerpt != null) ReplyQuote(m, people, onClick = m.replyToId?.let { id -> { onQuoteClick(id) } })
             Text(m.body, style = type.body.copy(lineHeight = 24.75.tsp, color = colors.ink))
+            if (m.editedAt != null) {
+                Text("已编辑", style = type.caption.copy(fontSize = 11.tsp, color = colors.muted), modifier = Modifier.align(Alignment.End))
+            }
         }
     }
 }
@@ -886,9 +920,11 @@ private fun PendingAiItem(pending: PendingAi, askerName: String, onRetry: () -> 
             AiBlock(prompt = pending.prompt, asker = askerName, modifier = Modifier.padding(end = 40.dp)) {}
             when {
                 pending.failed -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("没有得到回答", style = type.caption.copy(color = colors.accent))
-                    TextAction("重试", onClick = onRetry)
-                    TextAction("算了", onClick = onDismiss, color = colors.muted)
+                    // 说清为什么没回答（P16-08）；额度用完、太长时重试也没用，只给「知道了」
+                    val fail = aiFailText(pending.failReason)
+                    Text(fail.text, style = type.caption.copy(color = colors.accent), modifier = Modifier.weight(1f, fill = false))
+                    if (fail.canRetry) TextAction("重试", onClick = onRetry)
+                    TextAction(if (fail.canRetry) "算了" else "知道了", onClick = onDismiss, color = colors.muted)
                 }
                 else -> {
                     // 边生成边显示（P8-03）：引用编号和提议卡片等正式回答同步下来再出现
@@ -1001,7 +1037,7 @@ private fun ReplyStrip(message: Message, people: People, onCancel: () -> Unit) {
     }
 }
 
-/** 长按消息：回复、复制、存进档案、让 AI 整理、撤回（自己的）、删除。待发送或发送失败的消息只能复制。 */
+/** 长按消息：回应、回复、复制、存进档案、让 AI 整理、编辑和撤回（自己的）、删除。待发送或发送失败的消息只能复制。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MessageActions(
@@ -1018,6 +1054,10 @@ private fun MessageActions(
     /** AI 的回答存成灵感、文稿（P14-04，只对 AI 的回答显示） */
     onSaveIdea: () -> Unit,
     onSaveDocument: () -> Unit,
+    /** 改文字（P16-05，只对能改的消息显示） */
+    onEdit: () -> Unit,
+    /** 回应；null = 收回（P16-05） */
+    onReact: (BoardReactionKind?) -> Unit,
 ) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
@@ -1025,6 +1065,9 @@ private fun MessageActions(
     val synced = !local.isPending && !local.isFailed
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = colors.paper) {
         Column(Modifier.padding(start = 28.dp, end = 28.dp, bottom = 28.dp)) {
+            if (synced && m.retractedAt == null && m.kind in REACTABLE) {
+                ReactionPicker(m.reactions[people.myUserId]) { kind -> onReact(kind); onDismiss() }
+            }
             Text(
                 if (m.kind == MessageKind.Ai) "AI：${Markdown.plain(m.body)}" else "${people.name(m.authorId)}：${m.body}",
                 style = type.caption.copy(color = colors.muted),
@@ -1042,11 +1085,14 @@ private fun MessageActions(
             if (onOrganize != null && synced && m.kind == MessageKind.Text && m.body.isNotBlank() && m.retractedAt == null) {
                 ActionRow("让 AI 整理") { onOrganize(); onDismiss() }
             }
+            if (canEdit(m, people.myUserId, synced)) ActionRow("编辑") { onEdit(); onDismiss() }
             if (synced && m.authorId == people.myUserId && m.retractedAt == null) ActionRow("撤回") { onRetract(); onDismiss() }
             if (synced) ActionRow("删除") { onDelete(); onDismiss() }
         }
     }
 }
+
+private val REACTABLE = setOf(MessageKind.Text, MessageKind.Image, MessageKind.File)
 
 @Composable
 private fun ActionRow(label: String, onClick: () -> Unit) {

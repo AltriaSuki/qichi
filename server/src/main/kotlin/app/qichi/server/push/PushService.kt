@@ -81,12 +81,16 @@ class PushService(
     suspend fun deliver(change: CommittedChange) {
         val intent = db.tx(readOnly = true) { decide(change) } ?: return
         val targets = db.tx(readOnly = true) {
-            val zone = Rooms.select(Rooms.timezone).where { Rooms.id eq change.roomId }.singleOrNull()?.get(Rooms.timezone)
+            val roomZone = Rooms.select(Rooms.timezone).where { Rooms.id eq change.roomId }.singleOrNull()?.get(Rooms.timezone)
                 ?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: ZoneId.of("Asia/Shanghai")
-            val now = clock.instant().atZone(zone).toLocalTime()
+            val instant = clock.instant()
             val wanted = Users.select(Users.id, Users.notificationPrefs).where { Users.id inList intent.recipients }
                 .map { it[Users.id] to NotificationPrefs.from(it[Users.notificationPrefs]) }
-                .filter { (_, prefs) -> prefs.allows(intent.category) && !prefs.isQuiet(now) }
+                // 免打扰按每个人自己手机的时区算（P16-10）；旧版 App 没报过时区的按房间时区
+                .filter { (_, prefs) ->
+                    val zone = prefs.timezone?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: roomZone
+                    prefs.allows(intent.category) && !prefs.isQuiet(instant.atZone(zone).toLocalTime())
+                }
                 .associate { (id, prefs) -> id to prefs.showPreview }
             wanted to (if (wanted.isEmpty() || sender == null) emptyList() else Devices.select(Devices.id, Devices.token, Devices.userId)
                 .where { (Devices.userId inList wanted.keys) and (Devices.provider eq PushProvider.UnifiedPush.wireName) }

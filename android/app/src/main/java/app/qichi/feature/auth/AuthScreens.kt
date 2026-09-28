@@ -43,7 +43,7 @@ import app.qichi.core.designsystem.component.QichiKeyboard
 import app.qichi.core.designsystem.component.QichiTextField
 import app.qichi.core.designsystem.component.TextAction
 
-private enum class AuthPage { Welcome, Login, Register }
+private enum class AuthPage { Welcome, Login, Register, Reset }
 
 /** 未登录时的整个流程：欢迎 → 登录 / 注册。 */
 @Composable
@@ -54,7 +54,8 @@ fun AuthFlow(viewModel: AuthViewModel = hiltViewModel()) {
     BackHandler(enabled = page != AuthPage.Welcome) { page = AuthPage.Welcome }
     when (page) {
         AuthPage.Welcome -> WelcomeScreen(onRegister = { page = AuthPage.Register }, onLogin = { page = AuthPage.Login })
-        AuthPage.Login -> LoginScreen(state, viewModel, onBack = { page = AuthPage.Welcome }, onRegister = { page = AuthPage.Register })
+        AuthPage.Login -> LoginScreen(state, viewModel, onBack = { page = AuthPage.Welcome }, onRegister = { page = AuthPage.Register }, onForgot = { page = AuthPage.Reset })
+        AuthPage.Reset -> ResetPasswordScreen(state, viewModel, onBack = { page = AuthPage.Login })
         AuthPage.Register -> RegisterScreen(state, viewModel, onBack = { page = AuthPage.Welcome }, onLogin = { page = AuthPage.Login })
     }
     state.confirmSwitch?.let { unsent -> SwitchAccountDialog(unsent, onConfirm = viewModel::confirmSwitch, onCancel = viewModel::cancelSwitch) }
@@ -155,7 +156,7 @@ private fun GeneralError(message: String?) {
 }
 
 @Composable
-private fun LoginScreen(state: AuthUiState, vm: AuthViewModel, onBack: () -> Unit, onRegister: () -> Unit) {
+private fun LoginScreen(state: AuthUiState, vm: AuthViewModel, onBack: () -> Unit, onRegister: () -> Unit, onForgot: () -> Unit) {
     FormPage(title = "登录", onBack = onBack) {
         state.expiredNotice?.let { Text(it, style = QichiTheme.typography.body.copy(color = QichiTheme.colors.ink)) }
         QichiTextField(
@@ -174,6 +175,37 @@ private fun LoginScreen(state: AuthUiState, vm: AuthViewModel, onBack: () -> Uni
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             TextAction("还没有账号，注册", onClick = onRegister, color = QichiTheme.colors.muted)
         }
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            TextAction("忘了密码", onClick = onForgot, color = QichiTheme.colors.muted)
+        }
+    }
+}
+
+/** 忘了密码（P16-04）：请房间里的另一个人在「我的 → 成员与邀请」生成重置码，填进来设新密码。 */
+@Composable
+private fun ResetPasswordScreen(state: AuthUiState, vm: AuthViewModel, onBack: () -> Unit) {
+    FormPage(title = "忘了密码", onBack = onBack) {
+        Text(
+            "请对方打开栖迟，在「我的 → 成员与邀请」里点你名字旁的「帮 TA 重置密码」，把得到的 8 位重置码告诉你（15 分钟内有效）。",
+            style = QichiTheme.typography.body.copy(color = QichiTheme.colors.muted),
+        )
+        QichiTextField(
+            value = state.username, onValueChange = vm::onUsername, label = "用户名", error = state.error["username"],
+            keyboardOptions = QichiKeyboard.username.copy(imeAction = ImeAction.Next),
+        )
+        QichiTextField(
+            value = state.resetCode, onValueChange = vm::onResetCode, label = "重置码", error = state.error["resetCode"],
+            keyboardOptions = QichiKeyboard.code.copy(imeAction = ImeAction.Next),
+        )
+        QichiTextField(
+            value = state.password, onValueChange = vm::onPassword, label = "新密码",
+            placeholder = "至少 8 位", error = state.error["password"], password = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { vm.resetPassword() }),
+        )
+        GeneralError(state.error.message)
+        Spacer(Modifier.height(Spacing.xs))
+        PrimaryButton(if (state.submitting) "设置中" else "设新密码并登录", onClick = vm::resetPassword, enabled = !state.submitting, modifier = Modifier.fillMaxWidth())
     }
 }
 

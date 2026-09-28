@@ -58,6 +58,8 @@ data class AiJob(
     val finishedAt: Timestamp?,
     /** 写作助手（write_assist）的结果文字；只给发起的人看，其它情况为空 */
     val resultText: String? = null,
+    /** 失败的种类（AiFailReason 的 wireName，P16-08）；没失败或旧服务端为空 */
+    val failReason: String? = null,
 )
 
 /** 「我发起的 AI 使用」：某个月里我发起的调用，以及整个服务本月的额度情况。 */

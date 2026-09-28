@@ -9,6 +9,7 @@ import app.qichi.server.db.Users
 import app.qichi.server.db.tx
 import app.qichi.server.plugins.validate
 import app.qichi.shared.api.Me
+import app.qichi.shared.api.NotificationPrefs
 import app.qichi.shared.api.MyRoom
 import app.qichi.shared.api.UpdateMeRequest
 import app.qichi.shared.api.User
@@ -51,6 +52,11 @@ class MeService(
                 check(prompts.map { it.id }.toSet().size == prompts.size, "readingPrompts", "提示词的 id 重复了")
                 check(prompts.all { it.title.trim().length in Limits.READING_PROMPT_TITLE_LENGTH }, "readingPrompts", "名字 1–20 个字")
                 check(prompts.all { it.instruction.trim().length in Limits.READING_PROMPT_INSTRUCTION_LENGTH }, "readingPrompts", "要求 1–300 个字")
+            }
+            // 免打扰用的手机时区（P16-10）：要是认得的时区名
+            req.notificationPrefs.ifPresent { json ->
+                val zone = NotificationPrefs.from(json).timezone
+                check(zone == null || runCatching { java.time.ZoneId.of(zone) }.isSuccess, "notificationPrefs", "时区不对")
             }
         }
         return db.tx {

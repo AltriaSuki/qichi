@@ -88,6 +88,12 @@ class Entities(private val general: EntityDao, private val chat: ChatEntityDao) 
 
     fun observeNewestMessageSeq(roomId: String): Flow<Long?> = chat.observeNewestMessageSeq(roomId)
 
+    /** 退出了的房间（P16-07）：两张表里这个房间的都删掉。 */
+    suspend fun deleteRoom(roomId: String) {
+        general.deleteRoom(roomId)
+        chat.deleteRoom(roomId)
+    }
+
     suspend fun clear() {
         general.clear()
         chat.clear()

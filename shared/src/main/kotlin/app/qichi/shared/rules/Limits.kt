@@ -26,8 +26,14 @@ object Limits {
     const val NOTE_MAX: Int = 2000
     val EVENT_TITLE_LENGTH: IntRange = 1..200
     const val EVENT_LOCATION_MAX: Int = 200
+    /** 日程提前多久提醒（分钟）：准时、5 分钟、15 分钟、1 小时、1 天；null = 不提醒（P16-01） */
+    val EVENT_REMIND_MINUTES: Set<Int> = setOf(0, 5, 15, 60, 1440)
+    /** 新建日程默认提前 15 分钟提醒 */
+    const val EVENT_REMIND_DEFAULT: Int = 15
 
     const val MESSAGE_BODY_MAX: Int = 10_000
+    /** 自己发的文字消息多久之内可以改（P16-05） */
+    const val MESSAGE_EDIT_HOURS: Long = 24
     /** 照片下面手写的一句说明（图片消息的 body），按字符数 */
     const val PHOTO_CAPTION_MAX: Int = 30
     const val REPLY_EXCERPT_LENGTH: Int = 60

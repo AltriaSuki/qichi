@@ -16,6 +16,7 @@ import app.qichi.shared.api.AcceptAiActionRequest
 import app.qichi.shared.api.AiAction
 import app.qichi.shared.api.CreateArchiveItemRequest
 import app.qichi.shared.api.CreateEventRequest
+import app.qichi.shared.rules.Limits
 import app.qichi.shared.api.CreateIdeaRequest
 import app.qichi.shared.api.CreateMilestoneRequest
 import app.qichi.shared.api.CreatePlanLogRequest
@@ -79,6 +80,7 @@ class AiActionService(
             AiActionKind.Event -> events.createIn(this, userId, roomId, CreateEventRequest(
                 rid, d.title, d.allDay, note = d.note, location = d.location,
                 startsAt = d.startsAt, endsAt = d.endsAt, startDate = d.startDate, endDate = d.endDate,
+                remindMinutes = Limits.EVENT_REMIND_DEFAULT,
             ))
             AiActionKind.Todo -> todos.createIn(this, userId, roomId, CreateTodoRequest(
                 rid, d.title, note = d.note, assigneeId = d.assigneeId?.takeIf { RoomRepository.isMember(roomId, it) },

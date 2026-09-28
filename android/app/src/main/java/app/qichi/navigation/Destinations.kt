@@ -56,6 +56,8 @@ enum class Page(val slug: String, val title: String, val tab: TopTab, val group:
     Tags("tags", "标签", TopTab.Together),
 
     // 我的
+    /** 统一搜索（P16-06，「我的」顶上的搜索框进来） */
+    Search("search", "搜索", TopTab.Me),
     MyContent("my-content", "我写下的内容", TopTab.Me),
     AiUsage("ai-usage", "我发起的 AI 使用", TopTab.Me),
     Members("members", "成员与邀请", TopTab.Me),

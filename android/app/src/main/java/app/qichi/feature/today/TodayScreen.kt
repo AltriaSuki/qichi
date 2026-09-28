@@ -83,6 +83,7 @@ import app.qichi.core.designsystem.component.topBarInset
 import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.lift
 import app.qichi.core.designsystem.tsp
+import app.qichi.core.ui.anniversaryLine
 import app.qichi.core.ui.PlanCover
 import app.qichi.core.ui.StageTrack
 import app.qichi.core.ui.TodoRow
@@ -198,6 +199,8 @@ private fun Header(state: TodayState, viewModel: TodayViewModel) {
     val colors = QichiTheme.colors
     val type = QichiTheme.typography
     val people = state.people
+    // 在一起第几天、周年倒数（P16-02）
+    val anniversary = anniversaryLine(people.room?.anniversary, state.today)
     Box(Modifier.fillMaxWidth().height(HERO_HEIGHT)) {
         val hero = people.room?.heroFileId
         FogSeaHero(Modifier.fillMaxSize(), layout = HeroLayout.Wide)
@@ -218,7 +221,7 @@ private fun Header(state: TodayState, viewModel: TodayViewModel) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             HandNote(greeting(QichiTheme.sky), Modifier.weight(1f), fontSizeSp = 26f, color = colors.ink, rotation = -5f)
-            val marks = listOfNotNull(people.room?.createdBy?.let { people.members.firstOrNull { m -> m.userId == it } }, people.members.firstOrNull { it.userId != people.room?.createdBy })
+            val marks = listOfNotNull(people.room?.createdBy?.let { people.active.firstOrNull { m -> m.userId == it } }, people.active.firstOrNull { it.userId != people.room?.createdBy })
                 .map { people.markChar(it.userId) to people.person(it.userId) }
             if (marks.isNotEmpty()) PersonMarks(marks, size = 26.dp)
         }
@@ -229,7 +232,8 @@ private fun Header(state: TodayState, viewModel: TodayViewModel) {
                 .padding(start = 22.dp, end = Spacing.page, bottom = Spacing.m)
                 .clearAndSetSemantics {
                     heading()
-                    contentDescription = "${state.today.year} 年 ${state.today.monthValue} 月 ${state.today.dayOfMonth} 日，${weekdayName(state.today.dayOfWeek)}"
+                    contentDescription = "${state.today.year} 年 ${state.today.monthValue} 月 ${state.today.dayOfMonth} 日，${weekdayName(state.today.dayOfWeek)}" +
+                        anniversary?.let { "，${it.text}" }.orEmpty()
                 },
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
@@ -252,6 +256,9 @@ private fun Header(state: TodayState, viewModel: TodayViewModel) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("${weekdayName(state.today.dayOfWeek)} · ", style = type.caption.copy(fontSize = 14.tsp, color = colors.muted))
                     Text(state.today.year.toString(), style = type.numeral.copy(fontSize = 14.tsp, color = colors.muted))
+                }
+                anniversary?.let {
+                    Text(it.text, style = type.caption.copy(fontSize = 14.tsp, color = if (it.special) colors.accent else colors.muted))
                 }
             }
             Seal("栖迟", Modifier.padding(bottom = 6.dp), size = 40.dp, rotation = -8f)
