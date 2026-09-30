@@ -158,6 +158,73 @@ class ApiClientTest {
         assertEquals("r2", store.read()!!.refreshToken)
     }
 
+    private fun delayedRefresh(
+        started: CompletableDeferred<Unit>,
+        release: CompletableDeferred<Unit>,
+        status: HttpStatusCode = HttpStatusCode.OK,
+    ) = MockEngine { request ->
+        when {
+            request.url.encodedPath.endsWith("/auth/refresh") -> {
+                started.complete(Unit)
+                release.await()
+                if (status == HttpStatusCode.OK) {
+                    respond(QichiJson.encodeToString(AuthTokens.serializer(), tokens(2)), status, json)
+                } else problem(status, "unauthorized")
+            }
+            request.headers[HttpHeaders.Authorization] == "Bearer ${tokens(1).accessToken}" ->
+                problem(HttpStatusCode.Unauthorized, "unauthorized")
+            else -> respond("""{"status":"ok","version":"test"}""", HttpStatusCode.OK, json)
+        }
+    }
+
+    @Test
+    fun `请求取消时仍保存已经发起的刷新响应，下一次打开能继续使用新令牌`() = runTest {
+        val store = InMemoryTokenStore(tokens(1))
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val api = ApiClient(delayedRefresh(started, release), "http://test", store, "test")
+        val request = launch { api.get<Health>("health") }
+        started.await()
+        request.cancel()
+        release.complete(Unit)
+        request.join()
+        assertEquals(tokens(2), store.read())
+        assertEquals("ok", api.get<Health>("health").status)
+        api.http.close()
+    }
+
+    @Test
+    fun `旧刷新请求晚返回成功或401都不能覆盖期间的新登录`() = runTest {
+        for (status in listOf(HttpStatusCode.OK, HttpStatusCode.Unauthorized)) {
+            val store = InMemoryTokenStore(tokens(1))
+            val started = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val api = ApiClient(delayedRefresh(started, release, status), "http://test", store, "test")
+            val request = async { api.get<Health>("health") }
+            started.await()
+            store.write(tokens(3))
+            release.complete(Unit)
+            assertEquals("ok", request.await().status)
+            assertEquals(tokens(3), store.read())
+            api.http.close()
+        }
+    }
+
+    @Test
+    fun `刷新期间主动登出，晚到的响应不能恢复旧登录`() = runTest {
+        val store = InMemoryTokenStore(tokens(1))
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val api = ApiClient(delayedRefresh(started, release), "http://test", store, "test")
+        val request = launch { runCatching { api.get<Health>("health") } }
+        started.await()
+        store.clear()
+        release.complete(Unit)
+        request.join()
+        assertNull(store.read())
+        api.http.close()
+    }
+
     @Test
     fun `多个请求同时 401 只刷新一次`() = runTest {
         val store = InMemoryTokenStore(tokens(1))

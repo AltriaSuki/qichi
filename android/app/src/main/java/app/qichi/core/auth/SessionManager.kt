@@ -91,6 +91,8 @@ class SessionManager(
         }
         scope.launch {
             api.sessionExpired.collect {
+                // 旧刷新请求的失效通知可能晚于用户的新登录，不能把新登录踢掉。
+                if (tokenStore.read() != null) return@collect
                 noteExpired()
                 _state.value = SessionState.LoggedOut
             }

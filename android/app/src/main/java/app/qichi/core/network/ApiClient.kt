@@ -42,6 +42,9 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.util.AttributeKey
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -153,6 +156,16 @@ class ApiClient(
         val current = tokenStore.read() ?: return Refresh.Expired
         if (current.accessToken != usedAccessToken) return Refresh.Done(current)
 
+        currentCoroutineContext().ensureActive()
+        // 发出轮换请求之后必须接收并保存响应。页面退出或后台工作被取消不能打断这一步。
+        // 网络请求仍受 HttpTimeout 的 60 秒限制。
+        withContext(NonCancellable) { refreshCurrent(current) }
+    }
+
+    private suspend fun currentRefresh(): Refresh =
+        tokenStore.read()?.let { Refresh.Done(it) } ?: Refresh.Expired
+
+    private suspend fun refreshCurrent(current: AuthTokens): Refresh {
         val response = try {
             http.request("auth/refresh") {
                 method = HttpMethod.Post
@@ -164,16 +177,16 @@ class ApiClient(
         } catch (e: Exception) {
             return Refresh.Unavailable(e)
         }
-        when {
+        return when {
             response.status.isSuccess() -> {
                 val tokens = QichiJson.decodeFromString(AuthTokens.serializer(), response.bodyAsText())
-                tokenStore.write(tokens)
-                Refresh.Done(tokens)
+                if (tokenStore.compareAndSet(current, tokens)) Refresh.Done(tokens) else currentRefresh()
             }
             response.status == HttpStatusCode.Unauthorized -> {
-                tokenStore.clear()
-                _sessionExpired.tryEmit(Unit)
-                Refresh.Expired
+                if (tokenStore.compareAndSet(current, null)) {
+                    _sessionExpired.tryEmit(Unit)
+                    Refresh.Expired
+                } else currentRefresh()
             }
             else -> Refresh.Unavailable(null)
         }
