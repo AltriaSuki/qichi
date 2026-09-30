@@ -22,10 +22,11 @@ internal fun epubPreferences(settings: ReadingSettings, paper: Int, ink: Int, ap
 }
 
 /**
- * 目录里「正在读的这一章」：和当前位置同一个文件的第一项（不看 # 后面的锚点）；找不到为 -1。
+ * 目录里「正在读的这一章」：先匹配小节锚点，缺少锚点信息时退回同文件的章节。
  * [tocHrefs] 与 [current] 都是 href 的字符串形式。
  */
 internal fun currentTocIndex(tocHrefs: List<String>, current: String?): Int {
     val file = current?.substringBefore('#')?.takeIf { it.isNotEmpty() } ?: return -1
+    tocHrefs.indexOfFirst { it == current }.takeIf { it >= 0 }?.let { return it }
     return tocHrefs.indexOfFirst { it.substringBefore('#') == file }
 }
