@@ -164,11 +164,10 @@ class ReadingService(
             val existing = ReadingProgressTable.selectAll()
                 .where { (ReadingProgressTable.bookId eq bookId) and (ReadingProgressTable.userId eq userId) }.singleOrNull()?.toReadingProgress()
             if (existing != null) {
-                if (existing.locator != req.locator || existing.progress != req.progress) {
-                    writes.update(this, roomId, userId, EntityType.ReadingProgress, existing.id, ReadingProgressTable) {
-                        it[ReadingProgressTable.locator] = req.locator
-                        it[ReadingProgressTable.progress] = req.progress
-                    }
+                // 停在同一页重新打开也算最近阅读，不能把客户端的打开时间覆盖回旧值。
+                writes.update(this, roomId, userId, EntityType.ReadingProgress, existing.id, ReadingProgressTable) {
+                    it[ReadingProgressTable.locator] = req.locator
+                    it[ReadingProgressTable.progress] = req.progress
                 }
                 progress(existing.id)!!
             } else {

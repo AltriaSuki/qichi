@@ -264,6 +264,13 @@ interface OutboxDao {
     @Query("DELETE FROM outbox WHERE entityType = :type AND entityId = :id")
     suspend fun deleteAllFor(type: String, id: String)
 
+    /** 服务端将阅读进度并到已有 id 时，后续操作也沿用那个 id。 */
+    @Query("SELECT * FROM outbox WHERE entityType = :type AND entityId = :id ORDER BY localId")
+    suspend fun forEntity(type: String, id: String): List<OutboxRow>
+
+    @Query("UPDATE outbox SET entityId = :toId, bodyJson = :body WHERE localId = :localId")
+    suspend fun reassignEntity(localId: Long, toId: String, body: String?)
+
     /** 同一种可合并的操作（如推进已读位置）只保留最后一次。 */
     @Query("DELETE FROM outbox WHERE roomId = :roomId AND kind = :kind AND state = 'PENDING'")
     suspend fun deletePendingOfKind(roomId: String, kind: String)

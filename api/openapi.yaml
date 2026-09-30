@@ -1736,6 +1736,7 @@ paths:
       tags: [reading]
       operationId: putReadingProgress
       summary: 保存我的进度（每人每本书一条；已有时沿用已有的 id）
+      description: 每次保存都更新 updatedAt，停在同一位置重新打开也计为最近阅读。
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '#/components/schemas/PutReadingProgressRequest' } } }
