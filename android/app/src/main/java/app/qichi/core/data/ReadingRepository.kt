@@ -13,6 +13,8 @@ import app.qichi.core.sync.OutboxOp
 import app.qichi.core.sync.SyncScheduler
 import app.qichi.core.network.ApiClient
 import app.qichi.core.network.post
+import app.qichi.core.network.get
+import app.qichi.shared.api.AiJob
 import app.qichi.shared.api.AiJobAccepted
 import app.qichi.shared.api.AiReadExplainRequest
 import app.qichi.shared.api.Book
@@ -146,6 +148,8 @@ class ReadingRepository(
             "rooms/${book.roomId}/ai/read-explain",
             AiReadExplainRequest(jobId, book.id, mode, text.trim().take(2000), locatorJson, before.takeLast(500), after.take(500), instruction?.trim()),
         )
+
+    suspend fun aiJob(roomId: UUID, jobId: UUID): AiJob = api.get("rooms/$roomId/ai/jobs/$jobId")
 
     // ── 书签、标注、摘录 ──
 

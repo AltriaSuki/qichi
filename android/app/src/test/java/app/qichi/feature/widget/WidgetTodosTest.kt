@@ -40,7 +40,7 @@ class WidgetTodosTest {
         recurrence = null, recurrencePrevId = null, doneAt = doneAt, doneBy = doneBy,
     )
 
-    private fun titles(todos: List<Todo>) = widgetRows(todos, me, today, zone, now).map { it.todo.title }
+    private fun titles(todos: List<Todo>) = widgetRows(todos, me, today, zone).map { it.todo.title }
 
     @Test
     fun `只列今天到期和过期的、交给我或两个人的顶层待办`() {
@@ -75,7 +75,7 @@ class WidgetTodosTest {
     }
 
     @Test
-    fun `我刚勾掉的留在原位划线，过了一会儿就不列了；对方勾掉的直接不列`() {
+    fun `无论谁勾选完成都立即从组件消失`() {
         val todos = listOf(
             todo("早上的", created = 1),
             todo("我刚勾掉的", created = 2, doneAt = now.minusSeconds(60), doneBy = me),
@@ -83,14 +83,12 @@ class WidgetTodosTest {
             todo("对方刚勾掉的", created = 4, doneAt = now.minusSeconds(30), doneBy = partner),
             todo("晚上的", created = 5),
         )
-        val rows = widgetRows(todos, me, today, zone, now)
-        assertEquals(listOf("早上的", "我刚勾掉的", "晚上的"), rows.map { it.todo.title })
-        assertEquals(listOf(false, true, false), rows.map { it.justDone })
+        val rows = widgetRows(todos, me, today, zone)
+        assertEquals(listOf("早上的", "晚上的"), rows.map { it.todo.title })
         assertEquals(2, rows.remaining())
-        // 刚好到时候还在，再过一秒就没了
-        val edge = todo("刚好三分钟", doneAt = now.minus(JUST_DONE_FOR), doneBy = me)
-        assertEquals(listOf("刚好三分钟"), titles(listOf(edge)))
-        assertEquals(emptyList(), widgetRows(listOf(edge), me, today, zone, now.plusSeconds(1)).map { it.todo.title })
+        val justCompleted = todo("现在完成", doneAt = now, doneBy = me)
+        assertTrue(widgetRows(listOf(justCompleted), me, today, zone).isEmpty())
+
     }
 
     @Test
@@ -104,20 +102,20 @@ class WidgetTodosTest {
                 todo("今天的"),
                 todo("刚勾掉的", due = today.minusDays(1), doneAt = now, doneBy = me),
             ),
-            me, today, zone, now,
+            me, today, zone,
         ).associateBy { it.todo.title }
         assertEquals("昨天", widgetDueLabel(rows.getValue("昨天的"), today, zone))
         assertEquals("09.18", widgetDueLabel(rows.getValue("上周的"), today, zone))
         assertEquals("09:00", widgetDueLabel(rows.getValue("早上九点"), today, zone))
         assertEquals("18:00", widgetDueLabel(rows.getValue("晚上六点"), today, zone))
         assertEquals(null, widgetDueLabel(rows.getValue("今天的"), today, zone))
-        assertEquals(null, widgetDueLabel(rows.getValue("刚勾掉的"), today, zone))
+        assertFalse("刚勾掉的" in rows)
 
         assertTrue(widgetIsLate(rows.getValue("昨天的"), now))
         assertTrue(widgetIsLate(rows.getValue("早上九点"), now), "今天九点已经过了")
         assertFalse(widgetIsLate(rows.getValue("晚上六点"), now))
         assertFalse(widgetIsLate(rows.getValue("今天的"), now))
-        assertFalse(widgetIsLate(rows.getValue("刚勾掉的"), now))
+
     }
 
     /** 有待办时组件显示「无法显示内容」：列表编号不能是负数（Glance 留给自己用）。 */

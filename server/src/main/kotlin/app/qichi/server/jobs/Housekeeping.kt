@@ -15,7 +15,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
@@ -34,8 +33,8 @@ private val log = LoggerFactory.getLogger(Housekeeping::class.java)
 /**
  * 每天一次的清理（P13-18）：不再有用、却一直留着的数据。各项互不影响，一项出错只记日志，其余照做。
  *
- * - 刷新令牌：过期超过 [TOKEN_KEEP] 的删掉。过期的本来就不能用；多留一阵，拿旧令牌来的仍按「重复使用」处理。
- *   整次登录都已过期（没有一个还能用的令牌）的推送设备也删掉：那台手机已经登不上了，不再给它发通知。
+ * - 刷新令牌：作废超过 [TOKEN_KEEP] 的删掉；仍有效的登录不因闲置被清理。
+ *   整次登录都已作废（没有一个还能用的令牌）的推送设备也删掉。
  * - 任务队列：做完超过 [DONE_KEEP]、失败超过 [FAILED_KEEP] 的记录删掉（结果都在各自的表里；ai_jobs 记着用量，不动）。
  * - 文件：上传超过 [FILE_GRACE] 仍没有任何地方在用的（见 [FileService.inUse]），删记录和磁盘上的文件、缩略图；
  *   磁盘上没有记录、超过 [FILE_GRACE] 没动过的文件（上传或生成预览到一半进程没了、房间没了）删掉；
@@ -101,9 +100,9 @@ class Housekeeping(
     }
 
     private suspend fun purgeTokens(now: Instant): Pair<Int, Int> = db.tx {
-        val tokens = RefreshTokens.deleteWhere { RefreshTokens.expiresAt less now.minus(TOKEN_KEEP) }
+        val tokens = RefreshTokens.deleteWhere { RefreshTokens.revokedAt.isNotNull() and (RefreshTokens.revokedAt less now.minus(TOKEN_KEEP)) }
         val alive = RefreshTokens.select(RefreshTokens.familyId)
-            .where { RefreshTokens.revokedAt.isNull() and (RefreshTokens.expiresAt greater now) }
+            .where { RefreshTokens.revokedAt.isNull() }
         val devices = Devices.deleteWhere { Devices.refreshFamilyId.isNotNull() and (Devices.refreshFamilyId notInSubQuery alive) }
         tokens to devices
     }

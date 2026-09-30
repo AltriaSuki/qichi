@@ -19,6 +19,9 @@ import app.qichi.shared.api.QichiJson
 import app.qichi.shared.api.UpdateHighlightRequest
 import app.qichi.shared.api.Patch
 import app.qichi.shared.model.HighlightKind
+import app.qichi.shared.model.EntityType
+import app.qichi.shared.model.wireName
+import app.qichi.core.database.SyncState
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
@@ -77,6 +80,38 @@ class ReadingRepositoryTest {
         db.outbox().all().forEach { db.outbox().delete(it.localId) }
         store.applyReadingProgress(server)
         assertEquals(listOf(server.id), reading.observeProgress(roomId).first().map { it.id })
+    }
+
+    @Test
+    fun `跨设备合并响应不能丢掉请求途中继续翻页的进度`() = runTest {
+        reading.saveProgress(book, """{"p":1}""", 0.1)
+        val submitted = reading.observeProgress(roomId).first().single()
+        val request = db.outbox().all().single()
+        reading.saveProgress(book, """{"p":2}""", 0.2)
+        db.outbox().delete(request.localId)
+        val server = submitted.copy(id = UUID.randomUUID(), seq = 9)
+        store.applyReadingProgress(server)
+
+        val kept = reading.observeProgress(roomId).first().single()
+        assertEquals(server.id, kept.id)
+        assertEquals(0.2, kept.progress)
+        assertEquals("""{"p":2}""", kept.locator)
+        assertEquals(server.id.toString(), db.outbox().all().single().entityId)
+        assertEquals(server.id, QichiJson.decodeFromString(PutReadingProgressRequest.serializer(), db.outbox().all().single().bodyJson!!).id)
+        assertEquals(SyncState.PENDING, db.entities().get(EntityType.ReadingProgress.wireName, server.id.toString())!!.syncState)
+        reading.saveProgress(book, """{"p":3}""", 0.3)
+        assertEquals(1, db.outbox().all().size)
+    }
+
+    @Test
+    fun `后台同步也合并进度 id 并保留尚未发出的本机位置`() = runTest {
+        reading.saveProgress(book, """{"p":2}""", 0.2)
+        val local = reading.observeProgress(roomId).first().single()
+        val server = local.copy(id = UUID.randomUUID(), seq = 9, locator = """{"p":1}""", progress = 0.1)
+        store.applyServer(server)
+        assertEquals(server.id, reading.observeProgress(roomId).first().single().id)
+        assertEquals(0.2, reading.observeProgress(roomId).first().single().progress)
+        assertEquals(server.id.toString(), db.outbox().all().single().entityId)
     }
 
     @Test

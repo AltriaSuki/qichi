@@ -23,6 +23,8 @@ interface TokenStore {
     suspend fun read(): AuthTokens?
     suspend fun write(tokens: AuthTokens)
     suspend fun clear()
+    /** 刷新结果只能修改发起时的令牌，不能覆盖期间的新登录或登出。 */
+    suspend fun compareAndSet(expected: AuthTokens, replacement: AuthTokens?): Boolean
 }
 
 private val Context.authDataStore: DataStore<Preferences> by preferencesDataStore(name = "qichi_auth")
@@ -55,7 +57,9 @@ class EncryptedTokenStore(private val context: Context) : TokenStore {
         cached
     }
 
-    override suspend fun write(tokens: AuthTokens) = mutex.withLock {
+    override suspend fun write(tokens: AuthTokens) = mutex.withLock { save(tokens) }
+
+    private suspend fun save(tokens: AuthTokens) {
         val json = QichiJson.encodeToString(AuthTokens.serializer(), tokens)
         val cipher = aead.encrypt(json.toByteArray(), ASSOCIATED_DATA)
         context.authDataStore.edit { it[KEY] = Base64.encodeToString(cipher, Base64.NO_WRAP) }
@@ -63,10 +67,22 @@ class EncryptedTokenStore(private val context: Context) : TokenStore {
         loaded = true
     }
 
-    override suspend fun clear() = mutex.withLock {
+    override suspend fun clear() = mutex.withLock { erase() }
+
+    private suspend fun erase() {
         context.authDataStore.edit { it.remove(KEY) }
         cached = null
         loaded = true
+    }
+
+    override suspend fun compareAndSet(expected: AuthTokens, replacement: AuthTokens?): Boolean = mutex.withLock {
+        if (!loaded) {
+            cached = context.authDataStore.data.first()[KEY]?.let { decrypt(it) }
+            loaded = true
+        }
+        if (cached != expected) return@withLock false
+        if (replacement == null) erase() else save(replacement)
+        true
     }
 
     /** 解密失败（例如系统清掉了 Keystore 密钥）时当作未登录。 */
@@ -86,11 +102,17 @@ class EncryptedTokenStore(private val context: Context) : TokenStore {
 
 /** 内存里的令牌存储（测试用）。 */
 class InMemoryTokenStore(private var tokens: AuthTokens? = null) : TokenStore {
-    override suspend fun read(): AuthTokens? = tokens
-    override suspend fun write(tokens: AuthTokens) {
+    private val mutex = Mutex()
+    override suspend fun read(): AuthTokens? = mutex.withLock { tokens }
+    override suspend fun write(tokens: AuthTokens) = mutex.withLock {
         this.tokens = tokens
     }
-    override suspend fun clear() {
+    override suspend fun clear() = mutex.withLock {
         tokens = null
+    }
+    override suspend fun compareAndSet(expected: AuthTokens, replacement: AuthTokens?): Boolean = mutex.withLock {
+        if (tokens != expected) return@withLock false
+        tokens = replacement
+        true
     }
 }

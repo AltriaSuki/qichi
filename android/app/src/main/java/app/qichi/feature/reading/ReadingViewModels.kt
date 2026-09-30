@@ -16,6 +16,7 @@ import app.qichi.core.reading.EpubException
 import app.qichi.core.reading.EpubOpener
 import app.qichi.core.sync.Local
 import app.qichi.core.sync.RealtimeClient
+import app.qichi.core.sync.SyncEngine
 import app.qichi.core.ui.todayIn
 import app.qichi.core.ui.zoneOf
 import app.qichi.di.ApplicationScope
@@ -38,6 +39,12 @@ import java.time.ZoneId
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -185,6 +192,7 @@ private data class AiAsk(
     val lastLocator: Locator? = null,
     /** 按自己的要求问时的要求（P14-05），重试时照旧带上 */
     val lastInstruction: String? = null,
+    val lastJobId: UUID? = null,
 )
 
 private data class Opened(
@@ -209,10 +217,13 @@ class ReaderViewModel @AssistedInject constructor(
     rooms: RoomRepository,
     network: NetworkMonitor,
     realtime: RealtimeClient,
+    private val sync: SyncEngine,
     session: SessionManager,
 ) : ViewModel() {
     private val people = combine(rooms.observeRoom(roomId), rooms.observeMembers(roomId)) { room, members -> People(room, members, session.currentUserId) }
     private val opened = MutableStateFlow(Opened())
+    private val loadMutex = Mutex()
+    private var cachedFileId: UUID? = null
     private val ai = MutableStateFlow(AiAsk())
     private val environment = combine(network.isOnline, rooms.me, ai) { online, me, a -> Triple(online, me?.aiEnabled == true, a) }
 
@@ -290,31 +301,62 @@ class ReaderViewModel @AssistedInject constructor(
         viewModelScope.launch {
             current.filterNotNull().debounce(1_500).collect { locator ->
                 val book = state.value.book ?: return@collect
-                savedLocator = locator
-                reading.saveProgress(book, locator.toJSON().toString(), locator.locations.totalProgression ?: 0.0)
+                try {
+                    reading.saveProgress(book, locator.toJSON().toString(), locator.locations.totalProgression ?: 0.0)
+                    savedLocator = locator
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    _message.tryEmit("没能保存阅读进度，请稍后再试")
+                }
             }
+        }
+        // ai.done 是一次性事件：断线期间的失败不会重播，待处理任务要主动核对状态。
+        viewModelScope.launch {
+            combine(ai.map { it.pending }, network.isOnline, realtime.connected) { id, online, connected -> Triple(id, online, connected) }
+                .distinctUntilChanged().collectLatest { (id, online, _) ->
+                    if (id == null || !online) return@collectLatest
+                    monitorReadingAi(id, isPending = { ai.value.pending == id },
+                        status = { reading.aiJob(roomId, it).status },
+                        onDone = { sync.pull(roomId) },
+                        onFailed = { ai.update { if (it.pending == id) it.copy(pending = null, failed = true) else it } },
+                    )
+                }
         }
     }
 
     fun retry() = viewModelScope.launch { load() }
 
-    private suspend fun load() {
-        if (publication != null) return
+    private suspend fun load() = loadMutex.withLock {
+        if (publication != null) return@withLock
         opened.update { it.copy(error = null) }
-        val book = state.first { it.loaded }.book ?: return
+        val book = state.first { it.loaded }.book ?: return@withLock
+        var acquired = false
+        var candidate: Publication? = null
         try {
             opened.update { it.copy(downloading = 0f) }
-            val file = cache.open(book.fileId) { p -> opened.update { it.copy(downloading = p) } }
+            val file = cache.acquire(book.fileId) { p -> opened.update { it.copy(downloading = p) } }
+            acquired = true
             val pub = epubs.open(file)
+            candidate = pub
+            val positions = try { pub.positions().size } catch (e: CancellationException) { throw e } catch (_: Exception) { 0 }
+            val toc = flatten(pub.tableOfContents, 0)
             initialLocator = current.value ?: state.value.mine?.locator?.let { parseLocator(it) }
             publication = pub
-            opened.update { Opened(ready = true, toc = flatten(pub.tableOfContents, 0), totalPositions = runCatching<Int> { pub.positions().size }.getOrDefault(0)) }
+            cachedFileId = book.fileId
+            candidate = null
+            acquired = false
+            opened.update { Opened(ready = true, toc = toc, totalPositions = positions) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: EpubException) {
             opened.update { it.copy(downloading = null, error = e.message) }
         } catch (_: Exception) {
             opened.update { it.copy(downloading = null, error = "这本书还没下载到这台手机上，需要联网") }
+        } finally {
+            try { candidate?.close() } finally {
+                if (acquired) withContext(NonCancellable) { cache.release(book.fileId) }
+            }
         }
     }
 
@@ -340,13 +382,13 @@ class ReaderViewModel @AssistedInject constructor(
         if (existing != null) reading.deleteHighlight(existing) else reading.addHighlight(book, HighlightKind.Bookmark, locator.toJSON().toString(), locator.title ?: "", null, false)
     }
 
-    /** 同一章、进度相差不到 0.5% 的书签算作「这一页的书签」。 */
+    /** 同一资源内的实际位置才算当前书签。 */
     fun bookmarkAt(locator: Locator?): Highlight? {
         locator ?: return null
         val me = state.value.people.myUserId
         return state.value.highlights.map { it.value }.firstOrNull { h ->
             h.kind == HighlightKind.Bookmark && h.userId == me && parseLocator(h.locator)?.let { l ->
-                l.href == locator.href && kotlin.math.abs((l.locations.totalProgression ?: -1.0) - (locator.locations.totalProgression ?: -2.0)) < 0.005
+                sameBookmarkLocation(l, locator)
             } == true
         }
     }
@@ -355,7 +397,7 @@ class ReaderViewModel @AssistedInject constructor(
      * 请 AI 解释、对比选中的段落，或按 [instruction] 这句要求来（[ReadExplainMode.Custom]，P14-05）。
      * 需要联网、AI 已开启。返回不能请求的原因，能请求时为空。
      */
-    fun askAi(mode: ReadExplainMode, locator: Locator, instruction: String? = null): String? {
+    fun askAi(mode: ReadExplainMode, locator: Locator, instruction: String? = null, jobId: UUID = UuidV7.generate()): String? {
         val s = state.value
         val book = s.book ?: return null
         val wish = instruction?.trim()?.take(Limits.READING_PROMPT_INSTRUCTION_LENGTH.last)
@@ -363,8 +405,7 @@ class ReaderViewModel @AssistedInject constructor(
         if (mode == ReadExplainMode.Custom && wish.isNullOrEmpty()) return "先写一句要求"
         val text = locator.text.highlight?.trim().orEmpty()
         if (text.isEmpty()) return "先选中一段文字"
-        val jobId = UuidV7.generate()
-        ai.value = AiAsk(pending = jobId, lastMode = mode, lastLocator = locator, lastInstruction = wish)
+        ai.value = AiAsk(pending = jobId, lastMode = mode, lastLocator = locator, lastInstruction = wish, lastJobId = jobId)
         viewModelScope.launch {
             try {
                 reading.askAi(book, jobId, mode, locator.toJSON().toString(), text, locator.text.before.orEmpty(), locator.text.after.orEmpty(), wish)
@@ -393,7 +434,7 @@ class ReaderViewModel @AssistedInject constructor(
         val mode = a.lastMode ?: return
         val locator = a.lastLocator ?: return
         ai.update { it.copy(failed = false) }
-        askAi(mode, locator, a.lastInstruction)
+        askAi(mode, locator, a.lastInstruction, a.lastJobId ?: UuidV7.generate())
     }
 
     /** 常用提示词整套换成 [list]（要联网，存在账号上，换手机还在）。 */
@@ -438,6 +479,8 @@ class ReaderViewModel @AssistedInject constructor(
         }
         publication?.close()
         publication = null
+        cachedFileId?.let { id -> appScope.launch { cache.release(id) } }
+        cachedFileId = null
     }
 
     @AssistedFactory

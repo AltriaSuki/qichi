@@ -24,6 +24,7 @@ import app.qichi.shared.api.ReviewDocument
 import app.qichi.shared.api.ReviewVersion
 import app.qichi.shared.api.Highlight
 import app.qichi.shared.api.ReadingProgress
+import app.qichi.shared.api.PutReadingProgressRequest
 import app.qichi.shared.api.BoardReaction
 import app.qichi.shared.api.BoardTopic
 import app.qichi.shared.api.Document
@@ -128,6 +129,15 @@ class LocalStore(
 
     /** 应用服务端的一个实体（同步、bootstrap）。 */
     suspend fun applyServer(entity: SyncEntity) {
+        if (entity is ReadingProgress) {
+            db.transaction {
+                reconcileReadingProgress(entity)
+                applyServerEntity(entity)
+            }
+        } else applyServerEntity(entity)
+    }
+
+    private suspend fun applyServerEntity(entity: SyncEntity) {
         val type = typeOf(entity)
         val serverJson = encode(type, entity)
         val existing = entities.get(type.wireName, entity.id.toString())
@@ -266,10 +276,37 @@ class LocalStore(
 
     /** 阅读进度的响应：存服务端那条，删掉本机同一本书、同一个人的其它进度行。 */
     suspend fun applyReadingProgress(progress: ReadingProgress) = db.transaction {
-        applyResponse(progress)
-        entities.byParent(EntityType.ReadingProgress.wireName, progress.bookId.toString())
-            .filter { it.ownerId == progress.userId.toString() && it.id != progress.id.toString() }
-            .forEach { entities.delete(it.type, it.id) }
+        reconcileReadingProgress(progress)
+        val row = entities.get(EntityType.ReadingProgress.wireName, progress.id.toString())
+        if (row?.syncState == SyncState.FAILED || row?.syncState == SyncState.CONFLICT) applyServerEntity(progress)
+        else applyResponse(progress)
+    }
+
+    /** 先搬迁尚未发出的本机内容和队列，再删旧 id；拉取与请求响应都走这里。 */
+    private suspend fun reconcileReadingProgress(progress: ReadingProgress) {
+        val type = EntityType.ReadingProgress.wireName
+        val rows = entities.byParent(type, progress.bookId.toString())
+            .filter { it.ownerId == progress.userId.toString() && it.roomId == progress.roomId.toString() }
+        val aliases = rows.filter { it.id != progress.id.toString() }
+        if (aliases.isEmpty()) return
+        val unsent = rows.filter { row ->
+            row.syncState == SyncState.FAILED || row.syncState == SyncState.CONFLICT ||
+                outbox.pendingCountFor(type, row.id) > 0
+        }.maxByOrNull { toLocal<ReadingProgress>(it).value.updatedAt }
+        aliases.forEach { alias ->
+            outbox.forEntity(type, alias.id).forEach { op ->
+                val body = op.bodyJson?.let {
+                    QichiJson.encodeToString(PutReadingProgressRequest.serializer(),
+                        QichiJson.decodeFromString(PutReadingProgressRequest.serializer(), it).copy(id = progress.id))
+                }
+                outbox.reassignEntity(op.localId, progress.id.toString(), body)
+            }
+        }
+        if (unsent != null) {
+            val local = toLocal<ReadingProgress>(unsent).value.copy(id = progress.id, seq = progress.seq)
+            entities.upsert(toRow(local, unsent.syncState, encode(EntityType.ReadingProgress, progress), unsent.localTime))
+        }
+        aliases.forEach { entities.delete(type, it.id) }
     }
 
     /**

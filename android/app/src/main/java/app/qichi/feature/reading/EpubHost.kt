@@ -34,14 +34,14 @@ fun EpubHost(
     initialLocator: Locator?,
     preferences: EpubPreferences,
     selectionActions: List<SelectionAction>,
-    onReady: (EpubNavigatorFragment) -> Unit,
+    onReady: (EpubNavigatorFragment?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val activity = androidx.activity.compose.LocalActivity.current as FragmentActivity
     val containerId = remember { View.generateViewId() }
     AndroidView(factory = { ctx -> FragmentContainerView(ctx).apply { id = containerId } }, modifier = modifier)
 
-    DisposableEffect(publication) {
+    DisposableEffect(publication, activity) {
         val fm = activity.supportFragmentManager
         var navigator: EpubNavigatorFragment? = null
         val callback = object : ActionMode.Callback {
@@ -58,7 +58,7 @@ fun EpubHost(
             }
             override fun onDestroyActionMode(mode: ActionMode) = Unit
         }
-        ReaderFragments.epub = EpubNavigatorFactory(publication).createFragmentFactory(
+        val factory = EpubNavigatorFactory(publication).createFragmentFactory(
             initialLocator = initialLocator,
             initialPreferences = preferences,
             configuration = EpubNavigatorFragment.Configuration {
@@ -66,15 +66,14 @@ fun EpubHost(
                 decorationTemplates[WavyUnderline::class] = WavyUnderline.template
             },
         )
-        fm.findFragmentByTag(TAG)?.let { fm.beginTransaction().remove(it).commitNowAllowingStateLoss() }
+        navigator = factory.instantiate(activity.classLoader, EpubNavigatorFragment::class.java.name) as EpubNavigatorFragment
         fm.beginTransaction().setReorderingAllowed(true)
-            .replace(containerId, EpubNavigatorFragment::class.java, null, TAG)
+            .replace(containerId, navigator!!, "$TAG.$containerId")
             .commitNowAllowingStateLoss()
-        navigator = fm.findFragmentByTag(TAG) as? EpubNavigatorFragment
         navigator?.let(onReady)
         onDispose {
-            fm.findFragmentByTag(TAG)?.let { if (!fm.isDestroyed) fm.beginTransaction().remove(it).commitNowAllowingStateLoss() }
-            ReaderFragments.epub = null
+            navigator?.let { ReaderFragments.removeOwned(fm, it) }
+            onReady(null)
         }
     }
 }

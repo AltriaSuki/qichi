@@ -29,11 +29,11 @@ class ReaderPrefsTest {
     }
 
     @Test
-    fun `正在读的章：同一个文件的第一项，不看锚点`() {
+    fun `目录优先匹配小节锚点再退回文件`() {
         val toc = listOf("text/cover.xhtml", "text/ch1.xhtml", "text/ch1.xhtml#s2", "text/ch2.xhtml#top")
         assertEquals(1, currentTocIndex(toc, "text/ch1.xhtml"))
         assertEquals(3, currentTocIndex(toc, "text/ch2.xhtml"))
-        assertEquals(1, currentTocIndex(toc, "text/ch1.xhtml#s2"))
+        assertEquals(2, currentTocIndex(toc, "text/ch1.xhtml#s2"))
         assertEquals(-1, currentTocIndex(toc, "text/notes.xhtml"))
         assertEquals(-1, currentTocIndex(toc, null))
         assertEquals(-1, currentTocIndex(toc, ""))

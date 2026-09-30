@@ -273,7 +273,7 @@ fun ReaderScreen(
                     if (state.aiFailed) {
                         TextAction("重试", vm::retryAi)
                         TextAction("算了", vm::dismissAi, color = colors.muted)
-                    }
+                    } else TextAction("稍后看", vm::dismissAi, color = colors.muted)
                 }
             }
             // ── 两个人的进度（叫出时）──

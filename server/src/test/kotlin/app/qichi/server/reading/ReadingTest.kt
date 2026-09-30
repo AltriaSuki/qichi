@@ -82,6 +82,18 @@ class ReadingTest {
         aqi.put(path, PutReadingProgressRequest(UuidV7.generate(), "x", 1.5)).assertProblem(HttpStatusCode.BadRequest, ProblemCode.InvalidRequest)
     }
 
+    @Test fun `重新打开同一位置也更新最近阅读的时间`() = serverTest { client ->
+        val (aqi, _, room) = Api(client).pair()
+        val book = aqi.addBook(room)
+        val path = "/api/v1/rooms/$room/books/${book.id}/progress"
+        val request = PutReadingProgressRequest(UuidV7.generate(), """{"href":"ch1"}""", 0.1)
+        val first = aqi.put(path, request).body<ReadingProgress>()
+        val again = aqi.put(path, request).body<ReadingProgress>()
+        assertEquals(first.id, again.id)
+        assertTrue(again.seq > first.seq)
+        assertTrue(again.updatedAt >= first.updatedAt)
+    }
+
     @Test fun `标记：自己的都同步，对方的只有共享了才看得到；改回私有时对方那边收到删除；只能改自己的`() = serverTest { client ->
         val (aqi, chi, room) = Api(client).pair()
         val book = aqi.addBook(room)

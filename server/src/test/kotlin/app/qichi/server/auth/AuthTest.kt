@@ -1,6 +1,9 @@
 package app.qichi.server.auth
 
 import app.qichi.server.Api
+import app.qichi.server.db.RefreshTokens
+import app.qichi.server.db.tx
+import org.jetbrains.exposed.v1.jdbc.update
 import app.qichi.server.MutableClock
 import app.qichi.server.TestDatabase
 import app.qichi.server.assertProblem
@@ -282,13 +285,20 @@ class AuthTest {
     }
 
     @Test
-    fun `刷新令牌 60 天后过期`() {
+    fun `长期未打开仍能刷新且旧版到期字段不影响登录`() {
         val clock = MutableClock()
         serverTest(ctx = testContext(clock = clock)) { client ->
             val session = Api(client).registerOk("aqi")
-            clock.advance(Duration.ofDays(61))
-            client.post("/api/v1/auth/refresh") { json(RefreshRequest(session.tokens.refreshToken)) }
-                .assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized)
+            // 模拟升级前签发的 60 天令牌，不需要客户端重新登录或数据库迁移。
+            TestDatabase.database.tx {
+                RefreshTokens.update { it[expiresAt] = clock.instant().plus(Duration.ofDays(60)) }
+            }
+            clock.advance(Duration.ofDays(3650))
+            val refreshed = client.post("/api/v1/auth/refresh") { json(RefreshRequest(session.tokens.refreshToken)) }
+            assertEquals(HttpStatusCode.OK, refreshed.status)
+            val tokens = refreshed.body<AuthTokens>()
+            assertEquals(TokenService.REFRESH_EXPIRES_AT, tokens.refreshTokenExpiresAt)
+            assertEquals(HttpStatusCode.OK, client.get("/api/v1/me") { bearerAuth(tokens.accessToken) }.status)
         }
     }
 
