@@ -62,7 +62,7 @@ class TodoWidgetSource @Inject constructor(
                         val zone = zoneOf(room?.timezone)
                         val now = Instant.now()
                         val today = todayIn(zone, now)
-                        WidgetContent.Today(roomId, widgetRows(all.map { it.value }, me, today, zone, now), People(room, members, me), today, zone)
+                        WidgetContent.Today(roomId, widgetRows(all.map { it.value }, me, today, zone), People(room, members, me), today, zone)
                     }
                 }
             }

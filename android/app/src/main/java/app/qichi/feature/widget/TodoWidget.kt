@@ -48,7 +48,6 @@ import androidx.glance.semantics.semantics
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
-import androidx.glance.text.TextDecoration
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import app.qichi.MainActivity
@@ -70,7 +69,7 @@ import java.util.UUID
 
 /**
  * 桌面待办组件（P15-02，按 design/screens/New-Widget）：当前房间里今天到期和过期的、交给我或两个人的待办。
- * 点圆圈勾掉，刚勾掉的划线留一会儿、点「撤回」回来；点一条打开它的编辑面板，「＋」新建，点「今天」打开待办页。
+ * 点圆圈完成后立即消失；点一条打开它的编辑面板，「＋」新建，点「今天」打开待办页。
  * 由系统来画：只用系统字体、纯色和圆角；颜色跟着手机本地时间的天色（刷新时换）。
  */
 class TodoWidget : GlanceAppWidget() {
@@ -186,7 +185,7 @@ private fun TodoLine(row: WidgetRow, content: WidgetContent.Today, colors: Qichi
     val todo = row.todo
     val id = actionParametersOf(TodoWidgetCallbacks.TODO_ID to todo.id.toString())
     val check = if (small) 18.dp else 20.dp
-    // 整行点了打开编辑面板；圆圈和「撤回」各管各的
+    // 整行打开编辑面板；圆圈直接完成待办
     Row(
         GlanceModifier.fillMaxWidth().height(if (small) 38.dp else 46.dp).clickable(onOpen),
         verticalAlignment = Alignment.CenterVertically,
@@ -194,38 +193,22 @@ private fun TodoLine(row: WidgetRow, content: WidgetContent.Today, colors: Qichi
         // 圆圈的可点范围比圆圈本身大一圈，好点中
         Box(
             GlanceModifier.width(check + Spacing.s).fillMaxHeight()
-                .clickable(if (row.justDone) actionRunCallback<ReopenTodoCallback>(id) else actionRunCallback<CompleteTodoCallback>(id))
-                .semantics { contentDescription = if (row.justDone) "撤回：${todo.title}" else "完成：${todo.title}" },
+                .clickable(actionRunCallback<CompleteTodoCallback>(id))
+                .semantics { contentDescription = "完成：${todo.title}" },
             contentAlignment = Alignment.CenterStart,
         ) {
-            if (row.justDone) {
-                Box(GlanceModifier.size(check).background(ImageProvider(R.drawable.widget_circle), colorFilter = tint(colors.personA)), contentAlignment = Alignment.Center) {
-                    Image(ImageProvider(R.drawable.widget_check), contentDescription = null, modifier = GlanceModifier.size(check - 8.dp), colorFilter = tint(colors.onPerson))
-                }
-            } else {
-                Image(ImageProvider(R.drawable.widget_ring), contentDescription = null, modifier = GlanceModifier.size(check), colorFilter = tint(colors.muted))
-            }
+            Image(ImageProvider(R.drawable.widget_ring), contentDescription = null, modifier = GlanceModifier.size(check), colorFilter = tint(colors.muted))
         }
         Text(
             todo.title,
             modifier = GlanceModifier.defaultWeight(),
             style = TextStyle(
-                color = ColorProvider(if (row.justDone) colors.faint else colors.ink),
+                color = ColorProvider(colors.ink),
                 fontSize = if (small) 14.sp else 15.sp,
-                textDecoration = if (row.justDone) TextDecoration.LineThrough else TextDecoration.None,
             ),
             maxLines = 1,
         )
-        if (row.justDone) {
-            Spacer(GlanceModifier.width(Spacing.xs))
-            Box(
-                GlanceModifier.height(30.dp).background(ImageProvider(R.drawable.widget_pill), colorFilter = tint(lerp(colors.card, colors.accent, .1f)))
-                    .padding(horizontal = Spacing.s).clickable(actionRunCallback<ReopenTodoCallback>(id)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("撤回", style = TextStyle(color = ColorProvider(colors.accent), fontSize = 13.sp, fontWeight = FontWeight.Medium))
-            }
-        } else if (!small) {
+        if (!small) {
             widgetDueLabel(row, content.today, content.zone)?.let { label ->
                 Spacer(GlanceModifier.width(Spacing.xs))
                 Text(label, style = TextStyle(color = ColorProvider(if (widgetIsLate(row, now)) colors.accent else colors.muted), fontSize = 12.sp))

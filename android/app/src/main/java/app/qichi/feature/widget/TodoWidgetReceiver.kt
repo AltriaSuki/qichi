@@ -8,9 +8,6 @@ import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.updateAll
 import androidx.work.CoroutineWorker
-import androidx.work.ExistingWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -19,9 +16,7 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
-import java.time.Duration
 import java.util.UUID
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /** 系统通过它放置、刷新组件（res/xml/todo_widget_info.xml：每 30 分钟刷新一次，「今天」和天色跟着换）。 */
@@ -47,10 +42,10 @@ object TodoWidgetCallbacks {
     }
 }
 
-/** 点圆圈：勾掉。划线留 [JUST_DONE_FOR]，到时候组件自己刷新一次，这一条就消失了。 */
+/** 点圆圈完成，立即刷新组件并移除这一条。 */
 class CompleteTodoCallback : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        if (TodoWidgetCallbacks.handle(context, parameters) { complete(it) }) TodoWidgetRefreshWorker.schedule(context, JUST_DONE_FOR)
+        TodoWidgetCallbacks.handle(context, parameters) { complete(it) }
     }
 }
 
@@ -61,26 +56,11 @@ class ReopenTodoCallback : ActionCallback {
     }
 }
 
-/** 过一会儿刷新一次组件（刚勾掉的到时候要消失）。 */
+/** 兼容升级前已排队的刷新任务；新版本完成待办后直接刷新，不再排延时任务。 */
 class TodoWidgetRefreshWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         TodoWidget().updateAll(applicationContext)
         return Result.success()
-    }
-
-    companion object {
-        private const val NAME = "todo-widget-refresh"
-
-        /** 多等几秒：到时候那一条一定已经不算「刚勾掉」了 */
-        private const val MARGIN_MS = 5_000L
-
-        /** 连着勾了几条：以最后一条为准，只刷新一次 */
-        fun schedule(context: Context, after: Duration) {
-            val request = OneTimeWorkRequestBuilder<TodoWidgetRefreshWorker>()
-                .setInitialDelay(after.toMillis() + MARGIN_MS, TimeUnit.MILLISECONDS)
-                .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(NAME, ExistingWorkPolicy.REPLACE, request)
-        }
     }
 }
 
