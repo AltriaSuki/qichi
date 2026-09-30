@@ -1,5 +1,6 @@
 package app.qichi.server.jobs
 
+import app.qichi.server.auth.TokenService
 import app.qichi.server.Api
 import app.qichi.server.MutableClock
 import app.qichi.server.TestDatabase
@@ -144,7 +145,7 @@ class HousekeepingTest {
     }
 
     @Test
-    fun `过期很久的刷新令牌删掉；整次登录都过期了的推送设备删掉`() = serverTest(ctx) { client ->
+    fun `只清理作废很久的令牌和设备，保留闲置登录与旧版到期字段`() = serverTest(ctx) { client ->
         val aqi = Api(client).registerOk("aqi")
         val userId = aqi.userId()
         val now = clock.instant()
@@ -174,14 +175,14 @@ class HousekeepingTest {
             }
             id
         }
-        // 一次早就过期的登录：两个令牌都过期超过保留期
+        // 早已作废的登录：旧令牌和新版不闲置过期的令牌都按作废时间清理
         val dead = UuidV7.generate()
         val deadOld = token(dead, now.minus(Housekeeping.TOKEN_KEEP).minus(Duration.ofDays(2)), revoked = now.minus(Duration.ofDays(100)))
-        val deadLast = token(dead, now.minus(Housekeeping.TOKEN_KEEP).minus(Duration.ofDays(1)))
+        val deadLast = token(dead, TokenService.REFRESH_EXPIRES_AT, revoked = now.minus(Duration.ofDays(31)))
         val deadDevice = device(dead)
-        // 刚过期不久的登录：令牌先留着（还能认出重复使用），但已经登不上了，设备删掉
+        // 旧版曾标为到期的令牌：未作废的仍保留，设备也保留
         val expired = UuidV7.generate()
-        val expiredToken = token(expired, now.minus(Duration.ofDays(1)))
+        val expiredToken = token(expired, now.minus(Duration.ofDays(100)))
         val expiredDevice = device(expired)
         // 还在用的登录：换下来的旧令牌没过期，也留着
         val alive = UuidV7.generate()
@@ -192,12 +193,12 @@ class HousekeepingTest {
 
         val report = ctx.housekeeping.run()
         assertEquals(2, report.refreshTokens)
-        assertEquals(2, report.devices)
+        assertEquals(1, report.devices)
         val tokens = db.tx { RefreshTokens.select(RefreshTokens.id).map { it[RefreshTokens.id] }.toSet() }
         assertFalse(deadOld in tokens || deadLast in tokens)
         assertTrue(listOf(expiredToken, rotated, current).all { it in tokens })
         val devices = db.tx { Devices.select(Devices.id).map { it[Devices.id] }.toSet() }
-        assertEquals(setOf(aliveDevice, legacyDevice), devices)
+        assertEquals(setOf(aliveDevice, expiredDevice, legacyDevice), devices)
     }
 
     @Test

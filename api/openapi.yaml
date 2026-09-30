@@ -3138,7 +3138,7 @@ components:
       properties:
         accessToken: { type: string, description: JWT，15 分钟 }
         accessTokenExpiresAt: { $ref: '#/components/schemas/Instant' }
-        refreshToken: { type: string, description: 不透明随机串，60 天，每次使用都轮换 }
+        refreshToken: { type: string, description: 不透明随机串，不因闲置过期，每次使用都轮换；refreshTokenExpiresAt 为兼容字段，固定为 9999-12-31T23:59:59Z }
         refreshTokenExpiresAt: { $ref: '#/components/schemas/Instant' }
 
     # ── 当前用户 ──

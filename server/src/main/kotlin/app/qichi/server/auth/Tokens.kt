@@ -15,13 +15,12 @@ import java.util.UUID
 /**
  * 令牌：
  * - 访问令牌：JWT（HS256），15 分钟；sub = 用户 id，fam = 这次登录的 family id。
- * - 刷新令牌：32 字节随机串（base64url），60 天；数据库只存 SHA-256。
+ * - 刷新令牌：32 字节随机串（base64url），不因闲置过期；数据库只存 SHA-256。
  */
 class TokenService(
     secret: String,
     private val clock: Clock,
     val accessTtl: Duration = Duration.ofMinutes(15),
-    val refreshTtl: Duration = Duration.ofDays(60),
 ) {
     private val algorithm = Algorithm.HMAC256(secret)
     private val random = SecureRandom()
@@ -54,10 +53,13 @@ class TokenService(
     fun newRefresh(): RefreshToken {
         val bytes = ByteArray(32).also(random::nextBytes)
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
-        return RefreshToken(token, hashRefresh(token), clock.instant().plus(refreshTtl))
+        return RefreshToken(token, hashRefresh(token), REFRESH_EXPIRES_AT)
     }
 
     companion object {
+        /** 保留接口与数据库的到期字段；登录只通过主动撤销等操作失效。 */
+        val REFRESH_EXPIRES_AT: Instant = Instant.parse("9999-12-31T23:59:59Z")
+
         const val ISSUER = "qichi"
         const val AUDIENCE = "qichi-app"
         const val FAMILY_CLAIM = "fam"

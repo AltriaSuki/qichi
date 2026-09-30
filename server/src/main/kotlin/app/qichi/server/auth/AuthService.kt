@@ -29,7 +29,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
-import org.jetbrains.exposed.v1.core.greater
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
@@ -183,7 +182,6 @@ class AuthService(
                     }
                     val lostResponse = successor != null &&
                         successor[RefreshTokens.revokedAt] == null &&
-                        successor[RefreshTokens.expiresAt].isAfter(now) &&
                         !row[RefreshTokens.revokedAt]!!.plus(REFRESH_GRACE).isBefore(now)
                     if (lostResponse) {
                         val session = createSession(row[RefreshTokens.userId], familyId, row[RefreshTokens.deviceName])
@@ -201,7 +199,6 @@ class AuthService(
                         RefreshOutcome.Reused(row[RefreshTokens.userId], familyId)
                     }
                 }
-                !row[RefreshTokens.expiresAt].isAfter(now) -> RefreshOutcome.Invalid
                 else -> {
                     val userId = row[RefreshTokens.userId]
                     val session = createSession(userId, familyId, row[RefreshTokens.deviceName])
@@ -420,10 +417,9 @@ class AuthService(
 
     /** 「安全」页：我的有效登录（每次登录一行），最近用过的在前。 */
     suspend fun sessions(principal: UserPrincipal): List<LoginSession> = db.tx(readOnly = true) {
-        val now = clock.instant()
         val rows = RefreshTokens.selectAll().where { RefreshTokens.userId eq principal.userId }.toList()
         rows.groupBy { it[RefreshTokens.familyId] }
-            .filterValues { tokens -> tokens.any { it[RefreshTokens.revokedAt] == null && it[RefreshTokens.expiresAt] > now } }
+            .filterValues { tokens -> tokens.any { it[RefreshTokens.revokedAt] == null } }
             .map { (family, tokens) ->
                 LoginSession(
                     id = family,
@@ -452,7 +448,7 @@ class AuthService(
     suspend fun isSessionActive(userId: UUID, familyId: UUID): Boolean = db.tx {
         RefreshTokens.select(RefreshTokens.id).where {
             (RefreshTokens.familyId eq familyId) and (RefreshTokens.userId eq userId) and
-                RefreshTokens.revokedAt.isNull() and (RefreshTokens.expiresAt greater clock.instant())
+                RefreshTokens.revokedAt.isNull()
         }.limit(1).any()
     }
 

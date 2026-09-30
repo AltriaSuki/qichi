@@ -28,7 +28,7 @@
 | 表 | 用途 | 关键字段 |
 |---|---|---|
 | `users` | 账号 | `username` 唯一、`password_hash`（Argon2id）、`display_name`、`avatar_file_id`、`notification_prefs`、`ai_prefs`（AI 能看到哪些资料，缺的键按 true）、`deleted_at`（注销时间，P16-07：用户名换成 `deleted_` 占位、密码作废、显示名「已注销的成员」，行不删，写过的内容还指着它） |
-| `refresh_tokens` | 刷新令牌 | 只存哈希；`family_id`（同一次登录 = 一台设备，重复使用检测时整组作废）、`device_name`、`expires_at`、`revoked_at`、`replaced_by`（轮换链）。过期超过 30 天的每天清掉（P13-18） |
+| `refresh_tokens` | 刷新令牌 | 只存哈希；`family_id`（同一次登录 = 一台设备，重复使用检测时整组作废）、`device_name`、`expires_at`、`revoked_at`、`replaced_by`（轮换链）。作废超过 30 天的每天清掉；expires_at 保留兼容，不再作为闲置过期依据（P13-18） |
 | `rooms` | 房间 | `name`、`avatar_file_id`、`hero_file_id`（今天页主视觉）、`anniversary`、`timezone`、`last_seq` |
 | `room_members` | 成员 | `role`：owner / member；每房间最多 2 人（服务端校验） |
 | `invites` | 邀请码 | `code` 唯一、`expires_at`、`used_by` |
