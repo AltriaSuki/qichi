@@ -97,6 +97,24 @@ fun upcomingReminders(
         .toList()
 }
 
+/**
+ * 闹钟到点时这条提醒还算不算数（P21-08）：按本机现在的数据重新算一遍，[key] 还在、时间还是 [at]（差一分钟以内）才算。
+ * 对方在这台手机没开着的时候做完了待办、删了日程、改了时间，排好的闹钟没来得及取消，到点就不再弹过时的提醒。
+ */
+fun reminderStillDue(
+    key: String,
+    at: Instant,
+    roomId: UUID,
+    events: List<Event>,
+    todos: List<Todo>,
+    me: UUID,
+    zone: ZoneId,
+    anniversary: LocalDate? = null,
+): Boolean = upcomingReminders(roomId, events, todos, me, zone, now = at.minus(STILL_DUE_SLACK), horizon = STILL_DUE_SLACK.multipliedBy(2), anniversary = anniversary)
+    .any { it.key == key && Duration.between(it.at, at).abs() <= STILL_DUE_SLACK }
+
+private val STILL_DUE_SLACK: Duration = Duration.ofMinutes(1)
+
 /** 编辑面板里「提醒」的几档：null = 不提醒。取值和 Limits.EVENT_REMIND_MINUTES 一致。 */
 val REMIND_CHOICES: List<Int?> = listOf(null, 0, 5, 15, 60, 1440)
 

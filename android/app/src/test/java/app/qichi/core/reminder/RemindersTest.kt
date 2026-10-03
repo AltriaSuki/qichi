@@ -135,4 +135,23 @@ class RemindersTest {
         assertEquals("当天 9 点", remindLabel(15, true))
         assertEquals("前一天 9 点", remindLabel(1440, true))
     }
+
+    @Test
+    fun `到点时还算不算数：对方做完、删掉、改了时间的不弹；没变的照弹（P21-08）`() {
+        val due = Instant.parse("2026-09-24T12:00:00Z")
+        val open = todo("交水费", dueAt = due)
+        val key = "todo:${open.id}"
+        fun still(todos: List<Todo>) = reminderStillDue(key, due, room, emptyList(), todos, me, zone)
+        assertTrue(still(listOf(open)))
+        assertEquals(false, still(listOf(open.copy(doneAt = due.minusSeconds(600)))), "已经做完")
+        assertEquals(false, still(listOf(open.copy(deletedAt = due.minusSeconds(600)))), "已经删掉")
+        assertEquals(false, still(listOf(open.copy(dueAt = due.plusSeconds(3600)))), "改到了一小时后（新的闹钟另排）")
+        assertEquals(false, still(emptyList()), "本机已经没有这条")
+
+        val start = Instant.parse("2026-09-24T11:00:00Z")
+        val dinner = event("晚饭", startsAt = start, remind = 15)
+        val at = start.minusSeconds(15 * 60)
+        assertTrue(reminderStillDue("event:${dinner.id}", at, room, listOf(dinner), emptyList(), me, zone))
+        assertEquals(false, reminderStillDue("event:${dinner.id}", at, room, listOf(dinner.copy(remindMinutes = null)), emptyList(), me, zone), "关掉了提醒")
+    }
 }

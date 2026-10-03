@@ -11,11 +11,13 @@ import app.qichi.core.auth.SessionState
 import app.qichi.core.data.EventRepository
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.data.TodoRepository
+import app.qichi.core.sync.SyncEngine
 import app.qichi.core.ui.zoneOf
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -30,6 +32,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -46,6 +49,7 @@ class ReminderScheduler @Inject constructor(
     private val rooms: RoomRepository,
     private val events: EventRepository,
     private val todos: TodoRepository,
+    private val syncEngine: SyncEngine,
 ) {
     private val alarms get() = context.getSystemService(AlarmManager::class.java)
     private val prefs get() = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -89,6 +93,28 @@ class ReminderScheduler @Inject constructor(
         apply(observe().first())
     }
 
+    /**
+     * 闹钟到点：先尽量拉一次最新的（最多 [PULL_BEFORE_REMIND_MS]，离线、出错就用本机现有的），
+     * 再看这条提醒还算不算数（[reminderStillDue]，P21-08）。拉下来的变化也会让上面的观察重排其它闹钟。
+     */
+    suspend fun stillDue(key: String, at: Instant): Boolean {
+        val me = (session.awaitLoaded() as? SessionState.LoggedIn)?.userId ?: return false
+        val roomId = rooms.currentRoomId.first() ?: return false
+        withTimeoutOrNull(PULL_BEFORE_REMIND_MS) {
+            try {
+                syncEngine.pull(roomId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
+        val room = rooms.observeRoom(roomId).first()
+        return reminderStillDue(
+            key, at, roomId, events.observeEvents(roomId).first().map { it.value }, todos.observeTodos(roomId).first().map { it.value },
+            me, zoneOf(room?.timezone), room?.anniversary,
+        )
+    }
+
     @Synchronized
     private fun apply(reminders: List<Reminder>) {
         val keys = reminders.map { it.key }.toSet()
@@ -109,6 +135,7 @@ class ReminderScheduler @Inject constructor(
             .putExtra(ReminderReceiver.EXTRA_TITLE, r.title)
             .putExtra(ReminderReceiver.EXTRA_TEXT, r.text)
             .putExtra(ReminderReceiver.EXTRA_LINK, r.link)
+            .putExtra(ReminderReceiver.EXTRA_AT, r.at.toEpochMilli())
         val pending = PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val at = r.at.toEpochMilli()
         try {
@@ -133,6 +160,9 @@ class ReminderScheduler @Inject constructor(
         const val KEY_SCHEDULED = "scheduled"
         const val DEBOUNCE_MS = 500L
         const val TICK_MS = 6 * 60 * 60 * 1000L
+
+        /** 到点时先同步最多等这么久（广播里一共有大约 10 秒） */
+        const val PULL_BEFORE_REMIND_MS = 5_000L
     }
 }
 
