@@ -855,10 +855,11 @@ private fun AiAnswer(m: Message, onOpenSource: (SummarySource) -> Unit) {
                 if (src == null) {
                     append(match.value)
                 } else {
-                    // [n] 显示成「 n 」小标签（前后细空格撑出圆角的样子）
-                    // 前面留一个窄空格（不带底色），连着的几个编号才不会粘成一块
+                    // [n] 显示成「 n 」小标签（前后窄空格撑出圆角的样子）
+                    // 前面留一个窄空格（不带底色），连着的几个编号才不会粘成一块。
+                    // 都用不断行的窄空格（U+202F）：以前标签里用的细空格可以断行，编号常常单独掉到下一行
                     append("\u202F")
-                    withLink(LinkAnnotation.Clickable("source-${src.number}", linkStyle) { onOpenSource(src) }) { append("\u2009${src.number}\u2009") }
+                    withLink(LinkAnnotation.Clickable("source-${src.number}", linkStyle) { onOpenSource(src) }) { append("\u202F${src.number}\u202F") }
                 }
                 last = match.range.last + 1
             }
