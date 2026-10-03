@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
@@ -203,13 +204,15 @@ class TodayViewModel @AssistedInject constructor(
                 }
             }
         }
-        // 今天的轮次由服务端懒创建：拉一次写进本机；离线就用上次的
+        // 今天的轮次由服务端懒创建：每到新的一天拉一次写进本机（App 开着过了半夜也换成新一天的题）；离线就用上次的
         viewModelScope.launch {
-            try {
-                qna.refreshToday(roomId)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
+            state.filter { it.people.room != null }.map { it.today }.distinctUntilChanged().collect {
+                try {
+                    qna.refreshToday(roomId)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
             }
         }
     }
