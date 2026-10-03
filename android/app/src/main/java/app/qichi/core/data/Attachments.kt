@@ -3,6 +3,8 @@ package app.qichi.core.data
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.media.ExifInterface
@@ -55,7 +57,9 @@ class AttachmentPreparer(private val context: Context) {
                 FileKind.Image, name ?: "image", mime, size, uri, bounds?.first, bounds?.second,
             ) { resolver.openInputStream(uri) ?: throw AttachmentException("读不到这张图片") }
         }
-        val bitmap = decodeScaled(uri) ?: throw AttachmentException("这张图片打不开")
+        val decoded = decodeScaled(uri) ?: throw AttachmentException("这张图片打不开")
+        // JPEG 没有透明：带透明的 PNG、WebP 直接转会变成黑底，先铺在白底上（和服务端的缩略图一样）
+        val bitmap = if (decoded.hasAlpha()) flattenOnWhite(decoded).also { decoded.recycle() } else decoded
         val out = File(dir, "${UUID.randomUUID()}.jpg")
         out.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, it) }
         val result = PreparedAttachment(
@@ -143,6 +147,17 @@ class AttachmentPreparer(private val context: Context) {
             if (longest <= MAX_EDGE) return width to height
             val scale = MAX_EDGE.toDouble() / longest
             return (width * scale).roundToInt().coerceAtLeast(1) to (height * scale).roundToInt().coerceAtLeast(1)
+        }
+
+        /** 透明的地方填白色，得到一张不透明的图（[source] 不动）。 */
+        fun flattenOnWhite(source: Bitmap): Bitmap {
+            val out = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+            Canvas(out).apply {
+                drawColor(Color.WHITE)
+                drawBitmap(source, 0f, 0f, null)
+            }
+            out.setHasAlpha(false)
+            return out
         }
 
         /** 转成 JPEG 后的文件名：换掉扩展名。 */
