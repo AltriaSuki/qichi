@@ -193,10 +193,12 @@ class TodoService(
     private fun createNext(tx: Tx, roomId: UUID, userId: UUID, current: Todo, rule: Recurrence, nextId: UUID): Todo {
         nextOf(current.id)?.let { return it }
         val zone = ZoneId.of(Rooms.select(Rooms.timezone).where { Rooms.id eq roomId }.single()[Rooms.timezone])
-        val nextDueDate: LocalDate? = current.dueDate?.let(rule::next)
+        // 每月重复：按本来定的几号算，31 号的过了 2 月不会一直停在 28 号
+        val monthDay = if (rule.freq == Recurrence.Freq.MONTHLY) monthDayOf(current, zone) else null
+        val nextDueDate: LocalDate? = current.dueDate?.let { rule.next(it, monthDay) }
         val nextDueAt: Instant? = current.dueAt?.let { at ->
             val local = at.atZone(zone)
-            local.with(rule.next(local.toLocalDate())).toInstant()
+            local.with(rule.next(local.toLocalDate(), monthDay)).toInstant()
         }
         return writes.create(tx, roomId, userId, EntityType.Todo, nextId, Todos, ::todo) {
             it[Todos.title] = current.title
@@ -209,6 +211,17 @@ class TodoService(
             it[Todos.recurrencePrevId] = current.id
             it[Todos.planId] = current.planId
         }.first
+    }
+
+    /** 每月重复的待办本来定在几号：看这一次和之前几次的截止日（[Recurrence.monthDayOf]）。 */
+    private fun monthDayOf(current: Todo, zone: ZoneId): Int? {
+        val days = mutableListOf<LocalDate>()
+        var todo: Todo? = current
+        while (todo != null && days.size < MONTH_DAY_LOOKBACK) {
+            days += todo.dueDate ?: todo.dueAt?.atZone(zone)?.toLocalDate() ?: break
+            todo = todo.recurrencePrevId?.let(::todo)
+        }
+        return Recurrence.monthDayOf(days)
     }
 
     /** 指派的人必须是房间成员；父待办必须在同一房间、未删除、本身不是子任务。 */
@@ -241,5 +254,10 @@ class TodoService(
         if (rule == null) return
         check(Recurrence.parse(rule) != null, "recurrence", "不支持的重复规则")
         check(hasDue, "recurrence", "重复待办需要截止日")
+    }
+
+    private companion object {
+        /** 找每月重复本来的日子时最多往前看几次（顺延来的月底最多连着两三次） */
+        const val MONTH_DAY_LOOKBACK = 6
     }
 }

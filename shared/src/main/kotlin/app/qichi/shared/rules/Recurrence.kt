@@ -16,10 +16,17 @@ data class Recurrence(
 ) {
     enum class Freq { DAILY, WEEKLY, MONTHLY }
 
-    /** 某一次截止日之后的下一次截止日。 */
-    fun next(after: LocalDate): LocalDate = when (freq) {
+    /**
+     * 某一次截止日之后的下一次截止日。
+     * @param monthDay 每月重复时本来定的是几号（见 [monthDayOf]）：31 号的在小月取月底，下个大月再回到 31 号；
+     *   不给就按 [after] 的日子（2 月 28 日之后一直是 28 号）
+     */
+    fun next(after: LocalDate, monthDay: Int? = null): LocalDate = when (freq) {
         Freq.DAILY -> after.plusDays(interval.toLong())
-        Freq.MONTHLY -> after.plusMonths(interval.toLong())
+        Freq.MONTHLY -> after.plusMonths(interval.toLong()).let { target ->
+            val day = monthDay ?: after.dayOfMonth
+            target.withDayOfMonth(minOf(day, target.lengthOfMonth()))
+        }
         Freq.WEEKLY -> if (byDay.isEmpty()) {
             after.plusWeeks(interval.toLong())
         } else {
@@ -48,6 +55,20 @@ data class Recurrence(
         private val DAYS = CODES.entries.associate { (k, v) -> v to k }
 
         private fun weekStart(date: LocalDate): LocalDate = date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+
+        /**
+         * 每月重复的待办本来定在几号。[dueDays] 是这一次和之前几次的截止日（最近的在前）：
+         * 这一次落在月底时可能是小月顺延来的（31 号 → 2 月 28 日），往前找到不是顺延来的那一次。
+         * 例：1/31 → 2/28 → 下一次是 3/31；1/28 → 2/28 → 下一次是 3/28；中途改成 15 号就按 15 号。
+         */
+        fun monthDayOf(dueDays: List<LocalDate>): Int? {
+            var day = dueDays.firstOrNull() ?: return null
+            for (earlier in dueDays.drop(1)) {
+                if (day.dayOfMonth != day.lengthOfMonth() || earlier.dayOfMonth <= day.dayOfMonth) break
+                day = earlier
+            }
+            return day.dayOfMonth
+        }
 
         /** 解析失败（不支持的写法）返回 null。 */
         fun parse(rule: String): Recurrence? {

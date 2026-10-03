@@ -134,6 +134,19 @@ class LifeTest {
     }
 
     @Test
+    fun `每月 31 号的待办：2 月是 28 号，3 月又回到 31 号（不会一直停在 28 号）`() = serverTest { client ->
+        val (owner, _, roomId) = Api(client).pair()
+        var id = UuidV7.generate()
+        owner.post("/api/v1/rooms/$roomId/todos", CreateTodoRequest(id, "交房租", dueDate = LocalDate.parse("2027-01-31"), recurrence = "FREQ=MONTHLY"))
+        val dues = (1..4).map {
+            val next = owner.post("/api/v1/rooms/$roomId/todos/$id/complete", CompleteTodoRequest(UuidV7.generate())).body<CompleteTodoResponse>().next!!
+            id = next.id
+            next.dueDate
+        }
+        assertEquals(listOf("2027-02-28", "2027-03-31", "2027-04-30", "2027-05-31").map(LocalDate::parse), dues)
+    }
+
+    @Test
     fun `重复待办取消完成时收回还没动过的下一次；反复勾选也只有一条；下一次被改过就留着`() = serverTest { client ->
         val (owner, member, roomId) = Api(client).pair()
         val id = UuidV7.generate()
