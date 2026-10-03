@@ -10,6 +10,7 @@ import app.qichi.core.sync.LocalStore
 import app.qichi.core.sync.OutboxOp
 import app.qichi.core.sync.SyncEngine
 import app.qichi.core.sync.SyncScheduler
+import app.qichi.shared.api.AiJob
 import app.qichi.shared.api.AiJobAccepted
 import app.qichi.shared.api.Answer
 import app.qichi.shared.api.CreateQuestionRequest
@@ -112,6 +113,8 @@ class QnaRepository(
             OutboxOp.delete("rooms/${question.roomId}/questions/${question.id}"))
         scheduler.kickOutbox()
     }
+
+    suspend fun aiJob(roomId: UUID, jobId: UUID): AiJob = api.get("rooms/$roomId/ai/jobs/$jobId")
 
     /** AI 请求必须在线且不进发件箱。 */
     suspend fun suggest(roomId: UUID): AiJobAccepted =

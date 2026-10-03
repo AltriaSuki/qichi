@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.data.AccountRepository
 import app.qichi.core.data.BookCache
+import app.qichi.core.data.monitorAiJob
 import app.qichi.core.data.People
 import app.qichi.core.data.ReadingRepository
 import app.qichi.core.data.ReadingSettings
@@ -316,7 +317,7 @@ class ReaderViewModel @AssistedInject constructor(
             combine(ai.map { it.pending }, network.isOnline, realtime.connected) { id, online, connected -> Triple(id, online, connected) }
                 .distinctUntilChanged().collectLatest { (id, online, _) ->
                     if (id == null || !online) return@collectLatest
-                    monitorReadingAi(id, isPending = { ai.value.pending == id },
+                    monitorAiJob(id, isPending = { ai.value.pending == id },
                         status = { reading.aiJob(roomId, it).status },
                         onDone = { sync.pull(roomId) },
                         onFailed = { ai.update { if (it.pending == id) it.copy(pending = null, failed = true) else it } },

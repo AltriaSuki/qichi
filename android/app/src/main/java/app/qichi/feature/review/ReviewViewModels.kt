@@ -246,7 +246,8 @@ class ReviewViewModel @AssistedInject constructor(
     val diff: StateFlow<DiffState?> = _diff
 
     init {
-        // 等的 AI 审稿有结果了（实时通道通知；万一漏了，每 5 秒问一次）
+        // 等的 AI 审稿有结果了（实时通道通知；万一漏了，每 5 秒问一次，一直问到有结果：
+        // 服务端一次最多 5 分钟、还可能重试，以前只问 5 分钟就不问了，漏了通知会一直转，P21-09）
         viewModelScope.launch {
             realtime.aiDone.collect { e ->
                 if (e.jobId == ai.value.pending) finishAi(e.jobId, e.status == AiJobStatus.Done.wireName)
@@ -255,9 +256,9 @@ class ReviewViewModel @AssistedInject constructor(
         viewModelScope.launch {
             ai.map { it.pending }.distinctUntilChanged().collectLatest { jobId ->
                 jobId ?: return@collectLatest
-                repeat(60) {
+                while (ai.value.pending == jobId) {
                     delay(5_000)
-                    val job = runCatching { reviews.aiJob(roomId, jobId) }.getOrNull() ?: return@repeat
+                    val job = runCatching { reviews.aiJob(roomId, jobId) }.getOrNull() ?: continue
                     if (job.status == AiJobStatus.Done || job.status == AiJobStatus.Failed) {
                         finishAi(jobId, job.status == AiJobStatus.Done, job.error)
                         return@collectLatest

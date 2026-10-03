@@ -5,10 +5,12 @@ import androidx.lifecycle.viewModelScope
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.data.People
 import app.qichi.core.data.QnaRepository
+import app.qichi.core.data.monitorAiJob
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.network.NetworkMonitor
 import app.qichi.core.sync.Local
 import app.qichi.core.sync.RealtimeClient
+import app.qichi.core.sync.SyncEngine
 import app.qichi.core.ui.todayIn
 import app.qichi.core.ui.zoneOf
 import app.qichi.shared.api.Answer
@@ -83,6 +85,7 @@ class QnaViewModel @AssistedInject constructor(
     session: SessionManager,
     private val network: NetworkMonitor,
     private val realtime: RealtimeClient,
+    private val sync: SyncEngine,
 ) : ViewModel() {
     private val editor = MutableStateFlow(Editor())
     private val data = combine(
@@ -221,14 +224,26 @@ class QnaViewModel @AssistedInject constructor(
     fun suggest() = viewModelScope.launch {
         if (!state.value.online || state.value.busy) return@launch
         editor.update { it.copy(busy = true, error = null) }
-        try {
-            val job = qna.suggest(roomId)
-            editor.update { it.copy(suggestionJobId = job.jobId) }
+        val jobId = try {
+            qna.suggest(roomId).jobId.also { id -> editor.update { it.copy(suggestionJobId = id) } }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             editor.update { it.copy(busy = false, suggestionJobId = null, error = "没能生成问题") }
+            return@launch
         }
+        // 实时通道断过就收不到 ai.done，「出题」会一直转：自己隔一会儿问一次（P21-09）
+        fun finish(error: String?) = editor.update { if (it.suggestionJobId == jobId) it.copy(busy = false, suggestionJobId = null, error = error) else it }
+        monitorAiJob(
+            jobId,
+            isPending = { editor.value.suggestionJobId == jobId },
+            status = { qna.aiJob(roomId, it).status },
+            onDone = {
+                sync.pull(roomId)
+                finish(null)
+            },
+            onFailed = { finish("没能生成问题") },
+        )
     }
 
     @AssistedFactory interface Factory {

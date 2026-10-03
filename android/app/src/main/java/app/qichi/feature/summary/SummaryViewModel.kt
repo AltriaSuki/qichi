@@ -6,9 +6,11 @@ import app.qichi.core.auth.SessionManager
 import app.qichi.core.data.People
 import app.qichi.core.data.RoomRepository
 import app.qichi.core.data.SummaryRepository
+import app.qichi.core.data.monitorAiJob
 import app.qichi.core.network.NetworkMonitor
 import app.qichi.core.sync.Local
 import app.qichi.core.sync.RealtimeClient
+import app.qichi.core.sync.SyncEngine
 import app.qichi.core.ui.todayIn
 import app.qichi.core.ui.zoneOf
 import app.qichi.shared.api.Summary
@@ -54,6 +56,7 @@ class SummaryViewModel @AssistedInject constructor(
     network: NetworkMonitor,
     realtime: RealtimeClient,
     session: SessionManager,
+    private val sync: SyncEngine,
 ) : ViewModel() {
     private val people = combine(rooms.observeRoom(roomId), rooms.observeMembers(roomId)) { room, members -> People(room, members, session.currentUserId) }
     private val pending = MutableStateFlow<List<PendingSummary>>(emptyList())
@@ -82,6 +85,7 @@ class SummaryViewModel @AssistedInject constructor(
         if (!s.online) return "需要联网"
         if (!s.aiEnabled) return "AI 还没有开启"
         val jobId = UuidV7.generate()
+        fun markFailed() = pending.update { list -> list.map { if (it.jobId == jobId) it.copy(failed = true) else it } }
         fun send() = viewModelScope.launch {
             pending.update { list -> list.map { if (it.jobId == jobId) it.copy(failed = false) else it } }
             try {
@@ -89,8 +93,17 @@ class SummaryViewModel @AssistedInject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                pending.update { list -> list.map { if (it.jobId == jobId) it.copy(failed = true) else it } }
+                markFailed()
+                return@launch
             }
+            // 总结要好几分钟，实时通道中途断过就收不到「失败了」：自己隔一会儿问一次（P21-09）
+            monitorAiJob(
+                jobId,
+                isPending = { state.value.pending.any { it.jobId == jobId && !it.failed } },
+                status = { summaries.aiJob(roomId, it).status },
+                onDone = { sync.pull(roomId) },
+                onFailed = ::markFailed,
+            )
         }
         pending.update { it + PendingSummary(jobId, label, retry = { send() }) }
         send()

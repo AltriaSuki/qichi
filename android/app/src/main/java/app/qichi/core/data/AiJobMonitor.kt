@@ -1,12 +1,16 @@
-package app.qichi.feature.reading
+package app.qichi.core.data
 
 import app.qichi.shared.model.AiJobStatus
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
-/** 实时事件可能丢失；持续核对任务直到失败、结果同步回来或用户不再等待。 */
-internal suspend fun monitorReadingAi(
+/**
+ * 等一个 AI 任务（阅读解释、总结、出题……）：实时通道的 ai.done 是一次性事件，断线期间的失败不会重播，
+ * 所以每 5 秒主动核对一次，直到失败、结果同步回来（[isPending] 变成 false）或用户不再等待。
+ * 完成了就调 [onDone]（一般是拉取一次，让结果同步下来）。
+ */
+suspend fun monitorAiJob(
     id: UUID,
     isPending: () -> Boolean,
     status: suspend (UUID) -> AiJobStatus,

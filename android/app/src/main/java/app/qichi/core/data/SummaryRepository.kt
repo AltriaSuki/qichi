@@ -3,11 +3,13 @@ package app.qichi.core.data
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.database.QichiDatabase
 import app.qichi.core.network.ApiClient
+import app.qichi.core.network.get
 import app.qichi.core.network.post
 import app.qichi.core.sync.Local
 import app.qichi.core.sync.LocalStore
 import app.qichi.core.sync.OutboxOp
 import app.qichi.core.sync.SyncScheduler
+import app.qichi.shared.api.AiJob
 import app.qichi.shared.api.AiJobAccepted
 import app.qichi.shared.api.CreateSummaryRequest
 import app.qichi.shared.api.Summary
@@ -39,6 +41,8 @@ class SummaryRepository(
 
     suspend fun generate(roomId: UUID, jobId: UUID, kind: SummaryKind, anchor: LocalDate? = null, start: LocalDate? = null, end: LocalDate? = null): AiJobAccepted =
         api.post("rooms/$roomId/summaries", CreateSummaryRequest(jobId, kind, anchor, start, end))
+
+    suspend fun aiJob(roomId: UUID, jobId: UUID): AiJob = api.get("rooms/$roomId/ai/jobs/$jobId")
 
     suspend fun delete(s: Summary) {
         if (s.locked) return

@@ -1,4 +1,4 @@
-package app.qichi.feature.reading
+package app.qichi.core.data
 
 import app.qichi.shared.model.AiJobStatus
 import java.io.IOException
@@ -10,10 +10,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
-class ReadingAiMonitorTest {
+class AiJobMonitorTest {
     @Test fun `丢失失败通知后仍解除等待`() = runTest {
         var failed = false
-        monitorReadingAi(UUID.randomUUID(), { !failed }, { AiJobStatus.Failed }, { error("没有成功结果") }, { failed = true })
+        monitorAiJob(UUID.randomUUID(), { !failed }, { AiJobStatus.Failed }, { error("没有成功结果") }, { failed = true })
         assertTrue(failed)
     }
 
@@ -21,7 +21,7 @@ class ReadingAiMonitorTest {
         val id = UUID.randomUUID()
         var calls = 0
         var pending = true
-        monitorReadingAi(id, { pending }, {
+        monitorAiJob(id, { pending }, {
             assertEquals(id, it)
             if (++calls == 1) throw IOException("offline")
             AiJobStatus.Done
@@ -31,7 +31,7 @@ class ReadingAiMonitorTest {
 
     @Test fun `退出页面时取消状态查询`() = runTest {
         assertFailsWith<CancellationException> {
-            monitorReadingAi(UUID.randomUUID(), { true }, { throw CancellationException() }, {}, {})
+            monitorAiJob(UUID.randomUUID(), { true }, { throw CancellationException() }, {}, {})
         }
     }
 }
