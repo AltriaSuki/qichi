@@ -163,9 +163,11 @@ class AuthService(
     /**
      * 刷新：换一对新令牌，旧的立即作废。已作废的刷新令牌被再次使用 → 这次登录的所有令牌全部作废。
      *
-     * 例外（5 分钟宽限，P13-08）：弱网下常见「服务端已经换了新令牌、回应没送到手机」，手机只能拿旧令牌再试。
-     * 被换掉的旧令牌 [REFRESH_GRACE] 内再出现、且换出来的新令牌还没被用过，就当作回应丢了：
+     * 例外（回应丢了，P13-08、P21-16）：弱网、刷新到一半 App 被系统关掉时常见「服务端已经换了新令牌、手机没收到」，
+     * 手机只能拿旧令牌再试，而且下一次再试可能是几十分钟、几天以后（线上两次被踢都是 27、67 分钟后才回来）。
+     * 被换掉的旧令牌再出现、且换出来的新令牌一次都没用来刷新过，就当作回应丢了（不限时间；作废满 30 天的令牌会被每日清理删掉）：
      * 作废没送到的那对，再换发一对，并让旧令牌指向新发的这对（回应再丢一次也还能再试）。
+     * 新令牌已经用来刷新过，旧令牌还出现，才是被盗用：整次登录作废。
      */
     suspend fun refresh(refreshToken: String): AuthTokens {
         val hash = TokenService.hashRefresh(refreshToken)
@@ -180,9 +182,7 @@ class AuthService(
                     val successor = row[RefreshTokens.replacedBy]?.let { id ->
                         RefreshTokens.selectAll().where { RefreshTokens.id eq id }.forUpdate(ForUpdateOption.ForUpdate).singleOrNull()
                     }
-                    val lostResponse = successor != null &&
-                        successor[RefreshTokens.revokedAt] == null &&
-                        !row[RefreshTokens.revokedAt]!!.plus(REFRESH_GRACE).isBefore(now)
+                    val lostResponse = successor != null && successor[RefreshTokens.revokedAt] == null
                     if (lostResponse) {
                         val session = createSession(row[RefreshTokens.userId], familyId, row[RefreshTokens.deviceName])
                         RefreshTokens.update({ RefreshTokens.id eq successor!![RefreshTokens.id] }) {
@@ -506,7 +506,5 @@ class AuthService(
         /** 重置码的有效期 */
         val RESET_CODE_VALID: Duration = Duration.ofMinutes(15)
 
-        /** 刷新回应丢失的宽限：被换掉的旧刷新令牌这么久之内再出现、新令牌还没被用过，就再换发一对（人类 2026-09-26 选定） */
-        val REFRESH_GRACE: Duration = Duration.ofMinutes(5)
     }
 }

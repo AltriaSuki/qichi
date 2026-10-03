@@ -152,7 +152,7 @@ class AuthTest {
         post("/api/v1/auth/refresh") { json(RefreshRequest(token)) }
 
     @Test
-    fun `刷新会轮换令牌；旧令牌 5 分钟后再用视为被盗用，整组作废`() {
+    fun `刷新会轮换令牌；回应丢了、过了很久才拿旧令牌回来（新令牌一次都没用来刷新过）：照样换发，登录不作废（P21-16）`() {
         val clock = MutableClock()
         serverTest(ctx = testContext(clock = clock)) { client ->
             val session = Api(client).registerOk("aqi")
@@ -162,18 +162,25 @@ class AuthTest {
             assertEquals(HttpStatusCode.OK, refreshed.status)
             val second = refreshed.body<AuthTokens>()
             assertNotEquals(first.refreshToken, second.refreshToken)
-            client.get("/api/v1/me") { bearerAuth(second.accessToken) }.let { assertEquals(HttpStatusCode.OK, it.status) }
 
-            clock.advance(Duration.ofMinutes(6))
-            client.refresh(first.refreshToken).assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized)
-            client.refresh(second.refreshToken).assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized)
-            client.get("/api/v1/me") { bearerAuth(second.accessToken) }
-                .assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized)
+            // 线上两次被踢：刷新的回应没存下，27 分钟、67 分钟以后才拿旧令牌回来（以前超过 5 分钟就整组作废）
+            clock.advance(Duration.ofMinutes(67))
+            val back = client.refresh(first.refreshToken)
+            assertEquals(HttpStatusCode.OK, back.status)
+            val third = back.body<AuthTokens>()
+            assertEquals(HttpStatusCode.OK, client.get("/api/v1/me") { bearerAuth(third.accessToken) }.status)
+
+            // 好几天以后也一样
+            clock.advance(Duration.ofDays(3))
+            val fourth = client.refresh(third.refreshToken).body<AuthTokens>()
+            clock.advance(Duration.ofDays(3))
+            assertEquals(HttpStatusCode.OK, client.refresh(third.refreshToken).status)
+            assertNotEquals(third.refreshToken, fourth.refreshToken)
         }
     }
 
     @Test
-    fun `刷新的回应丢了：5 分钟内拿旧令牌再试，换发一对新的，登录不作废；丢两次也行`() {
+    fun `刷新的回应丢了：拿旧令牌再试，换发一对新的，登录不作废；丢两次也行`() {
         val clock = MutableClock()
         serverTest(ctx = testContext(clock = clock)) { client ->
             val first = Api(client).registerOk("aqi").tokens
@@ -230,8 +237,10 @@ class AuthTest {
             val phoneA = api.registerOk("aqi")
             val phoneB = api.loginOk("aqi")
             val old = phoneA.tokens.refreshToken
-            client.refresh(old)
-            clock.advance(Duration.ofMinutes(6))
+            val second = client.refresh(old).body<AuthTokens>()
+            // 新令牌已经用来刷新过，旧令牌还出现：被盗用
+            client.refresh(second.refreshToken)
+            clock.advance(Duration.ofMinutes(1))
             client.refresh(old).assertProblem(HttpStatusCode.Unauthorized, ProblemCode.Unauthorized)
             assertEquals(HttpStatusCode.OK, phoneB.get("/api/v1/me").status)
         }
