@@ -49,6 +49,8 @@ import app.qichi.core.ui.TodoEditor
 import app.qichi.core.ui.TodoForm
 import app.qichi.core.ui.TodoGroup
 import app.qichi.core.ui.TodoRow
+import app.qichi.core.ui.isLate
+import app.qichi.core.ui.rememberMinuteNow
 import app.qichi.shared.rules.Recurrence
 import java.time.format.DateTimeFormatter
 import java.util.UUID
@@ -224,27 +226,38 @@ private fun todoMeta(group: TodoGroup, state: TodoUiState, showDue: Boolean): (@
             Recurrence.Freq.MONTHLY -> "每月"
         }
     }
-    // 每一段：文字、是否等宽（数字）、前面的小图标
+    // 「今天」那一段不写日期，过期的写在右边；有小字的行右边不写（见 TodoRow），过期的日期就放进小字，不然看不出过期了
+    val overdueDigits = if (!showDue && due != null && due.isBefore(state.today)) due.format(MD) else null
+    // 每一段：文字、是否等宽（数字）、前面的小图标、是不是截止（过了截止时标醒目的颜色）
     val parts = listOfNotNull(
-        dueText?.let { Triple(it, false, null) },
-        dueDigits?.let { Triple(it, true, null) },
-        time?.let { Triple(it, true, QichiIcons.Clock) },
-        plan?.let { Triple(it, false, QichiIcons.Flag) },
-        progress?.let { Triple(it, true, null) },
-        repeat?.let { Triple(it, false, QichiIcons.Repeat) },
+        dueText?.let { MetaPart(it, false, null, due = true) },
+        dueDigits?.let { MetaPart(it, true, null, due = true) },
+        overdueDigits?.let { MetaPart(it, true, null, due = true) },
+        time?.let { MetaPart(it, true, QichiIcons.Clock, due = true) },
+        plan?.let { MetaPart(it, false, QichiIcons.Flag) },
+        progress?.let { MetaPart(it, true, null) },
+        repeat?.let { MetaPart(it, false, QichiIcons.Repeat) },
     )
-    if (parts.isEmpty()) return null
+    // 只有过期日期、别的都没有：不要小字，照旧写在右边
+    if (parts.all { it.due && it.text == overdueDigits }) return null
     return {
         val colors = QichiTheme.colors
         val type = QichiTheme.typography
-        val small = type.caption.copy(fontSize = 12.tsp, color = colors.muted)
-        val mono = type.numeral.copy(fontSize = 12.tsp, color = colors.muted)
+        // 过了截止（日期过了，或今天的时刻已经过了）：截止那几段用醒目的颜色（P21-13）
+        val now = rememberMinuteNow(active = todo.doneAt == null && todo.dueAt != null)
+        val late = todo.isLate(state.today, state.zone, now)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            parts.forEachIndexed { i, (text, digits, icon) ->
-                if (i > 0) Text("·", style = small.copy(color = colors.faint))
-                if (icon != null) Icon(icon, contentDescription = null, tint = colors.muted, modifier = Modifier.size(12.dp))
-                Text(text, style = if (digits) mono else small, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            parts.forEachIndexed { i, part ->
+                val color = if (late && part.due) colors.accent else colors.muted
+                if (i > 0) Text("·", style = type.caption.copy(fontSize = 12.tsp, color = colors.faint))
+                if (part.icon != null) Icon(part.icon, contentDescription = null, tint = color, modifier = Modifier.size(12.dp))
+                Text(
+                    part.text, style = (if (part.digits) type.numeral else type.caption).copy(fontSize = 12.tsp, color = color),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+                )
             }
         }
     }
 }
+
+private class MetaPart(val text: String, val digits: Boolean, val icon: ImageVector?, val due: Boolean = false)

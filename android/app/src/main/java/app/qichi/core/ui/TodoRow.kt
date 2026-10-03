@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
@@ -27,6 +29,8 @@ import app.qichi.core.designsystem.icon.QichiIcons
 import app.qichi.core.designsystem.tsp
 import app.qichi.core.sync.Local
 import app.qichi.shared.api.Todo
+import kotlinx.coroutines.delay
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -86,8 +90,8 @@ fun TodoRow(
             val due = todo.dueDate ?: todo.dueAt?.atZone(zone)?.toLocalDate()
             if (due != null && !subtask && meta == null) {
                 val (label, numeral) = relativeDay(due, today)
-                val overdue = !done && due.isBefore(today)
-                val color = if (overdue) colors.accent else colors.muted
+                val now = rememberMinuteNow(active = !done && todo.dueAt != null)
+                val color = if (todo.isLate(today, zone, now)) colors.accent else colors.muted
                 // 有时刻的（到点提醒）：今天的只写时刻，别的日子在日期后面加上时刻
                 val time = todo.dueAt?.atZone(zone)?.let { "%02d:%02d".format(it.hour, it.minute) }
                 if (time == null || due != today) {
@@ -106,4 +110,27 @@ fun TodoRow(
             }
         }
     }
+}
+
+/**
+ * 待办过了截止（标成醒目的颜色）：截止日早于今天，或者定了时刻、时刻已经过了（P21-13，和桌面组件一致）。做完的不算。
+ */
+fun Todo.isLate(today: LocalDate, zone: ZoneId, now: Instant): Boolean {
+    if (doneAt != null) return false
+    val due = dueDate ?: dueAt?.atZone(zone)?.toLocalDate() ?: return false
+    return due.isBefore(today) || dueAt?.isAfter(now) == false
+}
+
+/** 现在的时刻，每到整分钟变一次；[active] 为 false 时不走（不用给每一行都开一个计时）。 */
+@Composable
+fun rememberMinuteNow(active: Boolean): Instant {
+    val now by produceState(Instant.now(), active) {
+        value = Instant.now()
+        if (!active) return@produceState
+        while (true) {
+            delay(60_000 - System.currentTimeMillis() % 60_000)
+            value = Instant.now()
+        }
+    }
+    return now
 }

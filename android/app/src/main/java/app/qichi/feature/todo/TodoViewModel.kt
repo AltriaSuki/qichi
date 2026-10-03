@@ -19,12 +19,15 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.UUID
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -73,15 +76,24 @@ class TodoViewModel @AssistedInject constructor(
     session: SessionManager,
 ) : ViewModel() {
 
+    /** 开着过了半夜，「今天」「这周」的分组也跟着换（P21-13） */
+    private val minuteTicker = flow {
+        while (true) {
+            emit(Instant.now())
+            delay(60_000)
+        }
+    }
+
     val state: StateFlow<TodoUiState> = combine(
         rooms.observeRoom(roomId),
         rooms.observeMembers(roomId),
         todos.observeTodos(roomId),
         plans.observePlans(roomId),
-    ) { room, members, all, allPlans ->
+        minuteTicker,
+    ) { room, members, all, allPlans, now ->
         val people = People(room, members, session.currentUserId)
         val zone = zoneOf(room?.timezone)
-        val today = todayIn(zone)
+        val today = todayIn(zone, now)
         val children = all.filter { it.value.parentId != null }.groupBy { it.value.parentId }
         val groups = all.filter { it.value.parentId == null }.map { top ->
             TodoGroup(top, children[top.value.id].orEmpty().sortedBy { it.value.createdAt })
