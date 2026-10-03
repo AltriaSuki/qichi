@@ -485,3 +485,5 @@ Android lint 和调试 APK 构建也通过；实机退出原因待确认。
   - 验收：`AiJobMonitorTest`（原 `ReadingAiMonitorTest`，挪到公共位置共用）。
 - [x] **P21-10 带透明背景的图片发出去不再变黑底** — 大于 2MB 或边长超过 2560 的 PNG、WebP 会转成 JPEG 再发，带透明的（贴纸、抠图）透明处以前变成黑色；现在先铺白底，和服务端生成缩略图的做法一致。
   - 验收：`AttachmentFlattenTest`。
+- [x] **P21-11 传文件时界面不再一直重绘** — 上传、下载的进度以前每收发一小块数据就刷新一次界面（20MB 的照片几千次），聊天列表、阅读、更新弹窗在传文件时一直重绘；现在整百分比变了才刷新（最多 101 次）。设置里的开关动画每一帧只重新摆放、不重组（lint `UseOfNonLambdaOffsetOverload`）。
+  - 验收：`ProgressTest`。

@@ -10,6 +10,7 @@ import app.qichi.BuildConfig
 import app.qichi.core.network.ApiClient
 import app.qichi.core.network.ApiException
 import app.qichi.core.network.get
+import app.qichi.core.network.percentProgress
 import app.qichi.shared.api.AppRelease
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -111,10 +112,8 @@ class AppUpdater(
             if (!(target.exists() && sha256(target) == release.sha256)) {
                 dir.listFiles()?.forEach { it.delete() }
                 _state.value = UpdateState.Downloading(release, 0f)
-                api.download("app/apk", target) { received, total ->
-                    val all = total ?: release.sizeBytes
-                    if (all > 0) _state.value = UpdateState.Downloading(release, (received.toFloat() / all).coerceIn(0f, 1f))
-                }
+                val report = percentProgress { _state.value = UpdateState.Downloading(release, it) }
+                api.download("app/apk", target) { received, total -> report(received, total ?: release.sizeBytes) }
                 if (sha256(target) != release.sha256) {
                     target.delete()
                     _state.value = UpdateState.Failed("下载的文件不完整，再试一次")

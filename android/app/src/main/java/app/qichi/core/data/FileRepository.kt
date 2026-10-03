@@ -1,6 +1,7 @@
 package app.qichi.core.data
 
 import app.qichi.core.network.ApiClient
+import app.qichi.core.network.percentProgress
 import app.qichi.shared.api.FileMeta
 import app.qichi.shared.model.FileKind
 import app.qichi.shared.model.wireName
@@ -45,20 +46,16 @@ class FileRepository(private val api: ApiClient) {
                 )
             },
         )
-        return api.upload("rooms/$roomId/files", form, FileMeta.serializer()) { sent, total ->
-            val all = total ?: attachment.sizeBytes
-            if (all > 0) onProgress((sent.toFloat() / all).coerceIn(0f, 1f))
-        }
+        val report = percentProgress(onProgress)
+        return api.upload("rooms/$roomId/files", form, FileMeta.serializer()) { sent, total -> report(sent, total ?: attachment.sizeBytes) }
     }
 
     /** 下载文件到本机缓存（已经下载过就直接用），返回本地文件。 */
     suspend fun download(file: FileMeta, dir: File, onProgress: (Float) -> Unit): File {
         val target = File(File(dir, file.id.toString()).apply { mkdirs() }, safeFileName(file.fileName))
         if (target.exists() && target.length() == file.sizeBytes) return target
-        api.download("files/${file.id}", target) { received, total ->
-            val all = total ?: file.sizeBytes
-            if (all > 0) onProgress((received.toFloat() / all).coerceIn(0f, 1f))
-        }
+        val report = percentProgress(onProgress)
+        api.download("files/${file.id}", target) { received, total -> report(received, total ?: file.sizeBytes) }
         return target
     }
 

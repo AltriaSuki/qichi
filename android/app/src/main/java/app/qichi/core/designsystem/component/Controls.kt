@@ -36,6 +36,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import app.qichi.core.designsystem.QichiShapes
@@ -289,7 +290,8 @@ fun SwitchRow(
         ) {
             Box(
                 Modifier
-                    .offset(x = knob)
+                    // 动画的每一帧只重新摆放，不重组（lint UseOfNonLambdaOffsetOverload）
+                    .offset { IntOffset(knob.roundToPx(), 0) }
                     .size(16.dp)
                     .clip(CircleShape)
                     .background(if (checked) colors.background else colors.faint),

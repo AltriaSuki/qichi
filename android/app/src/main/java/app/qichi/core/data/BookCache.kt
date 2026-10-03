@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import app.qichi.core.network.ApiClient
+import app.qichi.core.network.percentProgress
 import app.qichi.shared.rules.Limits
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -78,7 +79,8 @@ class BookCache(
     private suspend fun openLocked(fileId: UUID, onProgress: (Float) -> Unit): File {
         val file = fileOf(fileId)
         if (!file.exists()) {
-            api.download("files/$fileId", file) { received, total -> if (total != null && total > 0) onProgress(received.toFloat() / total) }
+            val report = percentProgress(onProgress)
+            api.download("files/$fileId", file) { received, total -> if (total != null) report(received, total) }
             _cached.update { it + fileId }
         }
         withContext(Dispatchers.IO) { file.setLastModified(System.currentTimeMillis()) }
