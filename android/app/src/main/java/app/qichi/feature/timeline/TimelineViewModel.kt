@@ -16,6 +16,7 @@ import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -87,15 +88,22 @@ class TimelineViewModel @AssistedInject constructor(
         load(null)
     }
 
-    fun load(month: YearMonth?) = viewModelScope.launch {
-        remote.update { it.copy(loading = true, failed = false) }
-        try {
-            val page = timeline.month(roomId, month ?: remote.value.page?.let { YearMonth.of(it.year, it.month) })
-            remote.update { it.copy(page = page, loading = false) }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            remote.update { it.copy(loading = false, failed = true) }
+    private var loadJob: Job? = null
+
+    /** 翻到某个月。连着翻时只要最后一次的：以前先发的请求后回来，会把页面换回前一个月（P21-14）。 */
+    fun load(month: YearMonth?) {
+        val target = month ?: remote.value.page?.let { YearMonth.of(it.year, it.month) }
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            remote.update { it.copy(loading = true, failed = false) }
+            try {
+                val page = timeline.month(roomId, target)
+                remote.update { it.copy(page = page, loading = false) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                remote.update { it.copy(loading = false, failed = true) }
+            }
         }
     }
 

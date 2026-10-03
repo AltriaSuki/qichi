@@ -45,6 +45,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -73,16 +74,20 @@ class AiUsageViewModel @Inject constructor(private val rooms: RoomRepository) : 
         if (_state.value.month < YearMonth.now()) load(_state.value.month.plusMonths(1))
     }
 
+    private var loadJob: Job? = null
+
+    /** 换到某个月：先清掉上个月的（以前换月份时还显示着上个月的用量），连着翻时只要最后一次的（P21-14）。 */
     private fun load(month: YearMonth) {
-        _state.update { it.copy(month = month, loading = true, error = null) }
-        viewModelScope.launch {
+        _state.update { it.copy(month = month, usage = null, loading = true, error = null) }
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             try {
                 val usage = rooms.aiUsage(month)
                 _state.update { if (it.month == month) it.copy(usage = usage, loading = false) else it }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                _state.update { it.copy(usage = null, loading = false, error = "联网后才能看到用量") }
+                _state.update { if (it.month == month) it.copy(usage = null, loading = false, error = "联网后才能看到用量") else it }
             }
         }
     }
@@ -123,7 +128,10 @@ fun AiUsageScreen(onBack: () -> Unit, viewModel: AiUsageViewModel = hiltViewMode
             else -> LazyColumn(contentPadding = PaddingValues(start = Spacing.page, end = Spacing.page, top = Spacing.m, bottom = 32.dp)) {
                 item {
                     Text(
-                        if (usage.jobs.isEmpty()) "这个月还没有问过 AI" else "这个月问了 ${usage.jobs.size} 次，用量 ${numbers.format(usage.myInputTokens + usage.myOutputTokens)}",
+                        // 看的是以前的月份时写几月，不说「这个月」
+                        (if (state.month == YearMonth.now()) "这个月" else "${state.month.monthValue} 月").let { m ->
+                            if (usage.jobs.isEmpty()) "${m}还没有问过 AI" else "${m}问了 ${usage.jobs.size} 次，用量 ${numbers.format(usage.myInputTokens + usage.myOutputTokens)}"
+                        },
                         style = type.bodyLarge.copy(color = colors.ink),
                     )
                     MonthQuota(usage)
