@@ -185,7 +185,7 @@ class DocumentRepository(
     // ── 写作助手（P9-04 / P9-05，要联网；结果只是建议，由人决定用不用） ──
 
     /**
-     * 请 AI 帮忙并等结果：发出请求后每 1.5 秒问一次，最多等 3 分钟。
+     * 请 AI 帮忙并等结果：发出请求后每 1.5 秒问一次，最多等 [ASSIST_TIMEOUT_MS]。
      * 失败时抛 [ApiException]（AI 没开、额度用完）或 [AssistFailed]（没得到结果）。
      */
     suspend fun assist(roomId: UUID, req: AiWriteRequest): String {
@@ -311,7 +311,11 @@ class DocumentRepository(
 
     private companion object {
         const val ASSIST_POLL_MS = 1_500L
-        const val ASSIST_TIMEOUT_MS = 180_000L
+        /**
+         * 服务端写作助手最多做 5 分钟（P19-04，起草稿这类长输出常要好几分钟），再加上排队：
+         * 以前这里只等 3 分钟，服务端还在写就说「想得太久了」，重试又从头花一次用量
+         */
+        const val ASSIST_TIMEOUT_MS = 6 * 60_000L
         const val MAX_VERSION_PAGES = 20
     }
 }
