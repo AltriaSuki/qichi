@@ -21,6 +21,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
@@ -119,15 +120,19 @@ class RealtimeBoundaryTest {
             repeat(2) {
                 ws.webSocket("/api/v1/ws", request = { bearerAuth(owner.tokens.accessToken) }) { next() as WsEvent.Hello }
             }
+            withTimeout(5_000) { ctx.realtime.connections.first { it == 0 } }
             // 突然断掉（换网络、进程被杀）
             coroutineScope {
+                val connected = CompletableDeferred<Unit>()
                 val cut = launch {
                     ws.webSocket("/api/v1/ws", request = { bearerAuth(owner.tokens.accessToken) }) {
                         next() as WsEvent.Hello
+                        connected.complete(Unit)
                         awaitCancellation()
                     }
                 }
-                withTimeout(5_000) { ctx.realtime.connections.first { it >= 1 } }
+                withTimeout(5_000) { connected.await() }
+                assertEquals(1, ctx.realtime.connections.value)
                 cut.cancel()
             }
             // 断开之后房间里照常有动静，也不会让它们复活或卡住
