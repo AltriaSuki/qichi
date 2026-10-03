@@ -83,6 +83,17 @@ class RoomToolsTest {
         assertFalse(chat.contains("民宿"), chat)
     }
 
+    @Test fun `搜聊天不分大小写：搜 paris 也找得到 Paris`() = serverTest { client ->
+        val (aqi, chi, roomId) = Api(client).pair()
+        aqi.say(roomId, "十月一起去 Paris 吧")
+        val room = room(aqi, chi, roomId)
+        val found = room.tools().call("search", """{"query":"paris"}""")
+        assertTrue(found.contains("Paris"), found)
+        // 问 AI 的事先备料（按问题找聊天）也一样
+        val lines = TestDatabase.database.tx { RoomContext.gather(roomId, "paris 怎么样", Instant.now(), zone, room.names, AiPrefs()) }
+        assertTrue(lines.any { it.line.contains("Paris") }, lines.toString())
+    }
+
     @Test fun `撤回的消息和删除的灵感查不到`() = serverTest { client ->
         val (aqi, chi, roomId) = Api(client).pair()
         val secret = aqi.say(roomId, "这是一条要撤回的民宿消息")
@@ -223,6 +234,8 @@ class RoomToolsTest {
         val book = SourceBook()
         val tools = room(aqi, chi, roomId).tools(book = book)
         assertTrue(tools.call("search", """{"query":"慢慢走"}""").contains("给明年秋天的信"))
+        // 只搜最新一版：只在第一版里出现过的字搜不到
+        assertTrue(tools.call("search", """{"query":"第一版"}""").startsWith("没有找到"))
         val list = tools.call("documents")
         assertTrue(list.contains("《没保存过的》 · 还没保存过"), list)
         val n = Regex("\\[(\\d+)] 文稿《给明年秋天的信》").find(list)!!.groupValues[1].toInt()

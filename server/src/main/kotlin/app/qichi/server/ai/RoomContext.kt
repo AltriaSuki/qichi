@@ -8,6 +8,8 @@ import app.qichi.server.db.Messages
 import app.qichi.server.db.Moods
 import app.qichi.server.db.Plans
 import app.qichi.server.db.Todos
+import app.qichi.server.db.containsPattern
+import app.qichi.server.db.ilike
 import app.qichi.server.summaries.SourceLine
 import app.qichi.server.sync.Visibility
 import app.qichi.shared.api.AiPrefs
@@ -24,7 +26,6 @@ import org.jetbrains.exposed.v1.core.greaterEq
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
-import org.jetbrains.exposed.v1.core.like
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.notInList
 import org.jetbrains.exposed.v1.core.or
@@ -243,7 +244,8 @@ object RoomContext {
         }
         if (prefs.chat && terms.isNotEmpty()) {
             val grams = terms.sortedByDescending { it.length }.take(8)
-            val anyTerm = grams.map<String, Op<Boolean>> { g -> Messages.body like "%${g.replace("%", "").replace("_", "")}%" }.reduce { a, b -> a or b }
+            // 不分大小写（问「paris」也找得到「Paris」）；三元组索引也支持 ILIKE
+            val anyTerm = grams.map<String, Op<Boolean>> { g -> Messages.body ilike containsPattern(g) }.reduce { a, b -> a or b }
             Messages.selectAll().where {
                 (Messages.roomId eq roomId) and Visibility.quotableMessage() and Messages.authorId.isNotNull() and
                     (Messages.kind eq MessageKind.Text.wireName) and (Messages.body neq "") and

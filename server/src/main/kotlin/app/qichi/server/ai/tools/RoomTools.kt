@@ -33,6 +33,8 @@ import app.qichi.server.db.ReadingProgressTable
 import app.qichi.server.db.ReviewDocuments
 import app.qichi.server.db.Summaries
 import app.qichi.server.db.Todos
+import app.qichi.server.db.containsPattern
+import app.qichi.server.db.ilike
 import app.qichi.server.messages.messageQuery
 import app.qichi.server.messages.toMessage
 import app.qichi.server.sync.Visibility
@@ -50,6 +52,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import java.util.UUID
+import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
@@ -62,7 +65,6 @@ import org.jetbrains.exposed.v1.core.isNotNull
 import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.less
 import org.jetbrains.exposed.v1.core.lessEq
-import org.jetbrains.exposed.v1.core.like
 import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.andWhere
@@ -345,7 +347,8 @@ class RoomTools(
 
         if ("chat" in want) {
             val grams = terms.sortedByDescending { it.length }.take(8)
-            val anyTerm = grams.map<String, Op<Boolean>> { g -> Messages.body like "%${g.replace("%", "").replace("_", "")}%" }.reduce { x, y -> x or y }
+            // 不分大小写（搜「paris」也找得到「Paris」）
+            val anyTerm = grams.map<String, Op<Boolean>> { g -> Messages.body ilike containsPattern(g) }.reduce { x, y -> x or y }
             messageQuery().where { (Messages.roomId eq roomId) and Visibility.quotableMessage() and (Messages.body neq "") and anyTerm }
                 .orderBy(Messages.createdSeq, SortOrder.DESC).limit(SEARCH_SCAN).map { it.toMessage() }
                 .forEach { m -> val t = messageText(m) ?: return@forEach; hit(t, m.createdAt) { out, sn -> out.item(EntityType.Message, m.id, cut(t, 80), m.createdAt, messageLine(m, sn)) } }
@@ -647,17 +650,17 @@ class RoomTools(
 
     // ── 写作、留言板 ──
 
-    /** 每篇没删的文稿和它最新一版的正文（只有保存过的版本，没保存的草稿不在服务端）。 */
-    private fun latestBodies(): List<Pair<ResultRow, String>> {
-        val docs = Documents.selectAll().where { (Documents.roomId eq roomId) and Documents.deletedAt.isNull() and (Documents.latestVersion greater 0) }.toList()
-        if (docs.isEmpty()) return emptyList()
-        val bodies = DocumentVersions.select(DocumentVersions.documentId, DocumentVersions.version, DocumentVersions.body)
-            .where { DocumentVersions.documentId inList docs.map { it[Documents.id] } }
-            .toList()
-        return docs.mapNotNull { d ->
-            bodies.firstOrNull { it[DocumentVersions.documentId] == d[Documents.id] && it[DocumentVersions.version] == d[Documents.latestVersion] }?.let { d to it[DocumentVersions.body] }
-        }
-    }
+    /**
+     * 每篇没删的文稿和它最新一版的正文（只有保存过的版本，没保存的草稿不在服务端）。
+     * 只读最新那一版：以前把每篇的所有版本正文都读出来再挑，存过几十版的长文要多读几十倍。
+     */
+    private fun latestBodies(): List<Pair<ResultRow, String>> =
+        Documents.join(DocumentVersions, JoinType.INNER, additionalConstraint = {
+            (DocumentVersions.documentId eq Documents.id) and (DocumentVersions.version eq Documents.latestVersion)
+        })
+            .select(Documents.columns + DocumentVersions.body)
+            .where { (Documents.roomId eq roomId) and Documents.deletedAt.isNull() and (Documents.latestVersion greater 0) }
+            .map { it to it[DocumentVersions.body] }
 
     private fun documents(a: Args): String {
         val id = ref(a, EntityType.Document)
