@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.time.Clock
 import java.util.Base64
 import java.util.UUID
 
@@ -41,8 +42,11 @@ fun interface LogoutHook {
     suspend fun beforeLogout()
 }
 
-/** 登录被动失效、本机数据还留着：[unsent] 条写操作没发出去（登录页据此提示）。 */
-data class ExpiredSession(val userId: UUID, val unsent: Int)
+/**
+ * 登录被动失效、本机数据还留着：[unsent] 条写操作没发出去（登录页据此提示）。
+ * [end] 是为什么、什么时候失效的（P21-07）；这个版本之前失效的不知道，为空。
+ */
+data class ExpiredSession(val userId: UUID, val unsent: Int, val end: SessionEnd? = null)
 
 /** 登录、注册的结果。 */
 sealed interface SignInResult {
@@ -69,6 +73,7 @@ class SessionManager(
     private val owner: LocalOwnerStore = InMemoryLocalOwnerStore(),
     /** 本机还没发出去的写操作有几条 */
     private val unsentCount: suspend () -> Int = { 0 },
+    private val clock: Clock = Clock.systemUTC(),
 ) {
     private val _state = MutableStateFlow<SessionState>(SessionState.Loading)
     val state: StateFlow<SessionState> = _state.asStateFlow()
@@ -85,6 +90,8 @@ class SessionManager(
                 if (owner.read() == null) owner.write(userIdOf(tokens))
                 _state.value = SessionState.LoggedIn(userIdOf(tokens))
             } else {
+                // 存着令牌却解不开：记下原因，登录页说清楚（P21-07）
+                if (tokenStore.unreadable) recordEnd(SessionEndReason.Unreadable)
                 noteExpired()
                 _state.value = SessionState.LoggedOut
             }
@@ -93,16 +100,22 @@ class SessionManager(
             api.sessionExpired.collect {
                 // 旧刷新请求的失效通知可能晚于用户的新登录，不能把新登录踢掉。
                 if (tokenStore.read() != null) return@collect
+                recordEnd(SessionEndReason.Rejected)
                 noteExpired()
                 _state.value = SessionState.LoggedOut
             }
         }
     }
 
+    /** 记下登录为什么、什么时候被动结束（只在本机数据还归某个账号时）。 */
+    private suspend fun recordEnd(reason: SessionEndReason) {
+        if (owner.read() != null) owner.writeEnd(SessionEnd(reason, clock.instant()))
+    }
+
     /** 本机数据还归某个账号（登录失效或读不出令牌，而不是新装或主动登出过）：记下来给登录页提示。 */
     private suspend fun noteExpired() {
         val previous = owner.read() ?: return
-        _expired.value = ExpiredSession(previous, unsentCount())
+        _expired.value = ExpiredSession(previous, unsentCount(), owner.readEnd())
     }
 
     val currentUserId: UUID? get() = (state.value as? SessionState.LoggedIn)?.userId
@@ -173,6 +186,7 @@ class SessionManager(
         tokenStore.clear()
         clearLocal()
         owner.write(null)
+        owner.writeEnd(null)
         _expired.value = null
         _state.value = SessionState.LoggedOut
     }
@@ -208,6 +222,7 @@ class SessionManager(
             owner.write(userId)
         }
         tokenStore.write(tokens)
+        owner.writeEnd(null)
         _expired.value = null
         _state.value = SessionState.LoggedIn(userId)
         return SignInResult.Done

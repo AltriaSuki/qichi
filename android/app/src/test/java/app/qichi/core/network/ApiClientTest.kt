@@ -1,9 +1,9 @@
 package app.qichi.core.network
 
 import app.cash.turbine.test
-import app.qichi.core.auth.ExpiredSession
 import app.qichi.core.auth.InMemoryTokenStore
 import app.qichi.core.auth.LocalDataCleaner
+import app.qichi.core.auth.SessionEndReason
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.auth.SessionState
 import app.qichi.core.auth.TokenStore
@@ -342,7 +342,9 @@ class ApiClientTest {
         session.state.first { it == SessionState.LoggedOut }
         assertEquals(0, cleared, "登录被动失效时不清本机数据（P13-08）")
         assertNull(store.read())
-        assertEquals(ExpiredSession(userId, 3), session.expired.value)
+        val expired = session.expired.value!!
+        assertEquals(userId to 3, expired.userId to expired.unsent)
+        assertEquals(SessionEndReason.Rejected, expired.end?.reason, "记下是服务端不认了（P21-07）")
         scope.cancel()
     }
 

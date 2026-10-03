@@ -3,6 +3,7 @@ package app.qichi.feature.auth
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.qichi.core.auth.ExpiredSession
+import app.qichi.core.auth.SessionEndReason
 import app.qichi.core.auth.SessionManager
 import app.qichi.core.auth.SignInResult
 import app.qichi.core.network.ApiException
@@ -16,6 +17,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 data class AuthUiState(
@@ -48,8 +51,7 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    private fun expiredText(e: ExpiredSession): String =
-        if (e.unsent > 0) "登录已失效，请重新登录。还有 ${e.unsent} 条内容没发出去，登录同一个账号后会接着发。" else "登录已失效，请重新登录。"
+    private fun expiredText(e: ExpiredSession): String = expiredNotice(e, ZoneId.systemDefault())
 
     fun onUsername(v: String) = _state.update { it.copy(username = v.lowercase().filter { c -> !c.isWhitespace() }, error = FormError()) }
     fun onPassword(v: String) = _state.update { it.copy(password = v, error = FormError()) }
@@ -145,4 +147,20 @@ class AuthViewModel @Inject constructor(
         ProblemCode.RateLimited -> FormError(message = "尝试次数太多，请过一会儿再试")
         else -> e.toFormError()
     }
+}
+
+private val endTime = DateTimeFormatter.ofPattern("M月d日 HH:mm")
+
+/**
+ * 登录被动失效时登录页上那句话（P13-08）：什么时候、为什么（P21-07），还有几条没发出去。
+ * 原因写清楚，下次再遇到「莫名其妙要重新登录」时，告诉 AI 这句话就能查。
+ */
+internal fun expiredNotice(e: ExpiredSession, zone: ZoneId): String {
+    val end = e.end
+    val first = when (end?.reason) {
+        SessionEndReason.Rejected -> "登录已失效（${end.at.atZone(zone).format(endTime)}，服务器不再认这台手机的登录），请重新登录。"
+        SessionEndReason.Unreadable -> "这台手机上保存的登录信息读不出来了（${end.at.atZone(zone).format(endTime)}），请重新登录。"
+        null -> "登录已失效，请重新登录。"
+    }
+    return if (e.unsent > 0) "${first}还有 ${e.unsent} 条内容没发出去，登录同一个账号后会接着发。" else first
 }

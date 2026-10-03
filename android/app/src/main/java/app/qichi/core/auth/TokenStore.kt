@@ -2,6 +2,7 @@ package app.qichi.core.auth
 
 import android.content.Context
 import android.util.Base64
+import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -14,6 +15,7 @@ import com.google.crypto.tink.KeyTemplates
 import com.google.crypto.tink.RegistryConfiguration
 import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeysetManager
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -25,6 +27,9 @@ interface TokenStore {
     suspend fun clear()
     /** 刷新结果只能修改发起时的令牌，不能覆盖期间的新登录或登出。 */
     suspend fun compareAndSet(expected: AuthTokens, replacement: AuthTokens?): Boolean
+
+    /** 存着令牌、却解不开（[read] 因此返回了空）：登录页据此说明原因（P21-07）。 */
+    val unreadable: Boolean get() = false
 }
 
 private val Context.authDataStore: DataStore<Preferences> by preferencesDataStore(name = "qichi_auth")
@@ -49,12 +54,36 @@ class EncryptedTokenStore(private val context: Context) : TokenStore {
             .getPrimitive(RegistryConfiguration.get(), Aead::class.java)
     }
 
+    @Volatile
+    override var unreadable: Boolean = false
+        private set
+
     override suspend fun read(): AuthTokens? = mutex.withLock {
-        if (!loaded) {
-            cached = context.authDataStore.data.first()[KEY]?.let { decrypt(it) }
-            loaded = true
-        }
+        ensureLoaded()
         cached
+    }
+
+    private suspend fun ensureLoaded() {
+        if (loaded) return
+        cached = load()
+        loaded = true
+    }
+
+    /**
+     * 读出保存的令牌。解不开时隔一会儿再试几次（P21-07）：系统的密钥库刚开机、刚被唤醒时偶尔一时出错，
+     * 以前一次失败就当作没登录，直接回到登录页。
+     */
+    private suspend fun load(): AuthTokens? {
+        val saved = context.authDataStore.data.first()[KEY] ?: return null.also { unreadable = false }
+        repeat(DECRYPT_ATTEMPTS) { attempt ->
+            decrypt(saved)?.let {
+                unreadable = false
+                return it
+            }
+            if (attempt < DECRYPT_ATTEMPTS - 1) delay(DECRYPT_RETRY_MS * (attempt + 1))
+        }
+        unreadable = true
+        return null
     }
 
     override suspend fun write(tokens: AuthTokens) = mutex.withLock { save(tokens) }
@@ -65,6 +94,7 @@ class EncryptedTokenStore(private val context: Context) : TokenStore {
         context.authDataStore.edit { it[KEY] = Base64.encodeToString(cipher, Base64.NO_WRAP) }
         cached = tokens
         loaded = true
+        unreadable = false
     }
 
     override suspend fun clear() = mutex.withLock { erase() }
@@ -73,25 +103,29 @@ class EncryptedTokenStore(private val context: Context) : TokenStore {
         context.authDataStore.edit { it.remove(KEY) }
         cached = null
         loaded = true
+        unreadable = false
     }
 
     override suspend fun compareAndSet(expected: AuthTokens, replacement: AuthTokens?): Boolean = mutex.withLock {
-        if (!loaded) {
-            cached = context.authDataStore.data.first()[KEY]?.let { decrypt(it) }
-            loaded = true
-        }
+        ensureLoaded()
         if (cached != expected) return@withLock false
         if (replacement == null) erase() else save(replacement)
         true
     }
 
-    /** 解密失败（例如系统清掉了 Keystore 密钥）时当作未登录。 */
-    private fun decrypt(value: String): AuthTokens? = runCatching {
+    /** 解密失败（例如系统清掉了 Keystore 密钥）时为空；只记下出了什么错，不记令牌。 */
+    private fun decrypt(value: String): AuthTokens? = try {
         val plain = aead.decrypt(Base64.decode(value, Base64.NO_WRAP), ASSOCIATED_DATA)
         QichiJson.decodeFromString(AuthTokens.serializer(), String(plain))
-    }.getOrNull()
+    } catch (e: Exception) {
+        Log.w(TAG, "保存的登录信息解不开：${e.javaClass.simpleName}")
+        null
+    }
 
     private companion object {
+        const val TAG = "QichiTokens"
+        const val DECRYPT_ATTEMPTS = 3
+        const val DECRYPT_RETRY_MS = 300L
         val KEY = stringPreferencesKey("tokens")
         val ASSOCIATED_DATA = "qichi-tokens".toByteArray()
         const val KEYSET_NAME = "qichi_token_keyset"
@@ -100,8 +134,8 @@ class EncryptedTokenStore(private val context: Context) : TokenStore {
     }
 }
 
-/** 内存里的令牌存储（测试用）。 */
-class InMemoryTokenStore(private var tokens: AuthTokens? = null) : TokenStore {
+/** 内存里的令牌存储（测试用）。[unreadable] 模拟存着却解不开。 */
+class InMemoryTokenStore(private var tokens: AuthTokens? = null, override val unreadable: Boolean = false) : TokenStore {
     private val mutex = Mutex()
     override suspend fun read(): AuthTokens? = mutex.withLock { tokens }
     override suspend fun write(tokens: AuthTokens) = mutex.withLock {

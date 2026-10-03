@@ -1,6 +1,8 @@
 package app.qichi.core.auth
 
 import app.qichi.core.network.ApiClient
+import app.qichi.core.network.get
+import app.qichi.shared.api.Me
 import app.qichi.shared.api.AuthTokens
 import app.qichi.shared.api.LoginRequest
 import app.qichi.shared.api.QichiJson
@@ -16,7 +18,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
+import java.time.Clock
 import java.time.Instant
+import java.time.ZoneOffset
 import java.util.Base64
 import java.util.UUID
 import kotlin.test.Test
@@ -53,6 +57,8 @@ class SessionManagerTest {
                     logouts += request.headers[HttpHeaders.Authorization]
                     respond("", HttpStatusCode.NoContent)
                 }
+                // 服务端不认这台手机的登录了：访问令牌过期、刷新也被拒
+                path.endsWith("/auth/refresh") || path.endsWith("/me") -> respond("", HttpStatusCode.Unauthorized)
                 else -> respond("", HttpStatusCode.NotFound)
             }
         }
@@ -64,6 +70,7 @@ class SessionManagerTest {
     }
 
     private class Fixture(
+        val api: ApiClient,
         val session: SessionManager,
         val owner: InMemoryLocalOwnerStore,
         val store: InMemoryTokenStore,
@@ -73,16 +80,52 @@ class SessionManagerTest {
         val clearedCount: Int get() = cleared.value
     }
 
-    private fun TestScope.fixture(server: Server, saved: AuthTokens?, owner: UUID?, unsent: Int): Fixture {
+    private val endedAt = Instant.parse("2026-10-02T15:14:00Z")
+
+    private fun TestScope.fixture(server: Server, saved: AuthTokens?, owner: UUID?, unsent: Int, unreadable: Boolean = false): Fixture {
         val scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + Job())
-        val store = InMemoryTokenStore(saved)
+        val store = InMemoryTokenStore(saved, unreadable)
         val ownerStore = InMemoryLocalOwnerStore(owner)
         val cleared = Counter()
+        val api = ApiClient(server.engine, "http://test", store, "test")
         val session = SessionManager(
-            ApiClient(server.engine, "http://test", store, "test"), store, setOf(LocalDataCleaner { cleared.value++ }), "test", scope,
-            owner = ownerStore, unsentCount = { unsent },
+            api, store, setOf(LocalDataCleaner { cleared.value++ }), "test", scope,
+            owner = ownerStore, unsentCount = { unsent }, clock = Clock.fixed(endedAt, ZoneOffset.UTC),
         )
-        return Fixture(session, ownerStore, store, scope, cleared)
+        return Fixture(api, session, ownerStore, store, scope, cleared)
+    }
+
+    @Test
+    fun `服务端不认这台手机的登录：记下原因和时间给登录页说明，重新登录后清掉`() = runTest {
+        val f = fixture(Server(), saved = tokens(aqi), owner = aqi, unsent = 1)
+        assertEquals(SessionState.LoggedIn(aqi), f.session.state.value)
+        runCatching { f.api.get<Me>("me") }
+        assertEquals(SessionState.LoggedOut, f.session.state.value)
+        assertEquals(ExpiredSession(aqi, 1, SessionEnd(SessionEndReason.Rejected, endedAt)), f.session.expired.value)
+
+        f.session.login("aqi", "password")
+        assertNull(f.owner.readEnd())
+        assertNull(f.session.expired.value)
+        f.scope.cancel()
+    }
+
+    @Test
+    fun `存着令牌却解不开：当作登录失效，说明是读不出来；本机数据留着`() = runTest {
+        val f = fixture(Server(), saved = null, owner = aqi, unsent = 3, unreadable = true)
+        assertEquals(SessionState.LoggedOut, f.session.state.value)
+        assertEquals(ExpiredSession(aqi, 3, SessionEnd(SessionEndReason.Unreadable, endedAt)), f.session.expired.value)
+        assertEquals(0, f.clearedCount)
+        f.scope.cancel()
+    }
+
+    @Test
+    fun `主动登出后不留失效原因`() = runTest {
+        val f = fixture(Server(), saved = tokens(aqi), owner = aqi, unsent = 0)
+        runCatching { f.api.get<Me>("me") }
+        assertEquals(SessionEndReason.Rejected, f.owner.readEnd()?.reason)
+        f.session.logout()
+        assertNull(f.owner.readEnd())
+        f.scope.cancel()
     }
 
     @Test
