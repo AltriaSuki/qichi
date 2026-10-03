@@ -8,6 +8,7 @@ import net.fortuna.ical4j.model.property.CalScale
 import net.fortuna.ical4j.model.property.Description
 import net.fortuna.ical4j.model.property.DtEnd
 import net.fortuna.ical4j.model.property.DtStart
+import net.fortuna.ical4j.model.property.Duration as IcsDuration
 import net.fortuna.ical4j.model.property.Location
 import net.fortuna.ical4j.model.property.ProdId
 import net.fortuna.ical4j.model.property.Uid
@@ -55,8 +56,11 @@ object IcsCodec {
         val uid = propertyList.getProperty<Uid>("UID").orElse(null)?.value?.takeIf { it.isNotBlank() && it.length <= 255 } ?: return null
         val title = summary?.value?.trim()?.takeIf { it.length in 1..200 } ?: return null
         val startProperty = propertyList.getProperty<DtStart<*>>("DTSTART").orElse(null) ?: return null
-        val start = startProperty.date ?: return null
-        val end = propertyList.getProperty<DtEnd<*>>("DTEND").orElse(null)?.date ?: return null
+        val start: Temporal = startProperty.date ?: return null
+        // 没写 DTEND 时按 RFC 5545：有 DURATION 就是开始加时长；都没有时全天的算一天、定时的算一个时刻
+        val end: Temporal = propertyList.getProperty<DtEnd<*>>("DTEND").orElse(null)?.date
+            ?: propertyList.getProperty<IcsDuration>("DURATION").orElse(null)?.duration?.let { start.plus(it) }
+            ?: if (start is LocalDate) start.plusDays(1) else start
         val note = description?.value?.takeIf { it.length <= 2000 }
         val location = location?.value?.takeIf { it.length <= 200 }
         if (start is LocalDate && end is LocalDate) {
@@ -68,7 +72,8 @@ object IcsCodec {
         val zone = tzid?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: roomZone
         val startsAt = start.toInstant(zone) ?: return null
         val endsAt = end.toInstant(zone) ?: return null
-        if (!endsAt.isAfter(startsAt)) return null
+        // 开始和结束是同一时刻的（提醒、截止这类）也收下：栖迟的日程允许
+        if (endsAt.isBefore(startsAt)) return null
         return IcsEntry(uid, title, note, location, startsAt = startsAt, endsAt = endsAt)
     }
 
