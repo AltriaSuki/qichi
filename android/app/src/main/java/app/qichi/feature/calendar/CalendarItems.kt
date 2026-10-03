@@ -1,5 +1,6 @@
 package app.qichi.feature.calendar
 
+import app.qichi.core.data.dayRange
 import app.qichi.core.sync.Local
 import app.qichi.shared.api.Event
 import app.qichi.shared.api.Milestone
@@ -43,10 +44,7 @@ fun calendarItems(
         result[date] = update(result[date] ?: CalendarDayItems(date))
     }
     events.forEach { local ->
-        val event = local.value
-        val first = if (event.allDay) event.startDate else event.startsAt?.atZone(zone)?.toLocalDate()
-        val last = if (event.allDay) event.endDate else event.endsAt?.atZone(zone)?.toLocalDate()
-        if (first != null && last != null && !last.isBefore(first)) {
+        local.value.dayRange(zone)?.let { (first, last) ->
             var day = maxOf(first, start)
             val through = minOf(last, end)
             while (!day.isAfter(through)) {

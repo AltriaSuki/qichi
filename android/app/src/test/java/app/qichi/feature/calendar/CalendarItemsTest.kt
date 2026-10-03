@@ -1,5 +1,6 @@
 package app.qichi.feature.calendar
 
+import app.qichi.core.data.days
 import app.qichi.core.database.SyncState
 import app.qichi.core.sync.Local
 import app.qichi.shared.api.Event
@@ -45,6 +46,23 @@ class CalendarItemsTest {
         assertEquals(listOf(todo), day.dueTodos)
         assertEquals(listOf(plan), day.plans)
         assertEquals(listOf(milestone), day.milestones)
+    }
+
+    @Test fun `正好半夜 0 点结束的日程不算到第二天；跨过半夜的照样两天都有`() {
+        fun timed(from: String, to: String) = local(Event(UUID.randomUUID(), room, 1, now, now, null, null,
+            "看电影", null, null, false, Instant.parse(from), Instant.parse(to), null, null, emptyList(), me, null))
+        // 上海时间 22:00–次日 00:00
+        val untilMidnight = timed("2026-09-21T14:00:00Z", "2026-09-21T16:00:00Z")
+        // 上海时间 23:00–次日 01:00
+        val pastMidnight = timed("2026-09-21T15:00:00Z", "2026-09-21T17:00:00Z")
+        val items = calendarItems(LocalDate.of(2026, 9, 20), LocalDate.of(2026, 9, 30), zone,
+            listOf(untilMidnight, pastMidnight), emptyList(), emptyList(), emptyList())
+        assertEquals(listOf(untilMidnight, pastMidnight), items.getValue(LocalDate.of(2026, 9, 21)).events)
+        assertEquals(listOf(pastMidnight), items.getValue(LocalDate.of(2026, 9, 22)).events)
+        assertEquals(listOf(LocalDate.of(2026, 9, 21)), untilMidnight.value.days(zone))
+        // 0 点开始、0 点结束（只是一个时刻）的还在那一天
+        val instant = timed("2026-09-21T16:00:00Z", "2026-09-21T16:00:00Z")
+        assertEquals(listOf(LocalDate.of(2026, 9, 22)), instant.value.days(zone))
     }
 
     @Test fun `翻到旧月份时仍能显示长日程覆盖的日期`() {

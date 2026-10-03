@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.map
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import java.util.UUID
 import app.qichi.core.sync.offMain
@@ -111,10 +112,28 @@ data class EventDraft(
     val remindMinutes: Int? = Limits.EVENT_REMIND_DEFAULT,
 )
 
+/**
+ * 日程在房间时区里的第一天和最后一天；没有日期、结束早于开始时为空。
+ * 定时的日程正好在半夜 0 点结束（如 22:00–00:00）时不算到第二天：那天它一分钟也没占。
+ */
+fun Event.dayRange(zone: ZoneId): Pair<LocalDate, LocalDate>? {
+    val start: LocalDate?
+    val end: LocalDate?
+    if (allDay) {
+        start = startDate
+        end = endDate
+    } else {
+        val from = startsAt?.atZone(zone)
+        val to = endsAt?.atZone(zone)
+        start = from?.toLocalDate()
+        end = to?.let { if (it.toLocalTime() == LocalTime.MIDNIGHT && from != null && it.isAfter(from)) it.toLocalDate().minusDays(1) else it.toLocalDate() }
+    }
+    if (start == null || end == null || end.isBefore(start)) return null
+    return start to end
+}
+
 /** 日程覆盖房间时区里的哪些日子（跨天的日程在每一天都出现）。 */
 fun Event.days(zone: ZoneId): List<LocalDate> {
-    val start = if (allDay) startDate else startsAt?.atZone(zone)?.toLocalDate()
-    val end = if (allDay) endDate else endsAt?.atZone(zone)?.toLocalDate()
-    if (start == null || end == null || end.isBefore(start)) return emptyList()
+    val (start, end) = dayRange(zone) ?: return emptyList()
     return generateSequence(start) { it.plusDays(1) }.takeWhile { !it.isAfter(end) }.take(62).toList()
 }
