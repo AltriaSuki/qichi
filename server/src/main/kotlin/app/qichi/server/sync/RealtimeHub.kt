@@ -7,8 +7,12 @@ import app.qichi.shared.api.PushPayload
 import app.qichi.shared.api.WsEvent
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.util.UUID
 
 /**
@@ -34,6 +38,15 @@ class RealtimeHub : ChangeNotifier {
     private val revoked = MutableSharedFlow<SessionsRevoked>(extraBufferCapacity = 64)
 
     val events: SharedFlow<RoomEvent> = flow.asSharedFlow()
+
+    private val _connections = MutableStateFlow(0)
+
+    /** 现在还挂着的实时连接处理数（诊断、测试用；连接一断就该减回去，P21-15） */
+    val connections: StateFlow<Int> = _connections.asStateFlow()
+
+    internal fun connectionOpened() = _connections.update { it + 1 }
+
+    internal fun connectionClosed() = _connections.update { it - 1 }
 
     /** 登出、改密码、踢设备、刷新令牌被盗用时发出。 */
     val revocations: SharedFlow<SessionsRevoked> = revoked.asSharedFlow()

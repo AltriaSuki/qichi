@@ -3,6 +3,7 @@ package app.qichi.server.sync
 import app.qichi.server.Api
 import app.qichi.server.TestDatabase
 import app.qichi.server.serverTest
+import app.qichi.server.testContext
 import app.qichi.shared.api.ChangePasswordRequest
 import app.qichi.shared.api.LoginSession
 import app.qichi.shared.api.Message
@@ -20,6 +21,10 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -101,6 +106,33 @@ class RealtimeBoundaryTest {
             member.post("/api/v1/rooms/$room/messages", SendMessageRequest(UuidV7.generate(), "text", "面"))
             // 我这边收到的第一条提示就是这条消息（before + 2），已读位置那次（before + 1）没有提示过来
             assertEquals(WsEvent.Changed(room, before + 2), next())
+        }
+    }
+
+    @Test
+    fun `手机断开以后服务端的连接处理跟着结束，不会一直挂着（P21-15）`() {
+        val ctx = testContext()
+        serverTest(ctx) { client ->
+            val (owner, member, room) = Api(client).pair()
+            val ws = createClient { install(ClientWebSockets) }
+            // 正常关掉（App 退到后台时）
+            repeat(2) {
+                ws.webSocket("/api/v1/ws", request = { bearerAuth(owner.tokens.accessToken) }) { next() as WsEvent.Hello }
+            }
+            // 突然断掉（换网络、进程被杀）
+            coroutineScope {
+                val cut = launch {
+                    ws.webSocket("/api/v1/ws", request = { bearerAuth(owner.tokens.accessToken) }) {
+                        next() as WsEvent.Hello
+                        awaitCancellation()
+                    }
+                }
+                withTimeout(5_000) { ctx.realtime.connections.first { it >= 1 } }
+                cut.cancel()
+            }
+            // 断开之后房间里照常有动静，也不会让它们复活或卡住
+            member.post("/api/v1/rooms/$room/messages", SendMessageRequest(UuidV7.generate(), "text", "在吗"))
+            withTimeout(5_000) { ctx.realtime.connections.first { it == 0 } }
         }
     }
 }

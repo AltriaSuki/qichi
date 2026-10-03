@@ -17,6 +17,7 @@ import io.ktor.server.auth.authenticate
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
+import io.ktor.server.websocket.DefaultWebSocketServerSession
 import io.ktor.server.websocket.WebSockets
 import io.ktor.server.websocket.pingPeriod
 import io.ktor.server.websocket.timeout
@@ -24,6 +25,9 @@ import io.ktor.server.websocket.webSocket
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filter
@@ -65,44 +69,82 @@ fun Route.syncRoutes(ctx: AppContext) {
          * 带 `ai_stream` 的还会收到 ai.delta（问 AI 边生成边显示）。能力用逗号分开，如 `?caps=notify,ai_stream`。
          */
         webSocket("/ws") {
-            val userId = call.user.userId
-            val familyId = call.user.familyId
-            val caps = call.request.queryParameters["caps"].orEmpty().split(',').map { it.trim() }.toSet()
-            val rooms = ConcurrentHashMap.newKeySet<UUID>()
-            val hello = ctx.database.tx(readOnly = true) {
-                val roomIds = RoomMembers.select(RoomMembers.roomId)
-                    .where { (RoomMembers.userId eq userId) and RoomMembers.deletedAt.isNull() }
-                    .map { it[RoomMembers.roomId] }
-                rooms += roomIds
-                WsEvent.Hello(userId, roomIds.map { RoomSeq(it, RoomRepository.lastSeq(it)) })
+            ctx.realtime.connectionOpened()
+            try {
+                realtimeSession(ctx)
+            } finally {
+                ctx.realtime.connectionClosed()
             }
-            send(Frame.Text(QichiJson.encodeToString(WsEvent.serializer(), hello)))
-
-            coroutineScope {
-                val forwarding = launch {
-                    ctx.realtime.events
-                        .filter { event -> (event.userId == null || event.userId == userId) && (event.cap == null || event.cap in caps) }
-                        .filter { event ->
-                            // 连接期间新加入的房间：第一次收到它的事件时查一次成员身份
-                            event.roomId in rooms || ctx.database.tx(readOnly = true) {
-                                RoomRepository.isMember(event.roomId, userId)
-                            }.also { if (it) rooms += event.roomId }
-                        }
-                        .onEach { event ->
-                            send(Frame.Text(QichiJson.encodeToString(WsEvent.serializer(), event.event)))
-                        }
-                        .collect()
-                }
-                // 这次登录被作废（登出、改密码、踢设备、刷新令牌被盗用）就马上断开，不再收任何通知（P13-09）；
-                // 开始等之后再核对一次，握手之后、开始等之前被作废的也不漏
-                ctx.realtime.revocations
-                    .onSubscription {
-                        if (!ctx.auth.isSessionActive(userId, familyId)) emit(SessionsRevoked(userId, setOf(familyId)))
-                    }
-                    .first { it.userId == userId && familyId in it.familyIds }
-                forwarding.cancel()
-            }
-            close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "登录已失效"))
         }
     }
+}
+
+/**
+ * 一条实时连接从握手到结束。结束的时候有三种：手机断开（正常关闭、断网、心跳超时）、这次登录被作废、转发出错。
+ * 以前只等「登录被作废」：客户端不发消息、这里也不读，手机断开后这个处理一直挂着，
+ * 直到服务重启或这次登录被作废才结束，线上一台手机一天能积下几十个（P21-15）。
+ */
+private suspend fun DefaultWebSocketServerSession.realtimeSession(ctx: AppContext) {
+    val userId = call.user.userId
+    val familyId = call.user.familyId
+    val caps = call.request.queryParameters["caps"].orEmpty().split(',').map { it.trim() }.toSet()
+    val rooms = ConcurrentHashMap.newKeySet<UUID>()
+    val hello = ctx.database.tx(readOnly = true) {
+        val roomIds = RoomMembers.select(RoomMembers.roomId)
+            .where { (RoomMembers.userId eq userId) and RoomMembers.deletedAt.isNull() }
+            .map { it[RoomMembers.roomId] }
+        rooms += roomIds
+        WsEvent.Hello(userId, roomIds.map { RoomSeq(it, RoomRepository.lastSeq(it)) })
+    }
+    send(Frame.Text(QichiJson.encodeToString(WsEvent.serializer(), hello)))
+
+    val ended = CompletableDeferred<Unit>()
+    var revoked = false
+    coroutineScope {
+        // 房间里的变化转给手机
+        launch {
+            try {
+                ctx.realtime.events
+                    .filter { event -> (event.userId == null || event.userId == userId) && (event.cap == null || event.cap in caps) }
+                    .filter { event ->
+                        // 连接期间新加入的房间：第一次收到它的事件时查一次成员身份
+                        event.roomId in rooms || ctx.database.tx(readOnly = true) {
+                            RoomRepository.isMember(event.roomId, userId)
+                        }.also { if (it) rooms += event.roomId }
+                    }
+                    .onEach { event ->
+                        send(Frame.Text(QichiJson.encodeToString(WsEvent.serializer(), event.event)))
+                    }
+                    .collect()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // 连接已经断了（发不出去）或查库出错：结束这条连接，手机会重连
+            } finally {
+                ended.complete(Unit)
+            }
+        }
+        // 这次登录被作废（登出、改密码、踢设备、刷新令牌被盗用）就马上断开，不再收任何通知（P13-09）；
+        // 开始等之后再核对一次，握手之后、开始等之前被作废的也不漏
+        launch {
+            ctx.realtime.revocations
+                .onSubscription {
+                    if (!ctx.auth.isSessionActive(userId, familyId)) emit(SessionsRevoked(userId, setOf(familyId)))
+                }
+                .first { it.userId == userId && familyId in it.familyIds }
+            revoked = true
+            ended.complete(Unit)
+        }
+        // 客户端不发业务消息：只读到连接结束为止（正常关闭、断网、心跳超时都会让这里结束）
+        launch {
+            try {
+                for (frame in incoming) Unit
+            } finally {
+                ended.complete(Unit)
+            }
+        }
+        ended.await()
+        coroutineContext.cancelChildren()
+    }
+    if (revoked) close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "登录已失效"))
 }

@@ -196,7 +196,7 @@ class AuthService(
                         RefreshOutcome.Ok(session.tokens)
                     } else {
                         revokeFamily(familyId)
-                        RefreshOutcome.Reused(row[RefreshTokens.userId], familyId)
+                        RefreshOutcome.Reused(row[RefreshTokens.userId], familyId, rotated = row[RefreshTokens.replacedBy] != null)
                     }
                 }
                 else -> {
@@ -214,7 +214,13 @@ class AuthService(
         return when (outcome) {
             is RefreshOutcome.Ok -> outcome.tokens
             is RefreshOutcome.Reused -> {
-                log.warn("刷新令牌被重复使用，已作废该登录的全部令牌：user={} family={}", outcome.userId, outcome.familyId)
+                // 两种分开记（P21-15）：换过新令牌的旧令牌又出现才是「重复使用」；
+                // 退出登录、改密码、重置密码、被踢之后的令牌再来，是那台手机还不知道自己已经被退出了
+                if (outcome.rotated) {
+                    log.warn("刷新令牌被重复使用，已作废该登录的全部令牌：user={} family={}", outcome.userId, outcome.familyId)
+                } else {
+                    log.info("用了已经作废的刷新令牌（退出登录、改密码、重置密码或被踢之后）：user={} family={}", outcome.userId, outcome.familyId)
+                }
                 onRevoked(outcome.userId, setOf(outcome.familyId))
                 throw ApiException(ProblemCode.Unauthorized, "登录已失效，请重新登录")
             }
@@ -224,7 +230,8 @@ class AuthService(
 
     private sealed interface RefreshOutcome {
         data class Ok(val tokens: AuthTokens) : RefreshOutcome
-        data class Reused(val userId: UUID, val familyId: UUID) : RefreshOutcome
+        /** [rotated]：这张令牌是换过新的（真正的重复使用），还是被退出登录、改密码这类直接作废的 */
+        data class Reused(val userId: UUID, val familyId: UUID, val rotated: Boolean) : RefreshOutcome
         data object Invalid : RefreshOutcome
     }
 
